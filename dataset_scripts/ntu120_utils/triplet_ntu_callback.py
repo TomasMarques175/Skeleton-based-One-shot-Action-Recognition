@@ -140,8 +140,13 @@ def get_ntu_one_shot_triplets(model, model_params, one_shot_eval_anchors, one_sh
     
     
     # Create triplet embeddings
+<<<<<<< HEAD
     triplet_embs = []
     for A,P,N in triplets: triplet_embs.append((file_embs[A], file_embs[P], file_embs[N]))
+=======
+    # triplet_embs = []
+    # for A,P,N in triplets: triplet_embs.append((file_embs[A], file_embs[P], file_embs[N]))
+>>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)
     
     return one_shot_acc_euc, one_shot_acc_cos, triplet_embs
 
@@ -151,9 +156,22 @@ def eval_ntu_one_shot_triplets_callback(model, model_params, writer, return_one_
     with open(model_params['eval_ntu_one_shot_eval_anchors_file'], 'r') as f: one_shot_eval_anchors = f.read().splitlines()
     with open(model_params['eval_ntu_one_shot_eval_set_file'], 'r') as f: one_shot_eval_set = f.read().splitlines()
     triplets_file = '/'.join(model_params['eval_ntu_one_shot_eval_set_file'].split('/')[:-1] + ['triplets/'+model_params['eval_ntu_one_shot_eval_set_file'].split('/')[-1]])
+<<<<<<< HEAD
     triplets = pickle.load(open(triplets_file, 'rb'))
 
     
+=======
+    print(' * Loading triplets from', triplets_file)
+    if not os.path.exists(triplets_file):
+        print(' * Triplet file does not exist, creating it')
+        triplets = eval_utils.create_triplets(model_params['eval_ntu_one_shot_eval_set_file'], model_params['eval_ntu_one_shot_eval_anchors_file'])
+        pickle.dump(triplets, open(triplets_file, 'wb'))
+    else:
+        print(' * Triplet file exists, loading it')
+
+    # triplets = pickle.load(open(triplets_file, 'rb'))
+
+>>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)
     in_memory_callback = model_params['in_memory_callback']
     if in_memory_callback: print(' ** NTU Callback | data will be cached **')
     cached_anchors, cached_targets = {}, []
@@ -161,7 +179,10 @@ def eval_ntu_one_shot_triplets_callback(model, model_params, writer, return_one_
     scale_data = model_params['scale_data']
     if scale_data: model_params['scaler'] = load_scaler(**model_params)
     else: model_params['scaler'] = None
+<<<<<<< HEAD
 	
+=======
+>>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)
 
     def eval_ntu(epoch, logs):
         one_shot_acc_euc, one_shot_acc_cos, triplet_embs = get_ntu_one_shot_triplets(model, model_params,
@@ -207,6 +228,9 @@ def eval_ntu_one_shot_triplets_callback(model, model_params, writer, return_one_
 	            writer.flush()    
 
     return eval_ntu
+<<<<<<< HEAD
 
 
 
+=======
+>>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)

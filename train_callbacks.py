@@ -17,6 +17,10 @@ from tensorboard import summary as summary_lib
 from joblib import Parallel, delayed
 from tqdm import tqdm
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)
 def dummy_callback(writer):
     def aux(epoch, logs):
         summary_lib.scalar("foo", np.random.rand(), step=epoch)
@@ -26,6 +30,7 @@ def dummy_callback(writer):
     return aux
 
 
+<<<<<<< HEAD
 
 def load_pose(f, model_params):
     filename, label = f.split()
@@ -47,3 +52,25 @@ def get_lr_metric(optimizer):
 		return optimizer.lr
 	return lr
 
+=======
+def load_pose(f, model_params):
+    filename, label = f.split()
+
+    pose_raw = np.load(filename, allow_pickle=True).item()  # ['skel_body0']
+
+    p = get_body_skel(pose_raw, validation=True)
+    if model_params['average_wrong_skels']:
+        p = average_wrong_frame_skels(p)
+
+    pose_data = get_pose_data_v2(p, validation=True, **model_params)
+    # print('target', pose_data.shape)
+    pose_len = len(pose_data)
+
+    return pose_len, label, pose_data
+
+
+def get_lr_metric(optimizer):
+    def lr(y_true, y_pred, sample_weights=None):
+        return optimizer.lr
+    return lr
+>>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)

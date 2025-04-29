@@ -11,18 +11,33 @@ import datetime
 import shutil
 
 
+<<<<<<< HEAD
 
 def create_folder_if_not_exists(folder_path):
     if not os.path.isdir(folder_path): os.makedirs(folder_path)
+=======
+def create_folder_if_not_exists(folder_path):
+    if not os.path.isdir(folder_path):
+        os.makedirs(folder_path)
+
+>>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)
 
 def get_model_name(model_dir):
     folder_num = len(os.listdir(model_dir))
     return '/{}_model_{}/'.format(datetime.datetime.today().strftime('%m%d_%H%M'), folder_num)
 
+<<<<<<< HEAD
 def create_model_folder(path_results, folder_name):
     
     path_model = path_results + folder_name
     
+=======
+
+def create_model_folder(path_results, folder_name):
+
+    path_model = path_results + folder_name
+
+>>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)
     # Create logs and model main folder
     create_folder_if_not_exists(path_model)
 
@@ -30,6 +45,7 @@ def create_model_folder(path_results, folder_name):
     path_model += model_name
     create_folder_if_not_exists(path_model)
     create_folder_if_not_exists(path_model + 'weights/')
+<<<<<<< HEAD
     
     return path_model
 
@@ -43,3 +59,22 @@ def get_model_path(path_results, dataset_name, model_num):
     return '{}{}/{}/'.format(path_results, dataset_name, 
                 [ f for f in os.listdir(path_results + dataset_name) if f.endswith('model_{}'.format(model_num)) ][0])
 
+=======
+
+    return path_model
+
+
+def get_best_ckpt(model_folder):
+    files = [f for f in os.listdir(
+        model_folder + '/weights/') if f.startswith('ep') and 'index' in f]
+    val_losses = [[float(v[8:]) for v in f[:-11].split('-')
+                   if v.startswith('val_loss')][0] for f in files]
+    model_weights = model_folder + '/weights/' + \
+        files[val_losses.index(min(val_losses))]
+    return model_weights
+
+
+def get_model_path(path_results, dataset_name, model_num):
+    return '{}{}/{}/'.format(path_results, dataset_name,
+                             [f for f in os.listdir(path_results + dataset_name) if f.endswith('model_{}'.format(model_num))][0])
+>>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)

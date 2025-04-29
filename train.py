@@ -34,7 +34,11 @@ tf.random.set_seed(123)
 
 
 def main(model_params):
+<<<<<<< HEAD
     train_verbose = 2
+=======
+    train_verbose = 1
+>>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)
 
     model_params.update({
                 'path_model': train_utils.create_model_folder(model_params['path_results'], model_params['model_name']),
@@ -108,6 +112,7 @@ def main(model_params):
     file_writer.set_as_default()
         
 
+<<<<<<< HEAD
     if model_params['eval_ntu']: 
         callbacks = [LambdaCallback(_supports_tf_logs = True, 
                                     on_epoch_end=eval_ntu_one_shot_triplets_callback(model, model_params.copy(), file_writer))] + callbacks
@@ -119,6 +124,17 @@ def main(model_params):
 
 
     print(callbacks)
+=======
+    #if model_params['eval_ntu']: 
+    #    callbacks = [LambdaCallback(_supports_tf_logs = True, 
+    #                                on_epoch_end=eval_ntu_one_shot_triplets_callback(model, model_params.copy(), file_writer))] + callbacks
+    #if model_params['eval_therapies']: 
+    #    callbacks = [LambdaCallback(_supports_tf_logs = True, 
+    #                                on_epoch_end=eval_therapies_triplet_callback(model, model_params.copy(), file_writer, 'full'))] + callbacks
+    #    callbacks = [LambdaCallback(_supports_tf_logs = True, 
+    #                                on_epoch_end=eval_therapies_triplet_callback(model, model_params.copy(), file_writer, 'sample'))] + callbacks
+    #print(callbacks)
+>>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)
     
     
     print(' * metrics:', metrics)
@@ -156,11 +172,17 @@ def main(model_params):
             validation_data = val_gen,
             steps_per_epoch = num_train_files//model_params['batch_size'],
             validation_steps = None if num_val_files == 0 else num_val_files//model_params['batch_size'],
+<<<<<<< HEAD
             epochs = 300, 
+=======
+            # epochs = 300, 
+            epochs = 1,
+>>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)
             # steps_per_epoch = 10,         # num_val_files//model_params['batch_size'],
             # validation_steps = 10,
             # epochs = 50, 
             verbose = train_verbose,
+<<<<<<< HEAD
             callbacks = callbacks,
         )
 
@@ -242,6 +264,84 @@ if __name__ == "__main__":
 "use_bone_angles": True,
 "use_bone_angles_cent": False,
 "average_wrong_skels": True,
+=======
+            #callbacks = callbacks,
+        )
+
+    del train_gen; del val_gen
+    #del callbacks
+
+    model.summary(100)
+    
+    # Remove suboptimal weights
+    remove_path_weights(model_params['path_model'], model_params['monitor'], model_params['min_monitor'])
+
+
+if __name__ == "__main__":
+
+    model_params = {
+        "path_results": "./pretrained_models/",
+
+        # # NTU-120 Data sets to optimize the therapy data
+        # "train_annotations": "./ntu_annotations/one_shot_aux_set_train_full8.txt",
+        # "val_annotations": "./ntu_annotations/one_shot_aux_set_val_full8.txt",
+        "eval_therapies": True,       ### Therapy data needed for its evaluation
+        # "eval_therapies_triplets_dataset": "./therapies_annotations/triplets/triplets_dataset.pckl",
+        # "eval_therapies_triplets_bgnd_dataset": "./therapies_annotations/triplets/triplets_ther_pat_bgnd_dataset.pckl",
+        # "eval_therapies_video_skels": "./therapies_annotations/video_skels.pckl",
+        # "h_flip": True,
+        # "skip_frames": [2, 3],
+
+        # NTU-120 Data sets to optimize the NTU one-shot benchmark
+        "train_annotations": "./ntu_annotations/one_shot_aux_set.txt",
+        "val_annotations": "",
+        # "eval_therapies": False,
+        "h_flip": False,
+        "monitor": "ntu_one_shot_acc_euc",
+        "min_monitor": False,
+        "skip_frames": [2],
+
+        "in_memory_generator_train": False,
+        "in_memory_generator_val": True,
+        "in_memory_callback": True,
+
+        "eval_ntu": True,
+        "eval_ntu_one_shot_eval_anchors_file": "./ntu_annotations/one_shot_eval_anchors.txt",
+        "eval_ntu_one_shot_eval_set_file": "./ntu_annotations/one_shot_eval_set.txt",
+
+        "joints_num": 25,
+        "joints_dim": 3,
+        "init_lr": 0.0001,
+        "max_seq_len": -32,
+
+        # Set True to use a fitted data scaler. The one from the pre-trained models can also be used
+        "scale_data": False,       
+        "lstm_recurrent_dropout": 0.0,
+        "lstm_dropout": 0.2,
+        "num_layers": 2,
+        "num_neurons": 256,
+        "batch_size": 64,
+        "masking": True,
+        "center_skels": True,
+        "scale_by_torso": True,
+        "temporal_scale": [0.8, 1.2],
+        "classification": True, "triplet": False, "decoder": False, "reverse_decoder": False,
+        "num_classes": 120,
+        "clf_neurons": 0,
+
+        "model_name": "train_TCN",
+        "conv_params": [256, 4, 2, True, "causal", [4]],
+        "is_tcn": False,
+        "use_jcd_features": True,
+        "use_speeds": False,
+        "use_coords_raw": False,
+        "use_coords": True,
+        "use_jcd_diff": False,
+        "use_bone_angles": True,
+        "use_bone_angles_cent": False,
+        "average_wrong_skels": True,
+        "average_wrong_skels_method": 'mean',   
+>>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)
         }
     
     main(model_params)

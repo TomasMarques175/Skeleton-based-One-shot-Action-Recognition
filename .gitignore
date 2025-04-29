@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -127,3 +128,23 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+=======
+*.pyc
+*.mat
+*.png
+*.pdf
+*.pckl
+datasets/NTU-120
+datasets/therapies_dataset
+pretrained_models
+ntu_annotations/*.txt
+ntu_annotations/triplets/*.txt
+datasets/ntu_rgb120_missings.txt
+
+# Ignore common virtual environment folders
+.venv/
+env/
+.old_env/
+*/.venv/
+*/.env/
+>>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)
