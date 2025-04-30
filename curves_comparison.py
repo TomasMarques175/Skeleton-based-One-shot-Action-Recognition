@@ -18,12 +18,6 @@ import pickle
 import os
 import numpy as np
 
-<<<<<<< HEAD
-
-
-
-=======
->>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)
 # =============================================================================
 # Get P/C curves and best F1/P/R
 #   Full Evaluation and on sample 32/64
@@ -32,36 +26,20 @@ import numpy as np
 # =============================================================================
 
 
-<<<<<<< HEAD
-
-# =============================================================================
-# Load model
-# =============================================================================
-=======
 # =============================================================================
 # Load model
 # =============================================================================
 
->>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)
 import argparse
 parser = argparse.ArgumentParser(description = 'Performs a speed test over NTU-120 skeleton clips')
 parser.add_argument('--path_model', type=str, default='./pretrained_models/therapies_model_7/', required=True, help='path to the prediction model')
 parser.add_argument('--force_all', action='store_true', help='force the calculation of new parameters')
 args = parser.parse_args()
 
-<<<<<<< HEAD
-
-
-
-# =============================================================================
-# Load data
-# =============================================================================
-=======
 # =============================================================================
 # Load data
 # =============================================================================
 
->>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)
 raw_data_path = './datasets/therapies_dataset/'
 video_skels_v2 = pickle.load(open(os.path.join(raw_data_path, 'video_skels_v2.pckl'), 'rb'))
 actions_data_v2 = pickle.load(open(os.path.join(raw_data_path, 'actions_data_v2.pckl'), 'rb'))
@@ -72,17 +50,7 @@ actions_data_v2 = actions_data_v2.sort_values(by=['patient', 'session', 'video',
 in_memory_callback = False
 cache = {}
 
-<<<<<<< HEAD
-
-
-
-
 os.environ['CUDA_VISIBLE_DEVICES'] = ''
-        
-        
-=======
-os.environ['CUDA_VISIBLE_DEVICES'] = ''
->>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)
 
 model, model_params = prediction_utils.load_model(args.path_model, False)
 model_params['max_seq_len'] = 0   
@@ -97,24 +65,12 @@ batch = None
 FRAMES_BEFOR_ANCHOR = 32
 dist_to_anchor_func = 'min'
 
-<<<<<<< HEAD
-
 model.set_encoder_return_sequences(batch is None)
 
-
-=======
-model.set_encoder_return_sequences(batch is None)
-
->>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)
 total_data_target = {}
 total_targets_info = {}
 force_default, force_few, force_dyn = False, False, False
 
-<<<<<<< HEAD
-
-
-=======
->>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)
 # =============================================================================
 # Precision / Recall curve
 # =============================================================================
@@ -122,10 +78,6 @@ force_default, force_few, force_dyn = False, False, False
 from tqdm import tqdm
 
 
-<<<<<<< HEAD
-
-=======
->>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)
 def get_pr_curve_data(skip_empty_targets, total_data_target, total_targets_info, thresholds, 
                       dist_params, metrics, batch,
                       FRAMES_BEFOR_ANCHOR, DIST_TO_GT_TP, DIST_TO_GT_FP):
@@ -152,11 +104,6 @@ def get_pr_curve_data(skip_empty_targets, total_data_target, total_targets_info,
         total_data_target[pf] = data_target[['num_frame', 'target_id'] + [ m+'_dist' for m in metrics ]]
         total_targets_info[pf] = targets_info
     
-<<<<<<< HEAD
-    
-    
-=======
->>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)
     curve_data = {}
     curve_results = { metric:{} for metric in metrics }
     for thr in tqdm(thresholds):
@@ -185,33 +132,15 @@ def get_pr_curve_data(skip_empty_targets, total_data_target, total_targets_info,
             
     return curve_results
 
-<<<<<<< HEAD
-
-# %%
-
-
-best_f1_metric = { m:{'f1': 0.0} for m in metrics }
-
-
-base_filename = args.path_model + 'TP{}_FP{}_FBA{}_B{}'.format(DIST_TO_GT_TP, DIST_TO_GT_FP, FRAMES_BEFOR_ANCHOR, batch)
-
-
-
-=======
 # %%
 
 best_f1_metric = { m:{'f1': 0.0} for m in metrics }
 base_filename = args.path_model + 'TP{}_FP{}_FBA{}_B{}'.format(DIST_TO_GT_TP, DIST_TO_GT_FP, FRAMES_BEFOR_ANCHOR, batch)
 
->>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)
 # =============================================================================
 # ONE-SHOT
 # =============================================================================
 
-<<<<<<< HEAD
-
-=======
->>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)
 thresholds = sorted(list(set(np.arange(0.1,0.4,0.05).tolist() + np.arange(0.42,0.7,0.02).tolist() + np.arange(0.7,0.9,0.05).tolist())))
 
 filename_default = base_filename + '_default.pckl'
@@ -235,10 +164,6 @@ for metric in metrics:
     print('{:<3} || {:.2f} || P {:.3f} | R {:.3f} | F1 {:.3f}'.format(metric, best[0], best[1]['precision'], best[1]['recall'], best[1]['f1']))
 print('='*80)
 
-<<<<<<< HEAD
-
-=======
->>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)
 # =============================================================================
 # FEW-SHOT
 # =============================================================================
@@ -272,33 +197,17 @@ print('='*80)
 print('='*80)
 print('='*80)
 
-<<<<<<< HEAD
-
 del total_data_target; del total_targets_info
 
-
-
-=======
-del total_data_target; del total_targets_info
-
->>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)
 # =============================================================================
 # DYNAMIC
 # =============================================================================
 
 print(dist_params)
 
-<<<<<<< HEAD
-
 thr_strategies = []
 loc = '_aftcrop'
 
-
-=======
-thr_strategies = []
-loc = '_aftcrop'
-
->>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)
 # for fact in [1, 0.95]:
 for fact in [1]:
     # for perc in [0, 10, 20]:
@@ -312,12 +221,6 @@ for fact in [1]:
                 thr_strategies.append('perc{}_fact{}{}{}'.format(perc, fact, max_value, loc))
 thr_strategies = list(set(thr_strategies))
 
-<<<<<<< HEAD
-
-
-
-=======
->>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)
 for num_strat, thr_strategy in enumerate(thr_strategies):
 
     print('{:<3} / {} || {}'.format(num_strat+1, len(thr_strategies), thr_strategy))
@@ -347,17 +250,9 @@ for num_strat, thr_strategy in enumerate(thr_strategies):
                                       'f1': stats_perc[metric]['f1']},
 					'dist_params': dist_params, 'thr_strategy': thr_strategy
 				}
-<<<<<<< HEAD
-    
     print(s)
     print('='*80)
     
-
-=======
-    print(s)
-    print('='*80)
-    
->>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)
 # %%
 
 # =============================================================================
@@ -436,29 +331,14 @@ plt.savefig(args.path_model + 'PR_curve_few_shot_TP{}_FP{}_FBA{}_B{}.png'.format
 				)
 plt.show()
 
-<<<<<<< HEAD
-
-# %%
-# %%
-=======
->>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)
 # %%
 
 # =============================================================================
 # Calculate metric per class. One-shot, few-shot, dynamic
 # =============================================================================
 
-<<<<<<< HEAD
-
 stats_filename_final_base = args.path_model + 'TP{}_FP{}_FBA{}_B{}_best-{}.json'.format(DIST_TO_GT_TP, DIST_TO_GT_FP, FRAMES_BEFOR_ANCHOR, batch, '{}')
 
-
-
-
-=======
-stats_filename_final_base = args.path_model + 'TP{}_FP{}_FBA{}_B{}_best-{}.json'.format(DIST_TO_GT_TP, DIST_TO_GT_FP, FRAMES_BEFOR_ANCHOR, batch, '{}')
-
->>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)
 # One-shot
 if not os.path.isfile(stats_filename_final_base.format('oneshot')):
 	metric_thr = { m: {'med': best_one_shot_metrics[m][0], 'good': 0.0, 'excel': 0.0} for m in metrics }
@@ -523,19 +403,11 @@ else:
 	stats_few_shot_dyn = json.load(open(stats_filename_final_base.format('fewshotdyn'), 'r'))
 print('* Calculated:', stats_filename_final_base.format('fewshotdyn'))
 	
-<<<<<<< HEAD
-
-
-=======
->>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)
 #%%
 
 import pandas as pd
 
-<<<<<<< HEAD
-=======
 
->>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)
 # =============================================================================
 # Per-class tables. Open the DataFrame "class_data_metric" to copy-paste
 # =============================================================================
@@ -572,10 +444,6 @@ for metric in metrics:
 # Ablation table
 # =============================================================================
 
-<<<<<<< HEAD
-
-=======
->>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)
 res = '\t' + '\t\t\t'.join(metrics) + '\n'
 res += '\tThreshold\tPrecision\tRecall\tF1'*2 + '\n'
 res += 'One-shot\t' + '\t'.join([ '{:.3f}\t{:.3f}\t{:.3f}\t{:.3f}'.format(stats_one_shot[metric]['metric_thr'][metric]['med'], stats_one_shot[metric]['precision'], stats_one_shot[metric]['recall'], stats_one_shot[metric]['f1']) for metric in metrics ])
@@ -587,8 +455,3 @@ print(res)
 
 print(); print()
 for metric in metrics: print('{: <3}: {:.3f} | {:.3f} | {:.3f}'.format(metric, stats_one_shot[metric]['f1'], stats_few_shot[metric]['f1'], stats_few_shot_dyn[metric]['f1']))
-<<<<<<< HEAD
-
-
-=======
->>>>>>> 4cefc2f (- requirements.txt file with all the dependencies in order to create an python env that can easily run the code)
