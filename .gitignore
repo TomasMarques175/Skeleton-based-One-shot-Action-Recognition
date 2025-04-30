@@ -31,8 +31,8 @@ dmypy.json
 *.pckl
 datasets/NTU-120
 datasets/therapies_dataset
+ntu_annotations
 pretrained_models
-ntu_annotations/
 datasets/ntu_rgb120_missings.txt
 
 # Ignore common virtual environment folders
