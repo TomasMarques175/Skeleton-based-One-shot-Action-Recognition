@@ -128,7 +128,7 @@ class TCN_clf1(Model):
             raise ValueError(
                 'conv_params length not recognized', len(conv_params))
 
-        self.encoder_net = EncoderTCN(
+        self.encoder_net = EncoderTCN1(
             num_feats=num_feats,
             nb_filters=nb_filters,
             kernel_size=kernel_size,
@@ -255,13 +255,14 @@ class EncoderTCN(nn.Module):
         return self.encoder(x)
 
 
-class TCN_clf(Model):
+class TCN_clf(nn.Module):
     def __init__(self,
                  num_feats,
                  conv_params,
                  lstm_dropout,
                  masking,
-                 triplet, classification,
+                 triplet,
+                 classification,
                  clf_neurons=None,
                  num_classes=None,
                  prediction_mode=False,
@@ -270,7 +271,85 @@ class TCN_clf(Model):
                  num_neurons=None,
                  tcn_batch_norm=False,
                  use_gru=False,
-                 **kwargs
-                 ):
+                 **kwargs):
+
         super(TCN_clf, self).__init__()
 
+        # Parse conv_params
+        if len(conv_params) == 4:
+            nb_filters, kernel_size, nb_stacks, use_skip_connections = conv_params
+            padding = 'causal'
+            dilations = [1, 2, 4, 8, 16, 32]
+        elif len(conv_params) == 5:
+            nb_filters, kernel_size, nb_stacks, use_skip_connections, padding = conv_params
+            dilations = [1, 2, 4, 8, 16, 32]
+        elif len(conv_params) == 6:
+            nb_filters, kernel_size, nb_stacks, use_skip_connections, padding, dilations = conv_params
+            if isinstance(dilations, int):
+                dilations = [dilations]
+            elif isinstance(dilations, str):
+                import ast
+                dilations = ast.literal_eval(dilations)
+            else:
+                dilations = [[i for i in [1, 2, 4, 8, 16, 32] if i <= d]
+                             for d in dilations]
+        else:
+            raise ValueError('conv_params length not recognised', len(conv_params))
+
+        # Encoder
+        self.encoder_net = EncoderTCN(num_feats=num_feats,
+                                      nb_filters=nb_filters,
+                                      kernel_size=kernel_size,
+                                      nb_stacks=nb_stacks,
+                                      use_skip_connections=use_skip_connections,
+                                      padding=padding,
+                                      dilations=dilations,
+                                      lstm_dropout=lstm_dropout,
+                                      masking=masking,
+                                      prediction_mode=prediction_mode,
+                                      tcn_batch_norm=tcn_batch_norm)
+
+        self.triplet = triplet
+        self.classification = classification
+
+        # Optional classifier head
+        if clf_neurons and clf_neurons != 0:
+            self.clf_dense = nn.Linear(nb_filters, clf_neurons)
+            self.clf_neurons = clf_neurons
+        else:
+            self.clf_dense = None
+            self.clf_neurons = 0
+
+        if classification:
+            self.clf_out = nn.Linear(clf_neurons or nb_filters, num_classes)
+
+    def forward(self, x):
+        encoder_raw = self.encoder_net(x)
+
+        if self.clf_dense is not None:
+            encoder = F.relu(self.clf_dense(encoder_raw))
+        else:
+            encoder = encoder_raw
+
+        out = []
+
+        if self.triplet:
+            emb = F.normalize(encoder, dim=-1)
+            out.append(emb)
+
+        if self.classification:
+            clf = self.clf_out(encoder)
+            out.append(clf)
+
+        return out
+
+    def get_embedding(self, x, batch=None, unify=False):
+        with torch.no_grad():
+            if batch is None or batch <= 0:
+                emb = self.encoder_net(x)
+                if self.clf_dense:
+                    emb = F.relu(self.clf_dense(emb))
+                emb = F.normalize(emb, dim=-1)
+                return emb
+            else:
+                raise NotImplementedError("Batch mode get_embedding not implemented yet.")
