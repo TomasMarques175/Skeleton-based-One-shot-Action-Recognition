@@ -6,7 +6,11 @@ Created on Tue May 19 10:21:43 2020
 @author: asabater
 """
 
-from tcn import TCN
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+from pytorch_tcn import TCN
 from tensorflow.keras import Model, Sequential
 # BatchNormalization
 from tensorflow.keras.layers import Dense, RepeatVector, TimeDistributed, Lambda, Masking
@@ -19,7 +23,7 @@ from tensorflow.keras.preprocessing.sequence import pad_sequences
 import numpy as np
 
 
-class EncoderTCN(Model):
+class EncoderTCN1(Model):
     def __init__(self, num_feats, nb_filters, kernel_size, nb_stacks, use_skip_connections,
                  lstm_dropout, padding, dilations,
                  masking=False,
@@ -28,7 +32,7 @@ class EncoderTCN(Model):
                  **kwargs
                  ):
         
-        super(EncoderTCN, self).__init__()
+        super(EncoderTCN1, self).__init__()
         
         self.encoder_layers = []
 
@@ -39,6 +43,7 @@ class EncoderTCN(Model):
 
         num_tcn = len(dilations)
         print('num_tcn:', num_tcn)
+        
         for i in range(num_tcn-1):
             l = TCN(
                 nb_filters=nb_filters,
@@ -73,6 +78,7 @@ class EncoderTCN(Model):
 
         self.encoder = Sequential(self.encoder_layers)
 
+
     def call(self, x):
         encoder = self.encoder(x)
         return encoder
@@ -81,19 +87,25 @@ class EncoderTCN(Model):
         emb = self.encoder(x)
         return emb
 
-
 # conv_params -> nb_filters, kernel_size, nb_stacks, use_skip_connections
-class TCN_clf(Model):
-    def __init__(self, num_feats, conv_params, lstm_dropout,
+class TCN_clf1(Model):
+    def __init__(self,
+                 num_feats,
+                 conv_params,
+                 lstm_dropout,
                  masking,
-                 triplet, classification, clf_neurons=None, num_classes=None,
+                 triplet, classification,
+                 clf_neurons=None,
+                 num_classes=None,
                  prediction_mode=False,
-                 lstm_decoder=False, num_layers=None, num_neurons=None,
+                 lstm_decoder=False,
+                 num_layers=None,
+                 num_neurons=None,
                  tcn_batch_norm=False,
                  use_gru=False,
                  **kwargs
                  ):
-        super(TCN_clf, self).__init__()
+        super(TCN_clf1, self).__init__()
 
         if len(conv_params) == 4:
             nb_filters, kernel_size, nb_stacks, use_skip_connections = conv_params
@@ -111,7 +123,6 @@ class TCN_clf(Model):
             else:
                 dilations = [[i for i in [1, 2, 4, 8, 16, 32] if i <= d]
                              for d in dilations]
-
             print('dilations', dilations)
         else:
             raise ValueError(
@@ -153,9 +164,11 @@ class TCN_clf(Model):
             encoder = encoder_raw
 
         out = []
+
         if self.triplet:
             emb = self.norm(encoder)
             out.append(emb)
+        
         if self.classification:
             clf = self.clf_out(encoder)
             out.append(clf)
@@ -191,3 +204,73 @@ class TCN_clf(Model):
     def set_encoder_return_sequences(self, return_sequences):
         l = [l for l in self.encoder_net.layers if type(l) == TCN][-1]
         l.return_sequences = return_sequences
+
+
+class EncoderTCN(nn.Module):
+    def __init__(self, num_feats, nb_filters, kernel_size, nb_stacks, use_skip_connections,
+                 lstm_dropout, padding, dilations,
+                 masking=False,
+                 prediction_mode=False,
+                 tcn_batch_norm=False):
+        super().__init__()
+
+        layers = []
+
+        if masking:
+            print("MASKING — not implemented yet")
+
+        num_tcn = len(dilations)
+        print('num_tcn:', num_tcn)
+
+        for i in range(num_tcn - 1):
+            tcn_layer = TCN(
+                input_size=num_feats if i == 0 else nb_filters,
+                output_size=nb_filters,
+                num_channels=[nb_filters]*nb_stacks,
+                kernel_size=kernel_size,
+                dropout=lstm_dropout,
+                batch_norm=tcn_batch_norm,
+                return_sequences=True
+            )
+            print(f"TCN {i}", dilations[i])
+            layers.append(tcn_layer)
+
+        final_layer = TCN(
+            input_size=nb_filters,
+            output_size=nb_filters,
+            num_channels=[nb_filters]*nb_stacks,
+            kernel_size=kernel_size,
+            dropout=lstm_dropout,
+            batch_norm=tcn_batch_norm,
+            return_sequences=prediction_mode
+        )
+        layers.append(final_layer)
+
+        self.encoder = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.encoder(x)
+
+    def get_embedding(self, x):
+        return self.encoder(x)
+
+
+class TCN_clf(Model):
+    def __init__(self,
+                 num_feats,
+                 conv_params,
+                 lstm_dropout,
+                 masking,
+                 triplet, classification,
+                 clf_neurons=None,
+                 num_classes=None,
+                 prediction_mode=False,
+                 lstm_decoder=False,
+                 num_layers=None,
+                 num_neurons=None,
+                 tcn_batch_norm=False,
+                 use_gru=False,
+                 **kwargs
+                 ):
+        super(TCN_clf, self).__init__()
+

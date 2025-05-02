@@ -6,6 +6,10 @@ Created on Sat Apr 18 18:10:29 2020
 @author: asabater
 """
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
 from scipy.special import comb
 import numpy as np
 import tensorflow as tf
@@ -43,7 +47,7 @@ def main(model_params):
             })
     model_params['num_feats'] = get_num_feats(**model_params)
     json.dump(model_params, open(model_params['path_model']+'model_params.json', 'w'))
-    print(model_params)
+    # print(model_params)
     
     with open(model_params['train_annotations'], 'r') as f: num_train_files = len(f.read().splitlines())
     if model_params['val_annotations']  == '': num_val_files = 0
@@ -55,9 +59,16 @@ def main(model_params):
         scaler_filename = get_scaler_filename(**model_params)
         copyfile(scaler_filename, model_params['path_model'] + '/scaler.pckl')    
     
+    #model = TCN_clf(**model_params)
     
-    model = TCN_clf(**model_params)
-    
+    model = TCN_clf(num_feats=100, conv_params=[256, 4, 2, True], lstm_dropout=0.2, masking=True, 
+                triplet=True, classification=True, clf_neurons=64, num_classes=10)
+
+    dummy = torch.rand(32, 100)  # batch of 32 samples, 100 features
+    out = model(dummy)
+    print([o.shape for o in out])
+
+    exit()
     
     # Build model
     model.build((None, None, model_params['num_feats']))
@@ -173,6 +184,10 @@ def main(model_params):
 
 
 if __name__ == "__main__":
+
+    print(torch.__version__)
+    print("CUDA available:", torch.cuda.is_available())
+    print("GPU name:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "No GPU found")
 
     model_params = {
         "path_results": "./pretrained_models/",
