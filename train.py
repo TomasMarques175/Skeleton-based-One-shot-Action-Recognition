@@ -32,12 +32,17 @@ from remove_suboptimal_weights import remove_path_weights
 
 
 
+# Seed PyTorch
+torch.manual_seed(123)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(123)
 np.random.seed(123)
-tf.random.set_seed(123)
+tf.random.set_seed(123) # Remove TF seed
 
 
 
 def main(model_params):
+    
     train_verbose = 1
 
     model_params.update({
@@ -47,12 +52,14 @@ def main(model_params):
             })
     model_params['num_feats'] = get_num_feats(**model_params)
     json.dump(model_params, open(model_params['path_model']+'model_params.json', 'w'))
-    # print(model_params)
+    
+    print(' * Model params:', model_params)    
     
     with open(model_params['train_annotations'], 'r') as f: num_train_files = len(f.read().splitlines())
     if model_params['val_annotations']  == '': num_val_files = 0
     else:
         with open(model_params['val_annotations'], 'r') as f: num_val_files = len(f.read().splitlines())
+    
     print(num_train_files, num_val_files)
     
     if model_params['scale_data']:
@@ -61,14 +68,86 @@ def main(model_params):
     
     #model = TCN_clf(**model_params)
     
-    model = TCN_clf(num_feats=100, conv_params=[256, 4, 2, True], lstm_dropout=0.2, masking=True, 
-                triplet=True, classification=True, clf_neurons=64, num_classes=10)
+    # --- Instantiate PyTorch Model ---
+    print("Creating PyTorch TCN_clf model...")
+    # Make sure all necessary params from model_params are passed correctly
+    model = TCN_clf(
+        num_feats=model_params['num_feats'],
+        conv_params=model_params['conv_params'],
+        lstm_dropout=model_params['lstm_dropout'],
+        masking=model_params['masking'],
+        triplet=model_params['triplet'],             # Use value from params
+        classification=model_params['classification'], # Use value from params
+        clf_neurons=model_params['clf_neurons'],
+        num_classes=model_params['num_classes']
+        # Add other relevant params from model_params if needed by TCN_clf __init__
+        # prediction_mode=False # Default for training/testing like this
+    )
 
-    dummy = torch.rand(32, 100)  # batch of 32 samples, 100 features
-    out = model(dummy)
-    print([o.shape for o in out])
+    # --- Model Testing ---
+    # Define device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+    print(f"Model moved to device: {device}")
 
-    exit()
+    batch_size = 2
+    seq_len = 32 # Use a positive sequence length for testing
+    num_feats = model_params['num_feats'] # Use the calculated features
+
+    print(f"Creating test input: batch={batch_size}, seq_len={seq_len}, feats={num_feats}")
+    # Dummy input tensor (random float values) - Shape (N, L, C)
+    test_input = torch.randn(batch_size, seq_len, num_feats, device=device)
+
+    print(f"Input shape: {test_input.shape}")
+
+    # Set model to evaluation mode for testing inference
+    model.eval()
+    with torch.no_grad(): # Disable gradients for inference
+        try:
+            output = model(test_input)
+            print("Model forward pass successful.")
+            # Check output type and shape
+            if isinstance(output, list):
+                print(f"Output is a list with {len(output)} tensors.")
+                print("Output shapes:", [o.shape for o in output])
+                print("Output devices:", [o.device for o in output])
+            elif isinstance(output, torch.Tensor):
+                print(f"Output shape: {output.shape}")
+                print(f"Output device: {output.device}")
+            else:
+                print(f"Output type: {type(output)}")
+
+            # Test get_embedding
+            print("\nTesting get_embedding...")
+            embedding = model.get_embedding(test_input) # Uses batch=None internally
+            print("get_embedding successful.")
+            print(f"Embedding shape: {embedding.shape}")
+            print(f"Embedding device: {embedding.device}")
+
+            # Test get_embedding with batch > 0 (if needed and implemented)
+            # print("\nTesting get_embedding with batch=10...")
+            # embedding_batch = model.get_embedding(test_input, batch=10)
+            # print("get_embedding (batch>0) potentially successful.")
+            # print(f"Embedding (batch>0) shape: {embedding_batch.shape}")
+
+
+        except Exception as e:
+            print("\n !!! Error during model forward pass or embedding !!!")
+            print(e)
+            import traceback
+            traceback.print_exc()
+
+
+    print("\nExiting after model test.")
+    exit() # Exit after testing the PyTorch model structure
+    
+    
+    
+    
+    
+    
+    
+    
     
     # Build model
     model.build((None, None, model_params['num_feats']))
@@ -117,35 +196,19 @@ def main(model_params):
 
     file_writer = tf.summary.create_file_writer(model_params['path_model'] + "/metrics")
     file_writer.set_as_default()
-        
-
-    #if model_params['eval_ntu']: 
-    #    callbacks = [LambdaCallback(_supports_tf_logs = True, 
-    #                                on_epoch_end=eval_ntu_one_shot_triplets_callback(model, model_params.copy(), file_writer))] + callbacks
-    #if model_params['eval_therapies']: 
-    #    callbacks = [LambdaCallback(_supports_tf_logs = True, 
-    #                                on_epoch_end=eval_therapies_triplet_callback(model, model_params.copy(), file_writer, 'full'))] + callbacks
-    #    callbacks = [LambdaCallback(_supports_tf_logs = True, 
-    #                                on_epoch_end=eval_therapies_triplet_callback(model, model_params.copy(), file_writer, 'sample'))] + callbacks
-    #print(callbacks)
-    
     
     print(' * metrics:', metrics)
     print(' * sample_weights_mode:', sample_weights_mode)
     
-
     model.compile(optimizer=optimizer,
                   loss = losses,
                   metrics = metrics,
                   loss_weights = loss_weights,
                   sample_weight_mode=sample_weights_mode
                   )
-
-
+    
     # Save model
     model.save(model_params['path_model'] + 'model')
-    
-
     
     train_gen = triplet_data_generator(pose_annotations_file=model_params['train_annotations'], 
                            validation=False, 
