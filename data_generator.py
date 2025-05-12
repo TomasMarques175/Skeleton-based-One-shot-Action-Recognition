@@ -26,10 +26,6 @@ spine = [0, 1, 2, 3, 20]
 connecting_joint = [1, 0, 20, 2, 20, 4, 5, 6, 20, 8, 9,
                     10, 0, 12, 13, 14, 0, 16, 17, 18, 1, 7, 7, 11, 11]
 
-
-# %%
-
-
 # Calculate JCD feature
 def norm_scale(x):
     return (x-np.mean(x))/np.mean(x)
@@ -376,7 +372,6 @@ def get_body_skel(pose_raw, validation, mode='var'):
                     len(np.where(body_lens == max(body_lens))[0]))]
                 p = pose_raw['skel_body{}'.format(
                     body_lens[stds.index(max(stds))])]
-                # print(stds)
             else:
                 raise ValueError('')
         else:
