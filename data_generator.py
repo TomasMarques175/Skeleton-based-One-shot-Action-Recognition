@@ -64,7 +64,6 @@ def get_jcd_features(p, joints_num, max_seq_len):
 
     return jcd
 
-
 def get_bone_spherical_angles(v):
     elevation = np.arctan2(v[:, 2], np.sqrt(v[:, 0]**2 + v[:, 1]**2))
     azimuth = np.arctan2(v[:, 1], v[:, 0])
@@ -333,9 +332,16 @@ def load_scaler(joints_num, joints_dim,
     return scaler
 
 
-def get_num_feats(joints_num, joints_dim,
-                  use_jcd_features, use_speeds, use_coords_raw, use_coords, use_jcd_diff,
-                  use_bone_angles, use_bone_angles_cent, **kwargs):
+def get_num_feats(joints_num, 
+                  joints_dim,
+                  use_jcd_features, 
+                  use_speeds, 
+                  use_coords_raw, 
+                  use_coords, 
+                  use_jcd_diff,
+                  use_bone_angles, 
+                  use_bone_angles_cent, 
+                  **kwargs):
 
     num_feats = 0
     if use_bone_angles:
@@ -441,7 +447,6 @@ def triplet_data_generator(pose_annotations_file,
         print(' ** Loading data scaler | Validation: {} **'.format(validation))
         scaler = load_scaler(joints_num, joints_dim,
                              center_skels, scale_by_torso,
-
                              use_jcd_features, use_speeds,
                              use_coords_raw, use_coords, use_jcd_diff,
                              use_bone_angles,
@@ -539,5 +544,3 @@ def triplet_data_generator(pose_annotations_file,
         # print(Y)
         # print(X.shape, len(Y))
         yield X, Y, sample_weights
-
-# %%

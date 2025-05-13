@@ -5,564 +5,683 @@ import torch
 from torch.utils.data import Dataset
 import numpy as np
 import pickle
-from scipy.special import comb
-from scipy.spatial.distance import cdist
-import scipy.ndimage.interpolation as inter
-# Note: Keras pad_sequences is replaced later, often manually or via DataLoader collate_fn
-# from tensorflow.keras.preprocessing.sequence import pad_sequences
-# Note: Keras to_categorical is replaced later, usually labels are integers for CrossEntropyLoss
-# from tensorflow.keras.utils import to_categorical
+from scipy.special import comb # Used in helper get_jcd_features, get_num_feats
+from scipy.spatial.distance import cdist # Used in helper get_jcd_features
+import scipy.ndimage.interpolation as inter # Used in helper zoom_to_target_len
 
 # =============================================================================
 # Helper Functions (Ported or Adapted from Keras data_generator.py)
+# These should be the same as in pytorch_dataset_py_01
+# Ensure they are reviewed for TF/Keras dependencies.
 # =============================================================================
-# IMPORTANT: Review these functions carefully.
-# - Ensure they operate primarily on NumPy arrays.
-# - Remove any TensorFlow/Keras specific dependencies (like tf.one_hot, etc.)
-# - Ensure file paths and parameter names match how they'll be used in the Dataset.
 
 # --- Constants (from Keras code) ---
 FLIP_CORRESPONDENCES_LEFT = [4, 5, 6, 7, 12, 13, 14, 15, 21, 22]
 FLIP_CORRESPONDENCES_RIGHT = [8, 9, 10, 11, 16, 17, 18, 19, 23, 24]
 SPINE = [0, 1, 2, 3, 20]
 CONNECTING_JOINT = [1, 0, 20, 2, 20, 4, 5, 6, 20, 8, 9,
-                    10, 0, 12, 13, 14, 0, 16, 17, 18, 1, 7, 7, 11, 11]
+                    10, 0, 12, 13, 14, 0, 16, 17, 18, 1, 7, 7, 11, 11] # Used in get_body_spherical_angles
 
-# --- Helper Function Definitions ---
+# --- Helper Function Definitions (Copied from pytorch_dataset_py_01) ---
+
+def get_scaler_filename(**params):
+    # ... (Implementation from your Keras data_generator.py, ensuring it's TF-free) ...
+    # This function constructs the scaler filename based on model_params
+    # Example from your Keras code:
+    path_prefix = params.get('scaler_path_prefix', '/home/asabater/datasets/NTU-120/data_scalers/') # Make configurable
+    filename = 'std_msl{}_jn{}_jd{}_cskl{}_strs{}'.format(
+        params.get('max_seq_len', -1), params.get('joints_num',25), params.get('joints_dim',3),
+        'T' if params.get('center_skels',True) else 'F',
+        'T' if params.get('scale_by_torso',True) else 'F')
+    filename += '_jcd{}_spds{}_coordsraw{}_coords{}_jcddiff{}_angs{}_angscent{}_numfeats{}.pckl'.format(
+        'T' if params.get('use_jcd_features',False) else 'F',
+        'T' if params.get('use_speeds',False) else 'F',
+        'T' if params.get('use_coords_raw',False) else 'F',
+        'T' if params.get('use_coords',True) else 'F',
+        'T' if params.get('use_jcd_diff',False) else 'F',
+        'T' if params.get('use_bone_angles',False) else 'F',
+        'T' if params.get('use_bone_angles_cent',False) else 'F',
+        params.get('num_feats', 0) # Default to 100 if not specified
+    )
+    return os.path.join(path_prefix, filename)
+
+# Similarly, get_num_feats if it's TF-free and used by the Dataset or its helpers.
+def get_num_feats(joints_num, joints_dim,
+                use_jcd_features, use_speeds, use_coords_raw, use_coords, use_jcd_diff,
+                use_bone_angles, use_bone_angles_cent, **kwargs):
+
+    num_feats = 0
+    if use_bone_angles:
+        num_feats += (len(CONNECTING_JOINT)-1)*2
+    if use_bone_angles_cent:
+        num_feats += (len(CONNECTING_JOINT)-1)*2
+    if use_jcd_features:
+        num_feats += int(comb(joints_num, 2))
+    if use_speeds:
+        num_feats += joints_num * joints_dim
+    if use_coords_raw:
+        num_feats += joints_num * joints_dim
+    if use_coords:
+        num_feats += joints_num * joints_dim
+    if use_jcd_diff:
+        num_feats += int(comb(joints_num, 2))
+
+    return num_feats
 
 def load_skeleton_data(file_path):
     """Loads skeleton data from a .npy file."""
     try:
-        # Assuming the .npy file contains a dictionary as saved by the Keras version
         pose_raw = np.load(file_path, allow_pickle=True).item()
         return pose_raw
+    except FileNotFoundError:
+        print(f"Error: File not found at {file_path}")
+        return None
     except Exception as e:
         print(f"Error loading skeleton data from {file_path}: {e}")
         return None
 
 def get_body_skel(pose_raw, validation, mode='var'):
     """Selects the primary skeleton from potentially multiple bodies."""
-    # (Copy the implementation from your Keras data_generator.py)
-    # This function selects which body's skeleton to use if multiple are detected.
-    # Ensure it returns a NumPy array: [num_frames, joints_num, joints_dim]
-    n_bodys = list(set(pose_raw.get('nbodys', [0]))) # Use .get for safety
-    if not n_bodys or max(n_bodys) == 0 or 'skel_body0' not in pose_raw:
-         # Handle cases with no bodies or only body 0 incorrectly labelled
-         if 'skel_body0' in pose_raw:
-              return pose_raw['skel_body0']
-         else: # Cannot find any skeleton data
-              print(f"Warning: No valid skeleton data found in file associated with {pose_raw.get('filename', 'unknown')}")
-              # Return a dummy array or raise an error
-              # Returning dummy might hide issues, consider raising error
-              # For now, return None to be handled later
-              return None
+    if pose_raw is None: return None
+    n_bodys_val = pose_raw.get('nbodys', [0]) # Default to [0] if 'nbodys' key is missing
+    n_bodys = list(set(n_bodys_val if isinstance(n_bodys_val, list) else [n_bodys_val]))
 
-    # Determine which bodies are present and valid
+
+    if not n_bodys or max(n_bodys) == 0: # Handles empty or [0]
+        if 'skel_body0' in pose_raw:
+            return pose_raw['skel_body0']
+        else:
+            print(f"Warning: No valid skeleton data found (no 'nbodys' or 'skel_body0') in file associated with {pose_raw.get('filename', 'unknown_file')}")
+            return None
+
     valid_body_indices = [i for i in range(max(n_bodys) + 1) if f'skel_body{i}' in pose_raw]
     if not valid_body_indices:
-         print(f"Warning: No 'skel_bodyX' keys found despite nbodys info in {pose_raw.get('filename', 'unknown')}")
-         return None
+        print(f"Warning: No 'skel_bodyX' keys found despite nbodys info in {pose_raw.get('filename', 'unknown_file')}")
+        return None
 
-    # Calculate lengths of valid skeletons
     body_lens = []
     valid_skeletons = []
-    indices_map = [] # Map index in body_lens back to original body index
-
     for i in valid_body_indices:
         skel = pose_raw[f'skel_body{i}']
-        # Calculate length based on non-zero frames
+        if skel is None or skel.ndim < 3 or skel.shape[0] == 0: # Check if skel is valid
+            continue
         non_zero_frames = skel[np.all(~np.all(skel == 0, axis=2), axis=1)]
-        if non_zero_frames.shape[0] > 0: # Only consider skeletons with actual movement
-             body_lens.append(non_zero_frames.shape[0])
-             valid_skeletons.append(skel) # Store the full skeleton
-             indices_map.append(i)
+        if non_zero_frames.shape[0] > 0:
+            body_lens.append(non_zero_frames.shape[0])
+            valid_skeletons.append(skel)
 
-    if not body_lens: # No skeletons with non-zero frames found
-         print(f"Warning: All detected skeletons have zero length after filtering in {pose_raw.get('filename', 'unknown')}")
-         return None # Or return the first valid one found earlier?
+    if not body_lens:
+        print(f"Warning: All detected skeletons have zero length after filtering in {pose_raw.get('filename', 'unknown_file')}")
+        # Fallback: return the first skeleton found, even if it was all zeros initially,
+        # average_wrong_frame_skels might fix it.
+        if valid_skeletons: return valid_skeletons[0]
+        return None
+
 
     max_len = max(body_lens)
     longest_indices_in_valid_list = [idx for idx, length in enumerate(body_lens) if length == max_len]
 
-    if validation:
-        if mode == 'var':
-            # Calculate variance (or std dev) only on the longest skeletons
-            stds = [valid_skeletons[idx].std() for idx in longest_indices_in_valid_list]
-            chosen_valid_list_idx = longest_indices_in_valid_list[np.argmax(stds)]
-        else: # Default to 'normal' or just take the first longest
-            chosen_valid_list_idx = longest_indices_in_valid_list[0]
-    else: # Training: random choice among the longest
-        chosen_valid_list_idx = np.random.choice(longest_indices_in_valid_list)
+    chosen_valid_list_idx = 0 # Default
+    if longest_indices_in_valid_list: # Ensure list is not empty
+        if validation:
+            if mode == 'var' and len(longest_indices_in_valid_list) > 0 :
+                stds = [valid_skeletons[idx].std() for idx in longest_indices_in_valid_list if valid_skeletons[idx].size > 0] # Check size
+                if stds: # Ensure stds is not empty
+                    chosen_valid_list_idx = longest_indices_in_valid_list[np.argmax(stds)]
+                else: # Fallback if all stds are zero or skeletons were empty
+                    chosen_valid_list_idx = longest_indices_in_valid_list[0]
+            elif longest_indices_in_valid_list:
+                chosen_valid_list_idx = longest_indices_in_valid_list[0]
+        elif longest_indices_in_valid_list:
+            chosen_valid_list_idx = np.random.choice(longest_indices_in_valid_list)
+        else: # Should not be reached if body_lens was not empty
+            return valid_skeletons[0] if valid_skeletons else None
+    else: # No longest skeletons found (e.g. all had zero length effectively)
+        return valid_skeletons[0] if valid_skeletons else None
 
-    # Return the chosen skeleton
+
     return valid_skeletons[chosen_valid_list_idx]
 
 
 def average_wrong_frame_skels(skels):
-    """Interpolates frames where all joint coordinates are zero."""
-    # (Copy the implementation from your Keras data_generator.py)
-    if skels is None or len(skels) == 0: return skels # Handle None or empty input
+    if skels is None or len(skels) == 0: return skels
+    if skels.ndim < 3: # Expects (frames, joints, dims)
+        print(f"Warning: average_wrong_frame_skels received unexpected shape {skels.shape}. Skipping.")
+        return skels
 
     good_frames_mask = np.any(np.any(skels != 0, axis=2), axis=1)
+    if np.all(good_frames_mask): return skels # All frames are good
+
     bad_indices = np.where(~good_frames_mask)[0]
 
     for idx in bad_indices:
-        prev_good = -1
-        for i in range(idx - 1, -2, -1): # Search backwards for a good frame
-            if i == -1 or good_frames_mask[i]:
-                prev_good = i
+        prev_good_idx = -1
+        # Find previous good frame
+        for i in range(idx - 1, -1, -1):
+            if good_frames_mask[i]:
+                prev_good_idx = i
+                break
+        
+        next_good_idx = -1
+        # Find next good frame
+        for i in range(idx + 1, len(skels)):
+            if good_frames_mask[i]:
+                next_good_idx = i
                 break
 
-        next_good = -1
-        for i in range(idx + 1, len(skels) + 1): # Search forwards for a good frame
-            if i == len(skels) or good_frames_mask[i]:
-                next_good = i
-                break
-
-        if prev_good != -1 and next_good != len(skels): # Interpolate
-            skels[idx] = (skels[prev_good] + skels[next_good]) / 2
-        elif prev_good != -1: # Extrapolate from previous
-            skels[idx] = skels[prev_good]
-        elif next_good != len(skels): # Extrapolate from next
-            skels[idx] = skels[next_good]
-        else: # All frames might be bad, leave as is or handle differently
-             print(f"Warning: Could not interpolate frame {idx}, possibly all frames are bad.")
-             # skels[idx] remains zero or you could assign a default pose
-
+        if prev_good_idx != -1 and next_good_idx != -1:
+            skels[idx] = (skels[prev_good_idx] + skels[next_good_idx]) / 2.0
+        elif prev_good_idx != -1: # Only previous good frame exists
+            skels[idx] = skels[prev_good_idx]
+        elif next_good_idx != -1: # Only next good frame exists
+            skels[idx] = skels[next_good_idx]
+        # If no good frames around, it remains as is (likely all zeros)
+        # Or one could implement a more sophisticated fill, e.g., with a default pose.
     return skels
 
 
 def zoom_to_target_len(p, target_len, joints_num, joints_dim):
-    """Zooms or crops a sequence to a target length."""
-    # Based on Keras zoom_to_max_len, but generalized
     num_frames = p.shape[0]
     if num_frames == target_len:
         return p
-    elif num_frames == 0:
-         # Handle empty input sequence
-         print(f"Warning: zoom_to_target_len received empty sequence. Returning zeros of target length.")
-         return np.zeros([target_len, joints_num, joints_dim], dtype=p.dtype)
+    if num_frames == 0:
+        return np.zeros([target_len, joints_num, joints_dim], dtype=p.dtype)
 
-    # Use interpolation (zoom)
-    zoom_factor = target_len / num_frames
     p_new = np.zeros([target_len, joints_num, joints_dim], dtype=p.dtype)
     for m in range(joints_num):
         for n in range(joints_dim):
-            p_new[:, m, n] = inter.zoom(p[:, m, n], zoom_factor, mode='nearest', order=1)[:target_len] # order=1 for linear interp.
+            if num_frames > 0: # Ensure not dividing by zero
+                zoom_factor = target_len / num_frames
+                # order=0 for nearest, order=1 for linear
+                zoomed_data = inter.zoom(p[:, m, n], zoom_factor, mode='nearest', order=1)
+                # Adjust length if zoom results in slightly different size due to float precision
+                if len(zoomed_data) > target_len:
+                    p_new[:, m, n] = zoomed_data[:target_len]
+                elif len(zoomed_data) < target_len:
+                    p_new[:len(zoomed_data), m, n] = zoomed_data
+                    # Pad the rest if necessary (though zoom should ideally match target_len)
+                    p_new[len(zoomed_data):, m, n] = zoomed_data[-1] if len(zoomed_data) > 0 else 0 # Fill with last value or 0
+                else:
+                    p_new[:, m, n] = zoomed_data
+
+            else: # Should be caught by num_frames == 0 earlier
+                p_new[:,m,n] = 0
     return p_new
 
 
 def flip_skeleton(skel, flip_axis=0):
-    """Flips skeleton horizontally."""
-    # (Copy the implementation from your Keras data_generator.py)
-    skel_flipped = skel.copy() # Work on a copy
-    # Swap left and right joints
-    aux = skel_flipped[..., FLIP_CORRESPONDENCES_LEFT, :]
+    skel_flipped = skel.copy()
+    aux = skel_flipped[..., FLIP_CORRESPONDENCES_LEFT, :].copy() # Ensure it's a copy for swap
     skel_flipped[..., FLIP_CORRESPONDENCES_LEFT, :] = skel_flipped[..., FLIP_CORRESPONDENCES_RIGHT, :]
     skel_flipped[..., FLIP_CORRESPONDENCES_RIGHT, :] = aux
-    # Flip the specified axis coordinate for relevant joints
-    relevant_joints = FLIP_CORRESPONDENCES_LEFT + FLIP_CORRESPONDENCES_RIGHT + SPINE
-    skel_flipped[..., relevant_joints, flip_axis] = -skel_flipped[..., relevant_joints, flip_axis]
+    
+    # Flip the specified axis for all relevant joints (left, right, spine)
+    # Create a combined list of all joints to be flipped
+    joints_to_flip_on_axis = list(set(FLIP_CORRESPONDENCES_LEFT + FLIP_CORRESPONDENCES_RIGHT + SPINE))
+    
+    # Ensure indices are within bounds
+    valid_joints_to_flip = [j for j in joints_to_flip_on_axis if j < skel_flipped.shape[-2]] # skel_flipped.shape[-2] is joints_num
+
+    if valid_joints_to_flip:
+        skel_flipped[..., valid_joints_to_flip, flip_axis] = -skel_flipped[..., valid_joints_to_flip, flip_axis]
     return skel_flipped
 
 
 def scale_skel_by_torso(skel):
-    """Scales skeleton based on torso length."""
-    # (Copy the implementation from your Keras data_generator.py)
-    if skel.shape[0] == 0: return skel # Handle empty sequence
-    # Ensure indices 20, 1, 0 are valid for joints_num
-    if skel.shape[1] <= 20:
-         print(f"Warning: scale_by_torso requires at least 21 joints, found {skel.shape[1]}. Skipping scaling.")
-         return skel
+    if skel.shape[0] == 0: return skel
+    if skel.shape[1] <= 20: # joints_num
+        print(f"Warning: scale_by_torso requires at least 21 joints, found {skel.shape[1]}. Skipping scaling.")
+        return skel
 
-    # Calculate torso distance frame by frame
     torso_dists = np.linalg.norm(skel[:, 20] - skel[:, 1], axis=1) + \
-                  np.linalg.norm(skel[:, 1] - skel[:, 0], axis=1)
-
-    # Avoid division by zero and apply scaling
-    # Use a small epsilon or check for zero. Apply scaling factor 1 if torso_dist is near zero.
+                np.linalg.norm(skel[:, 1] - skel[:, 0], axis=1)
     epsilon = 1e-6
     scale_factors = np.where(torso_dists > epsilon, 0.4 / torso_dists, 1.0)
-
-    # Apply scaling factor to each frame
     skel_scaled = skel * scale_factors[:, np.newaxis, np.newaxis]
     return skel_scaled
 
-
-def get_transformation_matrix_global(skel):
-    """Calculates global transformation matrix for centering."""
-    # (Copy the implementation from your Keras data_generator.py)
-    # Ensure indices 16, 12, 20 are valid
-    if skel.shape[1] <= 20:
-         print(f"Warning: get_transformation_matrix_global requires at least 21 joints, found {skel.shape[1]}. Returning identity matrices.")
-         return np.array([np.eye(4)] * skel.shape[0]) # Return identity matrices
-
-    o = (skel[:, 16, :] + skel[:, 12, :]) / 2 # Origin (mid-hip)
-    # Calculate x-axis (vector from origin to right hip, index 12)
-    x_vec = skel[:, 12, :] - o
-    # Calculate z-axis (vector from origin to spine base, index 20) - Check if this is correct axis
-    z_vec = skel[:, 20, :] - o # Original code uses spine base
-
-    # Normalize vectors, handle potential zero vectors
-    x = matrix_unit_vector(x_vec)
-    z = matrix_unit_vector(z_vec)
-
-    # Ensure orthogonality using cross product for y-axis
-    y = np.cross(z, x) # Changed order for right-hand rule if z is forward, x is right
-    y = matrix_unit_vector(y)
-
-    # Recalculate z or x to ensure orthogonality if needed (Gram-Schmidt like)
-    z = np.cross(x, y) # z is now guaranteed orthogonal to x and y
-    z = matrix_unit_vector(z)
-
-    # Construct transformation matrices
-    r_matrices = []
-    for i in range(len(skel)):
-        # Create rotation part
-        rotation = np.eye(4)
-        rotation[0, :3] = x[i]
-        rotation[1, :3] = y[i]
-        rotation[2, :3] = z[i]
-        # Create translation part
-        translation = np.eye(4)
-        translation[:3, 3] = -o[i] # Translate origin to (0,0,0)
-
-        # Transformation matrix (apply translation then rotation's inverse/transpose)
-        # To transform points TO the new coordinate system: R^T * (P - o)
-        # We want the inverse transform matrix to apply via matmul
-        # Inverse of rotation is transpose: R^T
-        # Inverse of translation is -T applied first
-        # Combined inverse: R^T * T(-o)
-        inv_transform = np.dot(rotation.T, translation) # Check matrix multiplication order
-        r_matrices.append(inv_transform)
-
-    return np.stack(r_matrices)
-
 def matrix_unit_vector(matrix):
-    """ Normalizes rows of a matrix to unit vectors, handles zero vectors. """
     norms = np.linalg.norm(matrix, axis=1, keepdims=True)
-    # Replace zero norms with 1 to avoid division by zero, result will be zero vector
-    norms[norms == 0] = 1.0
+    norms[norms < 1e-9] = 1.0 # Avoid division by zero for zero vectors, result will be zero vector
     return matrix / norms
 
-def transform_skel_global(skel, r):
-    """Applies global transformation matrix to skeleton."""
-    # (Copy the implementation from your Keras data_generator.py)
-    # Add homogeneous coordinate
-    skel_h = np.concatenate([skel, np.ones((*skel.shape[:-1], 1))], axis=-1)
-    # Apply transformation matrix for each frame
-    # Matrix r is expected to be the inverse transform: P' = P * r^T (if P is row vector)
-    # Or P' = r * P (if P is column vector)
-    # PyTorch/NumPy matmul: assumes last 2 dims are matrices. skel_h (N, F, J, 4), r (N, 4, 4)
-    # We need to apply r[f] to skel_h[f] for each frame f.
-    # Result = np.einsum('nfjc,ncd->nfjd', skel_h, r) # Maybe too complex
-    transformed_skel_h = np.zeros_like(skel_h)
-    for i in range(skel.shape[0]): # Iterate through frames
-         # skel_h[i] is (J, 4). r[i] is (4, 4). Result should be (J, 4)
-         transformed_skel_h[i] = np.matmul(skel_h[i], r[i].T) # Apply transpose of inv_transform
+def get_transformation_matrix_global(skel):
+    if skel.shape[1] <= 20: # joints_num
+        print(f"Warning: get_transformation_matrix_global requires at least 21 joints. Returning identity.")
+        return np.array([np.eye(4)] * skel.shape[0])
 
-    # Return only the first 3 coordinates
+    # Origin: Midpoint between hips (indices 12 and 16 for NTU RGB+D)
+    # Original code used 12 and 16. Let's stick to that.
+    o = (skel[:, 16, :] + skel[:, 12, :]) / 2.0
+
+    # X-axis: From left hip (16) to right hip (12)
+    x_vec = skel[:, 12, :] - skel[:, 16, :] # Vector from left hip to right hip
+    x_axis = matrix_unit_vector(x_vec)
+
+    # Y-axis: Approximate vertical axis. Vector from spine base (0) to neck (3) or mid-shoulders.
+    # Original code used skel[:,20] - o for Z. Let's try to define Y as up.
+    # A common choice for Y is (SpineNavel (1) - SpineChest (20)) or similar vertical component.
+    # Let's use (Head (3) - SpineBase (0)) as a proxy for "up" relative to the body.
+    # Or more robustly, use cross product.
+    # Original code: z_vec = skel[:, 20] - o (SpineChest - origin)
+    # Let's assume the original intent for z_vec was a forward-facing vector.
+    # If x_axis is rightward, and we want y_axis upward, then z_axis is forward.
+    # Let's try to define Y as orthogonal to a plane defined by hips and a point above.
+    # For simplicity, let's use the original Z-axis definition and derive Y.
+    # Original Z axis: SpineChest (20) - Origin (mid-hip)
+    z_approx_vec = skel[:,20,:] - o # Vector from mid-hip to spine/chest
+    
+    # Y-axis: Orthogonal to X and Z_approx (cross product)
+    # y_axis = np.cross(z_approx_vec, x_axis) # Order matters for right/left-handed system
+    y_axis = np.cross(x_axis, z_approx_vec) # If x is right, z_approx is somewhat forward, y is up
+    y_axis = matrix_unit_vector(y_axis)
+
+    # Z-axis: Orthogonal to X and Y
+    z_axis = np.cross(x_axis, y_axis)
+    z_axis = matrix_unit_vector(z_axis) # Should already be unit if x and y are unit and orthogonal
+
+    r_matrices = []
+    for i in range(len(skel)):
+        rotation_inv = np.eye(4)
+        rotation_inv[0, :3] = x_axis[i]
+        rotation_inv[1, :3] = y_axis[i]
+        rotation_inv[2, :3] = z_axis[i]
+        
+        translation_inv = np.eye(4)
+        translation_inv[:3, 3] = o[i] # We want to translate points BY -o. So matrix has o in translation part.
+                                    # If P' = M * P, M = Rot * Trans(-o).
+                                    # We want M such that P_new = M_inv * P_orig_homo
+                                    # Or P_new_xyz = R^T * (P_orig_xyz - o)
+                                    # So, R is [x_axis, y_axis, z_axis]^T. Trans(-o) applied first.
+                                    # The matrix r should be T(-o) followed by R.
+                                    # Let's build the matrix that transforms FROM world TO local.
+                                    # 1. Translate by -o
+                                    # 2. Rotate by R^T
+        
+        # Matrix to transform points from world to local: R_transpose * Translation(-origin)
+        # R_transpose rows are x_axis, y_axis, z_axis
+        # T_neg_origin sets origin at (0,0,0)
+        # Combined matrix M:
+        # [x_axis_x, x_axis_y, x_axis_z, -dot(x_axis, origin)]
+        # [y_axis_x, y_axis_y, y_axis_z, -dot(y_axis, origin)]
+        # [z_axis_x, z_axis_y, z_axis_z, -dot(z_axis, origin)]
+        # [0         , 0         , 0         , 1             ]
+        
+        transform_matrix = np.eye(4)
+        transform_matrix[0,:3] = x_axis[i]
+        transform_matrix[1,:3] = y_axis[i]
+        transform_matrix[2,:3] = z_axis[i]
+        transform_matrix[:3,3] = -np.dot(transform_matrix[:3,:3], o[i]) # R^T * (-o)
+
+        r_matrices.append(transform_matrix)
+        
+    return np.stack(r_matrices)
+
+
+def transform_skel_global(skel, r_matrices):
+    skel_h = np.concatenate([skel, np.ones((*skel.shape[:-1], 1))], axis=-1) # (Frames, Joints, 4)
+    # r_matrices is (Frames, 4, 4)
+    # We want to apply r_matrices[f] to skel_h[f] for each frame f
+    # skel_h[f] is (Joints, 4). We want (Joints, 4) @ (4, 4)^T -> (Joints, 4)
+    # or (4,4) @ (4, Joints) -> (4, Joints) then transpose
+    
+    transformed_skel_h_frames = []
+    for i in range(skel_h.shape[0]): # Iterate through frames
+        # skel_h[i] is (Joints, 4). r_matrices[i] is (4,4)
+        # Transformed_points = Points @ TransformMatrix.T (if points are rows)
+        # Or Transformed_points = TransformMatrix @ Points (if points are columns)
+        # Here, r_matrices[i] is the matrix that transforms world to local.
+        # So, local_coords_homo = r_matrices[i] @ world_coords_homo.T
+        # This means world_coords_homo should be (4, num_joints)
+        frame_world_coords_homo_T = skel_h[i].T # Shape (4, num_joints)
+        frame_local_coords_homo_T = np.matmul(r_matrices[i], frame_world_coords_homo_T) # Shape (4, num_joints)
+        transformed_skel_h_frames.append(frame_local_coords_homo_T.T) # Back to (num_joints, 4)
+
+    transformed_skel_h = np.stack(transformed_skel_h_frames)
     return transformed_skel_h[..., :3]
 
 
 def get_jcd_features(p, joints_num):
-    """Calculates Joint-to-Joint distances for each frame."""
-    # (Adapted from Keras data_generator.py)
     num_frames = p.shape[0]
-    jcd = []
-    iu = np.triu_indices(joints_num, k=1) # k=1 to exclude diagonal
     if num_frames == 0:
         num_jcd_feats = int(comb(joints_num, 2)) if joints_num >= 2 else 0
-        return np.zeros((0, num_jcd_feats), dtype=np.float32) # Return empty array with correct feature dim
+        return np.zeros((0, num_jcd_feats), dtype=np.float32)
+    
+    jcd_list = []
+    # iu provides upper triangle indices (row_idx, col_idx)
+    iu_rows, iu_cols = np.triu_indices(joints_num, k=1)
+    
+    for f_idx in range(num_frames):
+        frame_coords = p[f_idx] # Shape (joints_num, joints_dim)
+        # Calculate pairwise distances for this frame
+        # cdist(frame_coords, frame_coords) gives a (joints_num, joints_num) matrix
+        # We need to extract the upper triangle from this.
+        dist_matrix = cdist(frame_coords, frame_coords, 'euclidean')
+        jcd_list.append(dist_matrix[iu_rows, iu_cols])
+        
+    return np.array(jcd_list, dtype=np.float32) if jcd_list else np.zeros((0, int(comb(joints_num, 2))), dtype=np.float32)
 
-    for f in range(num_frames):
-        d_m = cdist(p[f], p[f], 'euclidean')
-        jcd.append(d_m[iu])
-    return np.stack(jcd) if jcd else np.zeros((0, int(comb(joints_num, 2))), dtype=np.float32)
 
-
-def get_bone_spherical_angles(v):
-    """Calculates spherical angles (elevation, azimuth) for bone vectors."""
-    # (Copy from Keras data_generator.py)
-    # Handle potential zero vectors to avoid NaN in arctan2
+def get_bone_spherical_angles(v): # v is (num_frames, dims) or (dims) for a single vector
+    v = np.atleast_2d(v) # Ensure v is at least 2D for consistent indexing
     norm_xy = np.sqrt(v[:, 0]**2 + v[:, 1]**2)
-    elevation = np.arctan2(v[:, 2], norm_xy)
+    # Avoid division by zero or log of zero for elevation if norm_xy is zero
+    elevation = np.arctan2(v[:, 2], norm_xy, out=np.zeros_like(v[:,2]), where=norm_xy!=0)
     azimuth = np.arctan2(v[:, 1], v[:, 0])
     return np.column_stack([elevation, azimuth])
 
-def get_body_spherical_angles(body):
-    """Calculates spherical angles for all defined bones."""
-    # (Copy from Keras data_generator.py, ensure CONNECTING_JOINT is defined)
-    angles_list = []
-    num_frames = body.shape[0]
+def get_body_spherical_angles(body_coords): # body_coords is (frames, joints, dims)
+    num_frames = body_coords.shape[0]
     if num_frames == 0:
-         num_angle_feats = (len(CONNECTING_JOINT)) * 2 # Approx number of features
-         return np.zeros((0, num_angle_feats), dtype=np.float32)
+        # Estimate number of bones from CONNECTING_JOINT. This is tricky.
+        # Assuming CONNECTING_JOINT defines pairs or a sequence.
+        # The original Keras code: (len(connecting_joint)-1)*2. This implies connecting_joint has one more element than bones.
+        # Let's assume CONNECTING_JOINT implies len(CONNECTING_JOINT) bones.
+        num_angle_feats = len(CONNECTING_JOINT) * 2 # Each bone gives 2 angles
+        return np.zeros((0, num_angle_feats), dtype=np.float32)
 
-    # Ensure connecting joints are valid indices
-    max_joint_idx = body.shape[1] - 1
-    valid_bones = []
-    for i in range(len(CONNECTING_JOINT)):
-         j1_idx = CONNECTING_JOINT[i]
-         # Need the *next* joint to form the bone vector. The original code seems to imply
-         # iterating through connecting_joint pairs, but the list isn't pairs.
-         # Let's assume it connects joint i to CONNECTING_JOINT[i]. This needs verification.
-         # A common definition: Bone i connects joint `connecting_joint[i]` to joint `i`.
-         # Let's redefine based on NTU common bones if possible, or stick to original intent if clear.
-         # Assuming original intent was bone = joint[i+1] - joint[i] for i in range(num_joints-1)? No, uses CONNECTING_JOINT.
-         # Let's assume bone i = joint[i] - joint[connecting_joint[i]]
-         # This needs clarification based on the original paper/intent.
-         # Using a simple sequential bone definition for placeholder: joint[i+1] - joint[i]
-         if i + 1 <= max_joint_idx:
-              bone_vec = body[:, i+1] - body[:, i]
-              angles_list.append(get_bone_spherical_angles(bone_vec))
+    all_bone_angles_list = []
+    # This definition of bones needs to be accurate.
+    # The Keras code iterates `range(len(connecting_joint)-1)` implying `connecting_joint` defines a sequence.
+    # Let's assume it means bones between `joint[i]` and `joint[connecting_joint[i]]`
+    # Or more simply, bones between `joint[i]` and `joint[j]` where (i,j) are defined pairs.
+    # The original Keras code `body[:, i+1] - body[:, i]` is a sequential definition.
+    # Let's use a more robust definition if NTU standard bones are known, or stick to sequential.
+    # For now, using sequential bones based on the loop in Keras: body[:, bone_idx+1] - body[:, bone_idx]
+    # This assumes joints are ordered to form meaningful sequential bones.
+    num_joints = body_coords.shape[1]
+    for bone_idx in range(num_joints - 1): # Iterate through possible sequential bones
+        # Check if both joints for the bone are within bounds
+        if bone_idx < num_joints and (bone_idx + 1) < num_joints:
+            bone_vectors = body_coords[:, bone_idx + 1, :] - body_coords[:, bone_idx, :] # Vector for each frame
+            if bone_vectors.shape[0] > 0: # Ensure there are frames
+                spherical_angles = get_bone_spherical_angles(bone_vectors) # (frames, 2)
+                all_bone_angles_list.append(spherical_angles)
 
-    if not angles_list: # No valid bones found
-         return np.zeros((num_frames, 0), dtype=np.float32)
+    if not all_bone_angles_list:
+        return np.zeros((num_frames, 0), dtype=np.float32)
 
-    return np.concatenate(angles_list, axis=1)
+    return np.concatenate(all_bone_angles_list, axis=1)
 
 
 def get_pose_data_processed(body_raw, is_validation, model_params):
-    """
-    Processes a single raw skeleton sequence.
-    Encapsulates augmentation, normalization, feature extraction, padding.
-    Returns a NumPy array [L, C_feats].
-    """
-    if body_raw is None: # Handle case where get_body_skel returned None
-         print("Warning: get_pose_data_processed received None for body_raw. Returning None.")
-         return None
+    if body_raw is None or body_raw.shape[0] == 0:
+        print("Warning: get_pose_data_processed received None or empty body_raw.")
+        # Return a zero array of expected feature dimension and a plausible sequence length
+        _target_len_fallback = abs(model_params.get('max_seq_len', 32))
+        if _target_len_fallback == 0: _target_len_fallback = 32
+        _num_feats_fallback = model_params.get('num_feats', 100) # Get this from model_params or calculate
+        return np.zeros((_target_len_fallback, _num_feats_fallback), dtype=np.float32)
 
-    # --- Parameters ---
-    max_seq_len = model_params.get('max_seq_len', -32)
+
+    max_seq_len_param = model_params.get('max_seq_len', -32)
     joints_num = model_params.get('joints_num', 25)
     joints_dim = model_params.get('joints_dim', 3)
     center_skels = model_params.get('center_skels', True)
     h_flip_enabled = model_params.get('h_flip', False)
-    scale_by_torso = model_params.get('scale_by_torso', True)
-    temporal_scale_range = model_params.get('temporal_scale', False) # e.g., [0.8, 1.2] or False
-    skip_frames_options = model_params.get('skip_frames', []) # e.g., [2, 3]
-    average_wrong = model_params.get('average_wrong_skels', True)
+    scale_by_torso_enabled = model_params.get('scale_by_torso', True)
+    temporal_scale_range = model_params.get('temporal_scale', False)
+    skip_frames_options = model_params.get('skip_frames', [])
+    average_wrong_skels_enabled = model_params.get('average_wrong_skels', True)
+    scaler_obj = model_params.get('scaler_object', None) # Get scaler from params
 
-    use_jcd = model_params.get('use_jcd_features', False)
-    use_speeds = model_params.get('use_speeds', False)
-    use_coords_raw = model_params.get('use_coords_raw', False)
-    use_coords = model_params.get('use_coords', True)
-    use_jcd_diff = model_params.get('use_jcd_diff', False)
-    use_bone_ang = model_params.get('use_bone_angles', False)
-    use_bone_ang_cent = model_params.get('use_bone_angles_cent', False)
-    # scaler = model_params.get('scaler_object', None) # Scaler object needs to be loaded and passed
+    body = body_raw.copy()
 
-    body = body_raw.copy() # Work on a copy
-
-    # --- Preprocessing ---
-    # Remove frames with all zeros (already done in Keras version?) - Optional redundancy
     body = body[np.any(np.any(body != 0, axis=2), axis=1)]
     if body.shape[0] == 0:
-        print("Warning: Skeleton has zero length after initial filtering.")
-        # Return None or handle appropriately
-        return None
+        print("Warning: Skeleton zero length after initial zero-frame removal.")
+        _target_len_fallback = abs(max_seq_len_param) if max_seq_len_param != 0 else 32
+        _num_feats_fallback = model_params.get('num_feats', 100)
+        return np.zeros((_target_len_fallback, _num_feats_fallback), dtype=np.float32)
 
-    if average_wrong:
+
+    if average_wrong_skels_enabled:
         body = average_wrong_frame_skels(body)
         if body is None or body.shape[0] == 0:
-             print("Warning: Skeleton has zero length after averaging wrong frames.")
-             return None
+            print("Warning: Skeleton zero length after averaging wrong frames.")
+            _target_len_fallback = abs(max_seq_len_param) if max_seq_len_param != 0 else 32
+            _num_feats_fallback = model_params.get('num_feats', 100)
+            return np.zeros((_target_len_fallback, _num_feats_fallback), dtype=np.float32)
 
 
-    # --- Augmentations (Applied only during training) ---
     if not is_validation:
-        # Temporal Scaling
         if temporal_scale_range and isinstance(temporal_scale_range, (list, tuple)) and len(temporal_scale_range) == 2:
             orig_len = body.shape[0]
             min_scale, max_scale = temporal_scale_range
-            if min_scale < max_scale and orig_len > 0:
-                 # Calculate target length based on random scale factor
-                 scale_factor = np.random.uniform(min_scale, max_scale)
-                 new_len = max(2, int(orig_len * scale_factor)) # Ensure at least 2 frames
-                 body = zoom_to_target_len(body, new_len, joints_num, joints_dim)
+            if min_scale < max_scale and orig_len > 1 : # Need at least 2 frames to scale meaningfully
+                scale_factor = np.random.uniform(min_scale, max_scale)
+                new_len = max(2, int(round(orig_len * scale_factor)))
+                if new_len != orig_len:
+                    body = zoom_to_target_len(body, new_len, joints_num, joints_dim)
 
-        # Skip Frames (Subsampling)
-        if skip_frames_options:
-            skip_rate = np.random.choice(skip_frames_options) # e.g., chooses 2 or 3
-            if skip_rate > 1 and body.shape[0] > skip_rate: # Ensure skipping is meaningful
-                 start_frame = np.random.randint(skip_rate)
-                 body = body[start_frame::skip_rate]
+        if skip_frames_options and body.shape[0] > 1:
+            # Ensure skip_rate is at least 1 (no skip)
+            skip_rate_choice = [s for s in skip_frames_options if isinstance(s, int) and s > 0]
+            if skip_rate_choice:
+                skip_rate = np.random.choice(skip_rate_choice)
+                if skip_rate > 1 and body.shape[0] >= skip_rate : # Check if subsampling is possible
+                    start_frame = np.random.randint(skip_rate)
+                    body = body[start_frame::skip_rate]
+                    if body.shape[0] == 0: # After skipping, it might become empty
+                        body = body_raw.copy()[0:1] # Fallback to first frame of original raw
+                        print("Warning: Body became empty after skip_frames, using fallback.")
 
-        # Horizontal Flip
+
         if h_flip_enabled and np.random.rand() > 0.5:
             body = flip_skeleton(body)
 
-    # --- Sequence Length Handling (Padding/Cropping/Zooming) ---
-    target_seq_len = abs(max_seq_len)
-    if target_seq_len == 0: # Use actual length if max_seq_len is 0
-        final_len = body.shape[0]
-    else:
-        final_len = target_seq_len
-
+    # Determine final sequence length for padding/cropping
+    final_target_len = abs(max_seq_len_param)
+    if max_seq_len_param == 0: # Use actual length if max_seq_len is 0
+        final_target_len = body.shape[0]
+        if final_target_len == 0: final_target_len = 1 # Ensure at least 1 frame for feature extraction
+    
     current_len = body.shape[0]
 
-    if max_seq_len > 0: # Zoom or Pad to fixed length
-        if current_len != final_len:
-            body = zoom_to_target_len(body, final_len, joints_num, joints_dim)
-    elif max_seq_len < 0: # Crop if longer, Pad if shorter
-        if current_len > final_len:
-            # Random crop for training, center crop for validation
+    if max_seq_len_param > 0: # Zoom to fixed length (max_seq_len_param is positive)
+        if current_len != final_target_len and final_target_len > 0:
+            body = zoom_to_target_len(body, final_target_len, joints_num, joints_dim)
+    elif max_seq_len_param < 0: # Crop if longer, Pad if shorter (max_seq_len_param is negative, use its abs value)
+        target_crop_len = abs(max_seq_len_param)
+        if current_len > target_crop_len:
             if not is_validation:
-                start = np.random.randint(current_len - final_len + 1)
+                start = np.random.randint(current_len - target_crop_len + 1) if (current_len - target_crop_len + 1) > 0 else 0
             else:
-                start = (current_len - final_len) // 2
-            body = body[start : start + final_len]
-        elif current_len < final_len:
-            # Pad (pre-padding is common for TCNs)
-            pad_width = final_len - current_len
-            # Create padding array: (pad_before, pad_after) for each axis
-            # We pad only the time axis (axis 0) at the beginning
-            padding = [(pad_width, 0), (0, 0), (0, 0)]
-            body = np.pad(body, padding, mode='constant', constant_values=0)
+                start = (current_len - target_crop_len) // 2
+            body = body[start : start + target_crop_len]
+        elif current_len < target_crop_len and current_len > 0 : # Pad if shorter but not empty
+            pad_width = target_crop_len - current_len
+            padding = [(pad_width, 0), (0, 0), (0, 0)] # Pre-padding
+            body = np.pad(body, padding, mode='constant', constant_values=0.0)
+        elif current_len == 0 and target_crop_len > 0: # If body became empty, pad to target_crop_len
+            body = np.zeros((target_crop_len, joints_num, joints_dim), dtype=body_raw.dtype)
 
-    # --- Normalization ---
-    if scale_by_torso:
+
+    if body.shape[0] == 0 and final_target_len > 0: # If still empty, create zeros
+        print(f"Warning: Body is empty before feature extraction. Creating zeros of length {final_target_len}.")
+        body = np.zeros((final_target_len, joints_num, joints_dim), dtype=body_raw.dtype)
+    elif body.shape[0] == 0 and final_target_len == 0: # Should not happen if final_target_len defaults to 1
+        _num_feats_fallback = model_params.get('num_feats', 100)
+        return np.zeros((1, _num_feats_fallback), dtype=np.float32)
+
+
+    if scale_by_torso_enabled:
         body = scale_skel_by_torso(body)
 
-    # Store body before centering if needed for raw coords feature
-    body_uncentered = body.copy() if use_coords_raw else None
+    body_uncentered_for_raw_coords = body.copy() if model_params.get('use_coords_raw', False) else None
+    skels_to_process = body # Default to 'body' which might be uncentered
 
-    # Centering (Global Transformation)
-    skels_centered = body # Default if not centering
     if center_skels:
-        transf_matrix = get_transformation_matrix_global(body)
-        skels_centered = transform_skel_global(body, transf_matrix)
+        transf_matrix = get_transformation_matrix_global(body) # Use original body for transform calc
+        skels_to_process = transform_skel_global(body, transf_matrix) # Centered version for features
 
     # --- Feature Extraction ---
-    num_frames_final = skels_centered.shape[0]
+    num_frames_for_features = skels_to_process.shape[0]
+    if num_frames_for_features == 0 and final_target_len > 0: # If skels_to_process became empty
+        skels_to_process = np.zeros((final_target_len, joints_num, joints_dim), dtype=body.dtype)
+        num_frames_for_features = final_target_len
+    elif num_frames_for_features == 0 and final_target_len == 0:
+        _num_feats_fallback = model_params.get('num_feats', 100)
+        return np.zeros((1, _num_feats_fallback), dtype=np.float32)
+
+
     pose_features_list = []
 
-    if use_bone_ang:
-        pose_features_list.append(get_body_spherical_angles(body)) # Use original body for non-centered angles
-    if use_bone_ang_cent:
-        pose_features_list.append(get_body_spherical_angles(skels_centered))
-    if use_coords_raw:
-        if body_uncentered is None: body_uncentered = body # Fallback if not stored
-        pose_features_list.append(body_uncentered.reshape(num_frames_final, -1))
-    if use_coords:
-        pose_features_list.append(skels_centered.reshape(num_frames_final, -1))
+    if model_params.get('use_bone_angles', False):
+        # Use original body (before centering) for non-centered bone angles
+        angles = get_body_spherical_angles(body)
+        if angles.shape[0] == num_frames_for_features : pose_features_list.append(angles)
+        elif angles.shape[0] > 0 : pose_features_list.append(zoom_to_target_len(angles.reshape(angles.shape[0], -1, 1), num_frames_for_features, angles.shape[1], 1).reshape(num_frames_for_features, -1))
 
-    jcd_feats = None
-    if use_jcd or use_jcd_diff:
-        jcd_feats = get_jcd_features(skels_centered, joints_num)
-        if use_jcd:
-            pose_features_list.append(jcd_feats)
 
-    if use_jcd_diff:
-        if jcd_feats is not None and jcd_feats.shape[0] > 1:
-            jcd_diff_val = jcd_feats[1:] - jcd_feats[:-1]
-            # Prepend first difference or zero to maintain length
-            jcd_diff_val = np.concatenate([jcd_diff_val[0:1], jcd_diff_val], axis=0)
-        else: # Handle sequences too short for diff
-            num_jcd_feats = int(comb(joints_num, 2)) if joints_num >= 2 else 0
-            jcd_diff_val = np.zeros((num_frames_final, num_jcd_feats), dtype=skels_centered.dtype)
-        pose_features_list.append(jcd_diff_val)
+    if model_params.get('use_bone_angles_cent', False):
+        angles_cent = get_body_spherical_angles(skels_to_process)
+        if angles_cent.shape[0] == num_frames_for_features: pose_features_list.append(angles_cent)
+        elif angles_cent.shape[0] > 0 : pose_features_list.append(zoom_to_target_len(angles_cent.reshape(angles_cent.shape[0], -1, 1), num_frames_for_features, angles_cent.shape[1], 1).reshape(num_frames_for_features, -1))
 
-    if use_speeds:
-        if num_frames_final > 1:
-             # Calculate speed based on centered skeleton
-             speed_feats_val = skels_centered[1:] - skels_centered[:-1]
-             # Prepend first speed or zero to maintain length
-             speed_feats_val = np.concatenate([speed_feats_val[0:1], speed_feats_val], axis=0)
-             speed_feats_val = speed_feats_val.reshape(num_frames_final, -1)
-        else: # Handle single-frame sequences
-             speed_feats_val = np.zeros((num_frames_final, joints_num * joints_dim), dtype=skels_centered.dtype)
+
+    if model_params.get('use_coords_raw', False):
+        if body_uncentered_for_raw_coords is not None:
+            coords_raw_reshaped = body_uncentered_for_raw_coords.reshape(body_uncentered_for_raw_coords.shape[0], -1)
+            if coords_raw_reshaped.shape[0] == num_frames_for_features: pose_features_list.append(coords_raw_reshaped)
+            elif coords_raw_reshaped.shape[0] > 0 : pose_features_list.append(zoom_to_target_len(coords_raw_reshaped.reshape(coords_raw_reshaped.shape[0], -1, 1), num_frames_for_features, coords_raw_reshaped.shape[1], 1).reshape(num_frames_for_features, -1))
+
+    if model_params.get('use_coords', True): # Default to True if not specified
+        coords_reshaped = skels_to_process.reshape(num_frames_for_features, -1)
+        pose_features_list.append(coords_reshaped)
+
+
+    jcd_calculated_feats = None
+    if model_params.get('use_jcd_features', False) or model_params.get('use_jcd_diff', False):
+        jcd_calculated_feats = get_jcd_features(skels_to_process, joints_num)
+        if model_params.get('use_jcd_features', False):
+            if jcd_calculated_feats.shape[0] == num_frames_for_features: pose_features_list.append(jcd_calculated_feats)
+            elif jcd_calculated_feats.shape[0] > 0 : pose_features_list.append(zoom_to_target_len(jcd_calculated_feats.reshape(jcd_calculated_feats.shape[0], -1, 1), num_frames_for_features, jcd_calculated_feats.shape[1], 1).reshape(num_frames_for_features, -1))
+
+
+    if model_params.get('use_jcd_diff', False):
+        num_jcd_comb = int(comb(joints_num, 2)) if joints_num >= 2 else 0
+        if jcd_calculated_feats is not None and jcd_calculated_feats.shape[0] > 1:
+            jcd_diff_val = jcd_calculated_feats[1:] - jcd_calculated_feats[:-1]
+            jcd_diff_val = np.concatenate([jcd_diff_val[0:1] if jcd_diff_val.shape[0] > 0 else np.zeros((1, num_jcd_comb)), jcd_diff_val], axis=0) # Prepend
+        else:
+            jcd_diff_val = np.zeros((num_frames_for_features, num_jcd_comb), dtype=skels_to_process.dtype)
+        if jcd_diff_val.shape[0] == num_frames_for_features : pose_features_list.append(jcd_diff_val)
+        elif jcd_diff_val.shape[0] > 0 : pose_features_list.append(zoom_to_target_len(jcd_diff_val.reshape(jcd_diff_val.shape[0], -1, 1), num_frames_for_features, jcd_diff_val.shape[1], 1).reshape(num_frames_for_features, -1))
+
+
+    if model_params.get('use_speeds', False):
+        if num_frames_for_features > 1:
+            speed_feats_val = skels_to_process[1:] - skels_to_process[:-1]
+            speed_feats_val = np.concatenate([speed_feats_val[0:1] if speed_feats_val.shape[0] > 0 else np.zeros((1, joints_num, joints_dim)), speed_feats_val], axis=0) # Prepend
+            speed_feats_val = speed_feats_val.reshape(num_frames_for_features, -1)
+        else:
+            speed_feats_val = np.zeros((num_frames_for_features, joints_num * joints_dim), dtype=skels_to_process.dtype)
         pose_features_list.append(speed_feats_val)
 
     if not pose_features_list:
-        print("Warning: No features selected! Returning empty array.")
-        return np.zeros((final_len, 0), dtype=np.float32)
+        print("Warning: No features were extracted! Returning zeros.")
+        # Ensure num_feats is available in model_params for fallback
+        _num_feats_fallback = model_params.get('num_feats', 100)
+        return np.zeros((final_target_len if final_target_len > 0 else 1, _num_feats_fallback), dtype=np.float32)
 
-    # Concatenate all features
+    # Ensure all feature arrays in list have the same number of frames (num_frames_for_features)
+    # This should be guaranteed by processing steps if sequence length handling is correct.
+    # If not, one might need to resize them here before concatenation.
+    # For now, assume they are all num_frames_for_features long.
+
     pose_features_final = np.concatenate(pose_features_list, axis=1).astype(np.float32)
 
-    # --- Scaling (Optional) ---
-    # The scaler object needs to be loaded once in __init__ and stored in self.scaler
-    # if scaler is not None:
-    #     pose_features_final = scaler.transform(pose_features_final)
+    if scaler_obj is not None:
+        try:
+            pose_features_final = scaler_obj.transform(pose_features_final)
+        except Exception as e:
+            print(f"Warning: Error applying scaler: {e}. Features not scaled.")
 
-    # Final check for sequence length (should match final_len due to padding/cropping/zooming)
-    if pose_features_final.shape[0] != final_len:
-         print(f"Warning: Final features length ({pose_features_final.shape[0]}) != target length ({final_len}). Resizing.")
-         # This might indicate an issue in padding/cropping logic
-         # Force resize as a fallback
-         pose_features_final = zoom_to_target_len(pose_features_final.reshape(pose_features_final.shape[0], -1, 1), # Reshape to fit zoom
-                                                 final_len, pose_features_final.shape[1], 1).reshape(final_len, -1)
+
+    # Final check on sequence length and feature dimension
+    expected_num_feats = model_params.get('num_feats', -1)
+    if expected_num_feats != -1 and pose_features_final.shape[1] != expected_num_feats:
+        print(f"Warning: Mismatch in feature dimension! Expected {expected_num_feats}, got {pose_features_final.shape[1]}. This can cause errors.")
+        # Option: Pad/truncate features, or error out, or re-calculate expected_num_feats based on selected features.
+        # This often indicates an issue in get_num_feats or feature selection logic.
+
+    # Ensure final output matches final_target_len (especially if max_seq_len was 0)
+    if pose_features_final.shape[0] != final_target_len and final_target_len > 0 :
+        print(f"Warning: Final processed features length ({pose_features_final.shape[0]}) != final_target_len ({final_target_len}). Resizing features.")
+        # Reshape to (frames, features, 1) for zoom, then back
+        current_feat_dim = pose_features_final.shape[1]
+        pose_features_final_reshaped = pose_features_final.reshape(pose_features_final.shape[0], current_feat_dim, 1)
+        pose_features_final = zoom_to_target_len(pose_features_final_reshaped, final_target_len, current_feat_dim, 1).reshape(final_target_len, current_feat_dim)
+
+    elif final_target_len == 0 and pose_features_final.shape[0] == 0: # Handle case where max_seq_len=0 and input was empty
+        _num_feats_fallback = model_params.get('num_feats', 100)
+        return np.zeros((1, _num_feats_fallback), dtype=np.float32) # Return at least one frame
 
 
     return pose_features_final
 
 
 # =============================================================================
-# PyTorch Dataset Class
+# PyTorch Dataset Class (Revised for Single Sample Output)
 # =============================================================================
 
 class TripletPoseDataset(Dataset):
     def __init__(self, pose_annotations_file, validation_mode, in_memory, **model_params_kwargs):
-        """
-        Args:
-            pose_annotations_file (string): Path to the annotation file (e.g., "filename label").
-            validation_mode (bool): True if this dataset is for validation (no shuffle, no augmentations).
-            in_memory (bool): Whether to load all data into RAM during initialization.
-            **model_params_kwargs: Dictionary containing all other parameters needed for processing
-                                   (e.g., max_seq_len, joints_num, feature flags, augmentation params).
-        """
         self.pose_annotations_file = pose_annotations_file
         self.is_validation = validation_mode
         self.in_memory_data = in_memory
         self.model_params = model_params_kwargs
 
-        print(f"\nInitializing TripletPoseDataset:")
+        print(f"\nInitializing PoseDataset (Single Sample Output):")
         print(f"  Annotations: {self.pose_annotations_file}")
         print(f"  Validation Mode: {self.is_validation}")
         print(f"  In Memory: {self.in_memory_data}")
 
-        # --- Load Annotations ---
         self.samples = self._read_annotations()
         if not self.samples:
             raise ValueError(f"No samples found or loaded from annotation file: {pose_annotations_file}")
 
-        # --- Load Scaler (if applicable) ---
         self.scaler = None
         if self.model_params.get('scale_data', False):
             try:
-                # Ensure get_scaler_filename and loading logic are TF-free
-                # scaler_filename = get_scaler_filename(**self.model_params) # Ensure this helper is defined/imported
-                # print(f"  Loading scaler: {scaler_filename}")
-                # with open(scaler_filename, 'rb') as f:
-                #     self.scaler = pickle.load(f)
-                # self.model_params['scaler_object'] = self.scaler # Pass to processing func
-                 print("  Note: Scaler loading logic needs verification/implementation.")
-            except Exception as e:
-                print(f"  Warning: Could not load scaler: {e}. Proceeding without scaling.")
-                self.model_params['scale_data'] = False # Disable scaling if load fails
+                scaler_path = self.model_params.get('scaler_path_override', None) # Allow override for testing
+                if not scaler_path:
+                    # Attempt to use get_scaler_filename if available and TF-free
+                    if 'get_scaler_filename' in globals() and callable(get_scaler_filename):
+                        scaler_path = get_scaler_filename(**self.model_params)
+                    else: # Fallback or error if get_scaler_filename isn't usable
+                        print("  Warning: get_scaler_filename not available. Cannot determine scaler path.")
+                        raise FileNotFoundError("Scaler path determination failed.")
 
-        # --- Load Data to Memory (if requested) ---
-        self.loaded_samples_cache = {} # Use dict for faster lookup if needed, or list
+                print(f"  Attempting to load scaler from: {scaler_path}")
+                with open(scaler_path, 'rb') as f:
+                    self.scaler = pickle.load(f)
+                self.model_params['scaler_object'] = self.scaler # Make it available to get_pose_data_processed
+                print(f"  Scaler loaded successfully from {scaler_path}")
+            except FileNotFoundError:
+                print(f"  Warning: Scaler file not found at '{scaler_path}'. Proceeding without feature scaling.")
+                self.model_params['scale_data'] = False
+            except Exception as e:
+                print(f"  Warning: Could not load or use scaler: {e}. Proceeding without feature scaling.")
+                self.model_params['scale_data'] = False
+        
+        self.loaded_raw_cache = {}
         if self.in_memory_data:
-            print(f"  Loading all raw data into memory...")
-            # Store raw loaded data to apply augmentations on the fly in __getitem__
+            print(f"  Loading all raw skeleton data into memory...")
             num_loaded = 0
             for sample_info in self.samples:
-                file_path = sample_info['anchor_path']
-                if file_path not in self.loaded_samples_cache:
+                file_path = sample_info['file_path'] # Changed from 'anchor_path'
+                if file_path not in self.loaded_raw_cache:
                     raw_data = load_skeleton_data(file_path)
                     if raw_data is not None:
-                         self.loaded_samples_cache[file_path] = raw_data
-                         num_loaded += 1
-                    else:
-                         print(f"    Warning: Failed to load {file_path} for in-memory cache.")
+                        self.loaded_raw_cache[file_path] = raw_data
+                        num_loaded +=1
             print(f"  Loaded raw data for {num_loaded} unique files into memory.")
 
 
     def _read_annotations(self):
-        """Reads the annotation file and stores sample information."""
+        """Reads annotation file, expects 'file_path label' per line."""
         samples_list = []
         print(f"  Reading annotations from: {self.pose_annotations_file}")
         try:
@@ -573,171 +692,147 @@ class TripletPoseDataset(Dataset):
                         file_path = parts[0]
                         try:
                             label = int(parts[1])
-                            # Basic check if file exists (optional, can slow down init)
-                            # if not os.path.exists(file_path):
-                            #     print(f"    Warning: File not found for sample {i}: {file_path}")
-                            #     continue
                             samples_list.append({
-                                'id': i, # Unique ID for this sample line
-                                'anchor_path': file_path,
+                                'id': i,
+                                'file_path': file_path, # Renamed from 'anchor_path'
                                 'class_id': label
                             })
                         except ValueError:
                             print(f"    Warning: Invalid label format on line {i+1}: {line.strip()}")
-                        except Exception as e:
-                             print(f"    Warning: Error processing line {i+1} ('{line.strip()}'): {e}")
-
                     else:
                         print(f"    Warning: Skipping line {i+1} due to incorrect format: {line.strip()}")
         except FileNotFoundError:
-            print(f"  Error: Annotation file not found at {self.pose_annotations_file}")
-            return [] # Return empty list
-
+            print(f"  CRITICAL Error: Annotation file not found at {self.pose_annotations_file}")
+            return []
         print(f"  Found {len(samples_list)} samples in annotations.")
-        # Create a mapping from class_id to list of sample indices for faster triplet selection
-        self.class_to_indices = {}
-        for i, sample in enumerate(samples_list):
-            class_id = sample['class_id']
-            if class_id not in self.class_to_indices:
-                self.class_to_indices[class_id] = []
-            self.class_to_indices[class_id].append(i) # Store index in self.samples
-
         return samples_list
 
     def __len__(self):
-        """Returns the total number of anchor samples."""
         return len(self.samples)
-
-    def _find_positive(self, anchor_idx, anchor_class_id):
-        """Finds a positive sample index (different from anchor, same class)."""
-        possible_indices = self.class_to_indices.get(anchor_class_id, [])
-        if not possible_indices or len(possible_indices) == 1:
-            # No other samples of the same class, return anchor itself
-            return anchor_idx
-        # Exclude anchor itself and choose randomly
-        positive_idx = anchor_idx
-        while positive_idx == anchor_idx:
-            positive_idx = np.random.choice(possible_indices)
-        return positive_idx
-
-    def _find_negative(self, anchor_class_id):
-        """Finds a negative sample index (different class)."""
-        possible_classes = list(self.class_to_indices.keys())
-        if not possible_classes or len(possible_classes) == 1:
-             # No other classes available, something is wrong or only one class in dataset
-             # Fallback: maybe return a random sample from the same class? Or raise error?
-             print(f"Warning: Cannot find negative sample, only class {anchor_class_id} available.")
-             # Returning a random index from the same class as a poor fallback
-             return np.random.choice(self.class_to_indices.get(anchor_class_id, [0]))
-
-
-        negative_class_id = anchor_class_id
-        while negative_class_id == anchor_class_id:
-            negative_class_id = np.random.choice(possible_classes)
-
-        possible_indices = self.class_to_indices.get(negative_class_id, [])
-        if not possible_indices:
-             # Should not happen if class was chosen from keys, but safety check
-             print(f"Warning: No samples found for chosen negative class {negative_class_id}. Falling back.")
-             # Fallback to a random sample from the anchor class
-             return np.random.choice(self.class_to_indices.get(anchor_class_id, [0]))
-
-        return np.random.choice(possible_indices)
-
 
     def __getitem__(self, idx):
         """
-        Fetches and processes one triplet (Anchor, Positive, Negative)
-        and the anchor's classification label.
+        Fetches and processes one single data sample and its class label.
+        Triplet mining will happen in the training loop based on batches of these.
         """
-        # 1. Get Anchor Info
-        anchor_info = self.samples[idx]
-        anchor_path = anchor_info['anchor_path']
-        anchor_class_id = anchor_info['class_id']
+        sample_info = self.samples[idx]
+        file_path = sample_info['file_path']
+        class_id = sample_info['class_id']
 
-        # 2. Find Positive and Negative Sample Indices
-        # (Only needed if triplet loss is active, but simplifies structure to always find)
-        positive_idx = self._find_positive(idx, anchor_class_id)
-        negative_idx = self._find_negative(anchor_class_id)
-
-        positive_info = self.samples[positive_idx]
-        negative_info = self.samples[negative_idx]
-
-        positive_path = positive_info['anchor_path']
-        negative_path = negative_info['anchor_path']
-
-        # 3. Load Raw Data (from cache or disk)
-        raw_A, raw_P, raw_N = None, None, None
+        raw_data_sample = None
         if self.in_memory_data:
-            raw_A = self.loaded_samples_cache.get(anchor_path)
-            raw_P = self.loaded_samples_cache.get(positive_path)
-            raw_N = self.loaded_samples_cache.get(negative_path)
+            raw_data_sample = self.loaded_raw_cache.get(file_path)
         else:
-            raw_A = load_skeleton_data(anchor_path)
-            raw_P = load_skeleton_data(positive_path)
-            raw_N = load_skeleton_data(negative_path)
+            raw_data_sample = load_skeleton_data(file_path)
 
-        # Handle loading failures
-        if raw_A is None or raw_P is None or raw_N is None:
-             print(f"Warning: Failed to load raw data for triplet at index {idx}. Returning dummy data.")
-             # Fallback: return dummy data or raise error
-             _seq_len = abs(self.model_params.get('max_seq_len', 32))
-             if _seq_len == 0: _seq_len = 32
-             _num_feats = self.model_params.get('num_feats', 423) # Need num_feats here
-             dummy_data = torch.zeros(_seq_len, _num_feats, dtype=torch.float32)
-             dummy_label = torch.tensor(0, dtype=torch.long)
-             return dummy_data, dummy_data, dummy_data, dummy_label
+        if raw_data_sample is None:
+            print(f"Warning: Failed to load raw data for sample at index {idx}, path {file_path}. Returning dummy data.")
+            _seq_len = abs(self.model_params.get('max_seq_len', 32))
+            if _seq_len == 0: _seq_len = 32
+            _num_feats = self.model_params.get('num_feats', 423)
+            dummy_features = torch.zeros(_seq_len, _num_feats, dtype=torch.float32)
+            dummy_label = torch.tensor(0, dtype=torch.long) # Default label
+            return dummy_features, dummy_label
 
-
-        # 4. Select the main body skeleton for each
-        body_A = get_body_skel(raw_A, self.is_validation)
-        body_P = get_body_skel(raw_P, self.is_validation)
-        body_N = get_body_skel(raw_N, self.is_validation)
-
-        # Handle cases where body selection fails
-        if body_A is None or body_P is None or body_N is None:
-             print(f"Warning: Failed to select body skeleton for triplet at index {idx}. Returning dummy data.")
-             _seq_len = abs(self.model_params.get('max_seq_len', 32))
-             if _seq_len == 0: _seq_len = 32
-             _num_feats = self.model_params.get('num_feats', 423)
-             dummy_data = torch.zeros(_seq_len, _num_feats, dtype=torch.float32)
-             dummy_label = torch.tensor(0, dtype=torch.long)
-             return dummy_data, dummy_data, dummy_data, dummy_label
+        body_selected = get_body_skel(raw_data_sample, self.is_validation, mode=self.model_params.get('get_body_skel_mode', 'var'))
+        
+        if body_selected is None or body_selected.shape[0] == 0:
+            print(f"Warning: Failed to select a valid body skeleton for sample {file_path}. Returning dummy data.")
+            _seq_len = abs(self.model_params.get('max_seq_len', 32))
+            if _seq_len == 0: _seq_len = 32
+            _num_feats = self.model_params.get('num_feats', 423)
+            dummy_features = torch.zeros(_seq_len, _num_feats, dtype=torch.float32)
+            dummy_label = torch.tensor(class_id, dtype=torch.long) # Still return correct label if possible
+            return dummy_features, dummy_label
 
 
-        # 5. Process each skeleton (Augmentation, Normalization, Features, Padding)
-        # Pass the scaler object if it was loaded
-        # self.model_params['scaler_object'] = self.scaler
-        processed_A = get_pose_data_processed(body_A, self.is_validation, self.model_params)
-        processed_P = get_pose_data_processed(body_P, self.is_validation, self.model_params)
-        processed_N = get_pose_data_processed(body_N, self.is_validation, self.model_params)
+        # Process the single selected body
+        # The scaler object is now passed via model_params if loaded in __init__
+        processed_features_np = get_pose_data_processed(body_selected, self.is_validation, self.model_params)
 
-        # Handle processing failures
-        if processed_A is None or processed_P is None or processed_N is None:
-             print(f"Warning: Failed to process skeleton for triplet at index {idx}. Returning dummy data.")
-             _seq_len = abs(self.model_params.get('max_seq_len', 32))
-             if _seq_len == 0: _seq_len = 32
-             _num_feats = self.model_params.get('num_feats', 423)
-             dummy_data = torch.zeros(_seq_len, _num_feats, dtype=torch.float32)
-             dummy_label = torch.tensor(0, dtype=torch.long)
-             return dummy_data, dummy_data, dummy_data, dummy_label
+        if processed_features_np is None:
+            print(f"Warning: Failed to process skeleton for sample {file_path}. Returning dummy data.")
+            _seq_len = abs(self.model_params.get('max_seq_len', 32))
+            if _seq_len == 0: _seq_len = 32
+            _num_feats = self.model_params.get('num_feats', 423)
+            dummy_features = torch.zeros(_seq_len, _num_feats, dtype=torch.float32)
+            dummy_label = torch.tensor(class_id, dtype=torch.long)
+            return dummy_features, dummy_label
 
-        # 6. Convert to PyTorch Tensors
-        anchor_tensor = torch.from_numpy(processed_A)
-        positive_tensor = torch.from_numpy(processed_P)
-        negative_tensor = torch.from_numpy(processed_N)
-        # Classification target is the integer class ID of the anchor
-        clf_target_tensor = torch.tensor(anchor_class_id, dtype=torch.long)
 
-        return anchor_tensor, positive_tensor, negative_tensor, clf_target_tensor
+        # Convert to PyTorch Tensors
+        features_tensor = torch.from_numpy(processed_features_np.astype(np.float32))
+        label_tensor = torch.tensor(class_id, dtype=torch.long)
 
-# Example of how to potentially define/import helpers if not in the main Keras file
-# def load_scaler(**params):
-#    filename = get_scaler_filename(**params)
-#    with open(filename, 'rb') as f:
-#        scaler = pickle.load(f)
-#    return scaler
-#
-# def get_scaler_filename(**params):
-#    # ... implementation from Keras file ...
-#    pass
+        return features_tensor, label_tensor
+
+if __name__ == "__main__":
+    print("Testing TripletPoseDataset...")
+    # Create a dummy annotation file for testing
+    dummy_ann_file = "./ntu_annotations/one_shot_aux_set.txt"
+    with open(dummy_ann_file, "w") as f:
+        # Create a few dummy .npy files that load_skeleton_data expects
+        # For example, save a dict {'skel_body0': np.random.rand(50, 25, 3)}
+        # to "dummy_skel_0.npy" and "dummy_skel_1.npy"
+        np.save("dummy_skel_0.npy", {'skel_body0': np.random.rand(np.random.randint(20,60), 25, 3).astype(np.float32)})
+        np.save("dummy_skel_1.npy", {'skel_body0': np.random.rand(np.random.randint(20,60), 25, 3).astype(np.float32)})
+        f.write("dummy_skel_0.npy 0\n")
+        f.write("dummy_skel_1.npy 1\n")
+        f.write("dummy_skel_0.npy 0\n") # Another sample of class 0
+
+    test_model_params = {
+        # --- Fill with relevant parameters from your train.py model_params ---
+        "max_seq_len": -32, "joints_num": 25, "joints_dim": 3,
+        "center_skels": True, "h_flip": True, "scale_by_torso": True,
+        "temporal_scale": [0.8, 1.2], "skip_frames": [2],
+        "use_jcd_features": True, "use_coords": True, "use_bone_angles": True,
+        # ... other feature flags ...
+        "num_feats": get_num_feats( # Use your actual get_num_feats
+            joints_num=25, 
+            joints_dim=3, 
+            use_jcd_features=True, 
+            use_speeds=True,
+            use_coords_raw=True,
+            use_coords=True,
+            use_jcd_diff=True,
+            use_bone_angles=True,
+            use_bone_angles_cent=True
+        ),
+        "scale_data": False, # Set to True if you have a test scaler
+        # "scaler_path_override": "path/to/your/test_scaler.pckl" # If testing scaler
+    }
+
+    try:
+        dataset = TripletPoseDataset(
+            pose_annotations_file=dummy_ann_file,
+            validation_mode=False,
+            in_memory=False,
+            **test_model_params
+        )
+        print(f"Dataset length: {len(dataset)}")
+        if len(dataset) > 0:
+            features, label = dataset[0]
+            print(f"Sample 0 features shape: {features.shape}, dtype: {features.dtype}")
+            print(f"Sample 0 label: {label}, dtype: {label.dtype}")
+            assert features.shape[1] == test_model_params["num_feats"], "Feature dimension mismatch!"
+            assert features.shape[0] == abs(test_model_params["max_seq_len"]), "Sequence length mismatch!"
+
+            features_val, label_val = dataset[1] # Test another sample
+            print(f"Sample 1 features shape: {features_val.shape}")
+            print(f"Sample 1 label: {label_val}")
+
+        # Test with DataLoader
+        # loader = DataLoader(dataset, batch_size=2, shuffle=True)
+        # for batch_features, batch_labels in loader:
+        #     print(f"Batch features shape: {batch_features.shape}")
+        #     print(f"Batch labels: {batch_labels}")
+        #     break # Just test one batch
+    except Exception as e_test:
+        print(f"Error during Dataset test: {e_test}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        # Clean up dummy files
+        if os.path.exists(dummy_ann_file): os.remove(dummy_ann_file)
+        if os.path.exists("dummy_skel_0.npy"): os.remove("dummy_skel_0.npy")
+        if os.path.exists("dummy_skel_1.npy"): os.remove("dummy_skel_1.npy")
