@@ -7,6 +7,10 @@ Created on Sat Apr 18 18:10:29 2020
 """
 
 import os
+from scipy.special import comb
+import numpy as np
+import json
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -14,28 +18,13 @@ import torch.optim as optim # PyTorch Optimizer
 from torch.utils.data import Dataset, DataLoader # PyTorch Data Handling
 from torch.utils.tensorboard import SummaryWriter # PyTorch TensorBoard
 from torchinfo import summary # For model summary: pip install torchinfo
-
-from scipy.special import comb
-import numpy as np
-import tensorflow as tf
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint, ReduceLROnPlateau, EarlyStopping, LambdaCallback
 from torchviz import make_dot
-import json
 
-from data_generator import triplet_data_generator, get_scaler_filename, get_num_feats
-from train_callbacks import get_lr_metric  # eval_one_shot_callback, eval_one_shot_therapies_callback, 
 import train_utils
 from shutil import copyfile
 
 from models.TCN_classifier import TCN_clf
 # tf.config.experimental_run_functions_eagerly(True)
-
-from dataset_scripts.ntu120_utils.triplet_ntu_callback import eval_ntu_one_shot_triplets_callback
-from dataset_scripts.therapies.triplet_therapies_callback import eval_therapies_triplet_callback
-
-from remove_suboptimal_weights import remove_path_weights
-
 
 
 # Seed PyTorch
@@ -43,7 +32,6 @@ torch.manual_seed(123)
 if torch.cuda.is_available():
     torch.cuda.manual_seed_all(123)
 np.random.seed(123)
-tf.random.set_seed(123) # Remove TF seed
 
 
 
@@ -604,37 +592,3 @@ if __name__ == "__main__":
     else:
         model_params['effective_seq_len'] = model_params['max_seq_len']
 
-    # Placeholder for train_utils if not properly imported/defined
-    if 'train_utils' not in globals() or not hasattr(train_utils, 'create_model_folder'):
-        class train_utils_placeholder:
-            @staticmethod
-            def create_model_folder(path_results, model_name_base):
-                from datetime import datetime
-                ts = datetime.now().strftime("%m%d_%H%M%S") # Added seconds for more uniqueness
-                model_name_folder = f"{str(model_name_base)}_{ts}_run{np.random.randint(1000):03d}"
-                path_model = os.path.join(path_results, model_name_folder)
-                # os.makedirs(path_model, exist_ok=True) # path_model itself is created later
-                return path_model
-        train_utils = train_utils_placeholder
-
-    # Placeholder for get_num_feats if not properly imported/defined
-    if 'get_num_feats' not in globals():
-        def get_num_feats_placeholder(**params):
-            num_f = 0
-            num_j = params.get('joints_num', 25)
-            dim_j = params.get('joints_dim', 3)
-            if params.get('use_coords', False): num_f += num_j * dim_j
-            if params.get('use_jcd_features', False):
-                try: num_f += int(comb(num_j, 2))
-                except: num_f += 300 # Fallback
-            if params.get('use_bone_angles', False) :
-                # This is a very rough estimate for bone angles, actual calculation is complex
-                num_f += (num_j - 5) * dim_j if num_j > 5 else num_j * dim_j
-            if num_f == 0: # Default to a reasonable number if no features selected
-                print("Warning: get_num_feats_placeholder resulted in 0 features. Defaulting to 75 (coords only).")
-                num_f = num_j * dim_j
-            print(f"Placeholder get_num_feats calculated: {num_f}")
-            return num_f
-        get_num_feats = get_num_feats_placeholder
-        
-    main(model_params)

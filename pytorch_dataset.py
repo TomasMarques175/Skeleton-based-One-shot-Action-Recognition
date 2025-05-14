@@ -3,6 +3,7 @@
 import os
 import torch
 from torch.utils.data import Dataset
+from torch.utils.data import DataLoader
 import numpy as np
 import pickle
 from scipy.special import comb # Used in helper get_jcd_features, get_num_feats
@@ -235,10 +236,16 @@ def scale_skel_by_torso(skel):
 
     torso_dists = np.linalg.norm(skel[:, 20] - skel[:, 1], axis=1) + \
                 np.linalg.norm(skel[:, 1] - skel[:, 0], axis=1)
-    epsilon = 1e-6
+    """ 
+    epsilon = 0
     scale_factors = np.where(torso_dists > epsilon, 0.4 / torso_dists, 1.0)
-    skel_scaled = skel * scale_factors[:, np.newaxis, np.newaxis]
-    return skel_scaled
+    skel_scaled = skel * scale_factors[:, np.newaxis, np.newaxis] 
+    """
+    for i in range(skel.shape[0]):
+        rel = 0.4 / torso_dists[i] if torso_dists[i] != 0 else 1
+        skel[i] = skel[i] * rel
+
+    return skel
 
 def matrix_unit_vector(matrix):
     norms = np.linalg.norm(matrix, axis=1, keepdims=True)
@@ -769,7 +776,7 @@ class TripletPoseDataset(Dataset):
 if __name__ == "__main__":
     print("Testing TripletPoseDataset...")
     # Create a dummy annotation file for testing
-    dummy_ann_file = "./ntu_annotations/one_shot_aux_set.txt"
+    dummy_ann_file = "./ntu_annotations/dummy_annotations.txt"
     with open(dummy_ann_file, "w") as f:
         # Create a few dummy .npy files that load_skeleton_data expects
         # For example, save a dict {'skel_body0': np.random.rand(50, 25, 3)}
@@ -791,17 +798,19 @@ if __name__ == "__main__":
             joints_num=25, 
             joints_dim=3, 
             use_jcd_features=True, 
-            use_speeds=True,
-            use_coords_raw=True,
+            use_speeds=False,
+            use_coords_raw=False,
             use_coords=True,
-            use_jcd_diff=True,
+            use_jcd_diff=False,
             use_bone_angles=True,
-            use_bone_angles_cent=True
+            use_bone_angles_cent=False
         ),
         "scale_data": False, # Set to True if you have a test scaler
         # "scaler_path_override": "path/to/your/test_scaler.pckl" # If testing scaler
     }
-
+    
+    print(f"Test model parameters: {test_model_params}")
+    
     try:
         dataset = TripletPoseDataset(
             pose_annotations_file=dummy_ann_file,
@@ -822,11 +831,11 @@ if __name__ == "__main__":
             print(f"Sample 1 label: {label_val}")
 
         # Test with DataLoader
-        # loader = DataLoader(dataset, batch_size=2, shuffle=True)
-        # for batch_features, batch_labels in loader:
-        #     print(f"Batch features shape: {batch_features.shape}")
-        #     print(f"Batch labels: {batch_labels}")
-        #     break # Just test one batch
+        loader = DataLoader(dataset, batch_size=2, shuffle=True)
+        for batch_features, batch_labels in loader:
+            print(f"Batch features shape: {batch_features.shape}")
+            print(f"Batch labels: {batch_labels}")
+            break # Just test one batch
     except Exception as e_test:
         print(f"Error during Dataset test: {e_test}")
         import traceback

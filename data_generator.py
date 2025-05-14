@@ -128,8 +128,8 @@ def flip_skeleton(skel, flip_axis=0):
 
 
 def scale_skel_by_torso(skel):
-    torso_dists = np.linalg.norm(skel[:, 20] - skel[:, 1], axis=1) +\
-        np.linalg.norm(skel[:, 1] - skel[:, 0], axis=1)
+    torso_dists = np.linalg.norm(skel[:, 20] - skel[:, 1], axis=1) + \
+                np.linalg.norm(skel[:, 1] - skel[:, 0], axis=1)
     for i in range(skel.shape[0]):
         rel = 0.4 / torso_dists[i] if torso_dists[i] != 0 else 1
         skel[i] = skel[i] * rel
