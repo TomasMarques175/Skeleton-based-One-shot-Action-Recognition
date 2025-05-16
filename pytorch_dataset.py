@@ -46,7 +46,6 @@ def get_scaler_filename(**params):
     )
     return os.path.join(path_prefix, filename)
 
-# Similarly, get_num_feats if it's TF-free and used by the Dataset or its helpers.
 def get_num_feats(joints_num, joints_dim,
                 use_jcd_features, use_speeds, use_coords_raw, use_coords, use_jcd_diff,
                 use_bone_angles, use_bone_angles_cent, **kwargs):
@@ -143,7 +142,6 @@ def get_body_skel(pose_raw, validation, mode='var'):
 
     return valid_skeletons[chosen_valid_list_idx]
 
-
 def average_wrong_frame_skels(skels):
     if skels is None or len(skels) == 0: return skels
     if skels.ndim < 3: # Expects (frames, joints, dims)
@@ -180,7 +178,6 @@ def average_wrong_frame_skels(skels):
         # Or one could implement a more sophisticated fill, e.g., with a default pose.
     return skels
 
-
 def zoom_to_target_len(p, target_len, joints_num, joints_dim):
     num_frames = p.shape[0]
     if num_frames == target_len:
@@ -209,7 +206,6 @@ def zoom_to_target_len(p, target_len, joints_num, joints_dim):
                 p_new[:,m,n] = 0
     return p_new
 
-
 def flip_skeleton(skel, flip_axis=0):
     skel_flipped = skel.copy()
     aux = skel_flipped[..., FLIP_CORRESPONDENCES_LEFT, :].copy() # Ensure it's a copy for swap
@@ -226,7 +222,6 @@ def flip_skeleton(skel, flip_axis=0):
     if valid_joints_to_flip:
         skel_flipped[..., valid_joints_to_flip, flip_axis] = -skel_flipped[..., valid_joints_to_flip, flip_axis]
     return skel_flipped
-
 
 def scale_skel_by_torso(skel):
     if skel.shape[0] == 0: return skel
@@ -324,7 +319,6 @@ def get_transformation_matrix_global(skel):
         
     return np.stack(r_matrices)
 
-
 def transform_skel_global(skel, r_matrices):
     skel_h = np.concatenate([skel, np.ones((*skel.shape[:-1], 1))], axis=-1) # (Frames, Joints, 4)
     # r_matrices is (Frames, 4, 4)
@@ -347,7 +341,6 @@ def transform_skel_global(skel, r_matrices):
     transformed_skel_h = np.stack(transformed_skel_h_frames)
     return transformed_skel_h[..., :3]
 
-
 def get_jcd_features(p, joints_num):
     num_frames = p.shape[0]
     if num_frames == 0:
@@ -367,7 +360,6 @@ def get_jcd_features(p, joints_num):
         jcd_list.append(dist_matrix[iu_rows, iu_cols])
         
     return np.array(jcd_list, dtype=np.float32) if jcd_list else np.zeros((0, int(comb(joints_num, 2))), dtype=np.float32)
-
 
 def get_bone_spherical_angles(v): # v is (num_frames, dims) or (dims) for a single vector
     v = np.atleast_2d(v) # Ensure v is at least 2D for consistent indexing
@@ -409,7 +401,6 @@ def get_body_spherical_angles(body_coords): # body_coords is (frames, joints, di
         return np.zeros((num_frames, 0), dtype=np.float32)
 
     return np.concatenate(all_bone_angles_list, axis=1)
-
 
 def get_pose_data_processed(body_raw, is_validation, model_params):
     if body_raw is None or body_raw.shape[0] == 0:
@@ -702,7 +693,7 @@ class TripletPoseDataset(Dataset):
                             samples_list.append({
                                 'id': i,
                                 'file_path': file_path, # Renamed from 'anchor_path'
-                                'class_id': label
+                                'class_id': label - 1 # Adjusted to 0-indexed       
                             })
                         except ValueError:
                             print(f"    Warning: Invalid label format on line {i+1}: {line.strip()}")
