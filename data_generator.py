@@ -7,7 +7,6 @@ Created on Fri Apr 17 11:24:14 2020
 """
 
 from scipy.signal import medfilt
-from tensorflow.keras.preprocessing.sequence import pad_sequences
 from scipy.special import comb
 from tqdm import tqdm
 from scipy.spatial.distance import cdist
@@ -16,7 +15,6 @@ import os
 import numpy as np
 import sys
 import pickle
-from tensorflow.keras.utils import to_categorical
 
 
 flip_correspondences_left = [4, 5, 6, 7,   12, 13, 14, 15, 21, 22]

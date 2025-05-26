@@ -9,7 +9,6 @@ Created on Tue May 19 10:21:43 2020
 import ast
 import numpy as np
 
-from tcn import TCN
 from pytorch_tcn import TemporalConvNet
 from torch import nn
 import torch
@@ -243,8 +242,6 @@ class EncoderTCN(nn.Module):
         print(f"PyTorch TCN: num_levels={num_levels}, num_channels={num_channels}, kernel_size={kernel_size}, dropout={lstm_dropout}")
 
         # *** This assumes the pytorch_tcn.TemporalConvNet is the desired structure ***
-        # It differs significantly from the structure implied by the TF EncoderTCN1 loop structure.
-        # If you need the *exact* TF structure (multiple TCN blocks sequentially), you'd build it differently.
         self.tcn = TemporalConvNet(
             num_inputs=num_feats,
             num_channels=num_channels, # e.g., [256, 256] if nb_stacks=2
@@ -252,15 +249,15 @@ class EncoderTCN(nn.Module):
             dropout=lstm_dropout
         )
         # If you *did* want multiple sequential TemporalConvNets like in TF:
-        # layers = []
-        # current_channels = num_feats
-        # for i in range(num_tcn): # num_tcn from len(dilations)
-        #     # You'd need to adapt TemporalConvNet or TemporalBlock to handle custom dilations per block
-        #     # The current pytorch_tcn code has hardcoded dilations = 2**i within TemporalConvNet
-        #     tcn_layer = TemporalConvNet(...) # Needs adjustment for inputs/dilations
-        #     layers.append(tcn_layer)
-        #     current_channels = nb_filters # output of TCN
-        # self.encoder = nn.Sequential(*layers) # Use this if building sequentially
+        layers = []
+        current_channels = num_feats
+        for i in range(num_tcn): # num_tcn from len(dilations)
+            # You'd need to adapt TemporalConvNet or TemporalBlock to handle custom dilations per block
+            # The current pytorch_tcn code has hardcoded dilations = 2**i within TemporalConvNet
+            tcn_layer = TemporalConvNet(...) # Needs adjustment for inputs/dilations
+            layers.append(tcn_layer)
+            current_channels = nb_filters # output of TCN
+        self.encoder = nn.Sequential(*layers) # Use this if building sequentially
 
         # Using the single TemporalConvNet based on its implementation in pytorch_tcn.py
         self.encoder = nn.Sequential(self.tcn) # Wrap in sequential for consistency if needed, or just use self.tcn directly
@@ -395,7 +392,7 @@ class TCN_clf(nn.Module):
         # Classification output
         if self.classification:
             if self.clf_out is None:
-                 raise RuntimeError("Model configured for classification, but clf_out layer is missing.")
+                raise RuntimeError("Model configured for classification, but clf_out layer is missing.")
             # Apply final classification layer
             clf_logits = self.clf_out(features_for_clf)
             # Apply softmax here if you need probabilities directly from the model
@@ -407,9 +404,9 @@ class TCN_clf(nn.Module):
         # Return list of outputs (consistent with Keras multi-output models)
         # If only one output is active, consider returning just that tensor
         if len(out) == 1:
-             return out[0]
+            return out[0]
         else:
-             return out # Return list [emb, clf] or [emb] or [clf]
+            return out # Return list [emb, clf] or [emb] or [clf]
 
     # Get embedding: normalized output *before* final classification layer
     def get_embedding(self, x, batch=None, unify=False):

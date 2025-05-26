@@ -8,8 +8,6 @@ Created on Sat Apr 18 18:20:14 2020
 
 import os
 import datetime
-import shutil
-
 
 def create_folder_if_not_exists(folder_path):
     if not os.path.isdir(folder_path):
