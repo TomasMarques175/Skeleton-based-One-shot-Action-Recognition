@@ -69,7 +69,7 @@ class EncoderTCN(Model):
         # print('TCN', -1, dilations[-1], l.receptive_field)
 
         for l in self.encoder_layers:
-            print(l)
+            print('************* layer', l)
 
         self.encoder = Sequential(self.encoder_layers)
 

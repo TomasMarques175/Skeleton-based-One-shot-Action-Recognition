@@ -55,16 +55,18 @@ def main(model_params):
         scaler_filename = get_scaler_filename(**model_params)
         copyfile(scaler_filename, model_params['path_model'] + '/scaler.pckl')    
     
-    
+    # Set model parameters
+    print(' * Setting model parameters')
     model = TCN_clf(**model_params)
     
-    
     # Build model
-    model.build((None, None, model_params['num_feats']))
+    print(' * Building model')
+    model.build((None, None, model_params['num_feats']))    
     
     # Initialize inputs and outputs
+    print(' * Initializing inputs and outputs')
     dummy_inpt = (np.random.rand(model_params['batch_size'], max(abs(model_params['max_seq_len']), 123), model_params['num_feats']))
-    print(' * dummy_shape:', dummy_inpt.shape)
+    print(' * dummy_inpt shape:', dummy_inpt.shape)
     dummy_pred = model(dummy_inpt);
     print(' * dummy_pred shape', [ p.shape for p in dummy_pred ])
     dummy_pred = model.predict(dummy_inpt);
@@ -72,7 +74,8 @@ def main(model_params):
     dummy_emb = model.get_embedding(dummy_inpt);
     print(' * dummy_emb shape', dummy_emb.shape)
     
-    
+    # Set optimizer
+    print(' * Setting optimizer')
     optimizer = Adam(model_params['init_lr'], clipnorm=1.)
     losses, metrics, loss_weights, sample_weights_mode = {}, {}, {}, {}
     losses['output_1'] = tf.keras.losses.CategoricalCrossentropy()
@@ -80,16 +83,19 @@ def main(model_params):
     # loss_weights = None
     # loss_weights = [ 1.0 ]
     metrics = [ 'accuracy', get_lr_metric(optimizer) ]
-        
-
+    
+    # Show losses, metrics and loss_weights
     print(' * losses:', losses)
     print(' * loss_weights:', loss_weights)
     if sample_weights_mode == {}: sample_weights_mode = None
     print(' * sample_weights_mode:', sample_weights_mode)
 
+    # Show model summary
+    print(' * Model summary')
     model.summary(100)
 
-    
+    exit(0)
+
     monitor = model_params.get('monitor', 'val_loss')
     print(' * Monitor:', monitor)
     model_chkpt_path = 'ep{epoch:03d}-loss{loss:.5f}-' + monitor + '{' + monitor + ':.5f}.ckpt'
@@ -103,10 +109,9 @@ def main(model_params):
                 ]
 
 
-
     file_writer = tf.summary.create_file_writer(model_params['path_model'] + "/metrics")
     file_writer.set_as_default()
-        
+    
 
     #if model_params['eval_ntu']: 
     #    callbacks = [LambdaCallback(_supports_tf_logs = True, 
@@ -122,7 +127,7 @@ def main(model_params):
     print(' * metrics:', metrics)
     print(' * sample_weights_mode:', sample_weights_mode)
     
-
+    
     model.compile(optimizer=optimizer,
                   loss = losses,
                   metrics = metrics,
@@ -135,7 +140,6 @@ def main(model_params):
     model.save(model_params['path_model'] + 'model')
     
 
-    
     train_gen = triplet_data_generator(pose_annotations_file=model_params['train_annotations'], 
                            validation=False, 
                            in_memory_generator=model_params['in_memory_generator_train'],
