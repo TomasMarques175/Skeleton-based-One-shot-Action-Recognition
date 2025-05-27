@@ -237,10 +237,10 @@ class EncoderTCN(nn.Module):
         # lstm_dropout -> dropout
 
         num_levels = nb_stacks # Number of TemporalBlocks based on TF param interpretation
-        num_channels = [nb_filters] * num_levels # List of output channels for each level
+        #num_channels = [nb_filters] * num_levels # List of output channels for each level
+        num_channels = [nb_filters] * 3 # List of output channels for each level
 
         print(f"PyTorch TCN: num_levels={num_levels}, num_channels={num_channels}, kernel_size={kernel_size}, dropout={lstm_dropout}")
-
         # *** This assumes the pytorch_tcn.TemporalConvNet is the desired structure ***
         self.tcn = TemporalConvNet(
             num_inputs=num_feats,
@@ -249,15 +249,15 @@ class EncoderTCN(nn.Module):
             dropout=lstm_dropout
         )
         # If you *did* want multiple sequential TemporalConvNets like in TF:
-        layers = []
-        current_channels = num_feats
-        for i in range(num_tcn): # num_tcn from len(dilations)
-            # You'd need to adapt TemporalConvNet or TemporalBlock to handle custom dilations per block
-            # The current pytorch_tcn code has hardcoded dilations = 2**i within TemporalConvNet
-            tcn_layer = TemporalConvNet(...) # Needs adjustment for inputs/dilations
-            layers.append(tcn_layer)
-            current_channels = nb_filters # output of TCN
-        self.encoder = nn.Sequential(*layers) # Use this if building sequentially
+        # layers = []
+        # current_channels = num_feats
+        # for i in range(num_tcn): # num_tcn from len(dilations)
+        #     # You'd need to adapt TemporalConvNet or TemporalBlock to handle custom dilations per block
+        #     # The current pytorch_tcn code has hardcoded dilations = 2**i within TemporalConvNet
+        #     tcn_layer = TemporalConvNet(...) # Needs adjustment for inputs/dilations
+        #     layers.append(tcn_layer)
+        #     current_channels = nb_filters # output of TCN
+        # self.encoder = nn.Sequential(*layers) # Use this if building sequentially
 
         # Using the single TemporalConvNet based on its implementation in pytorch_tcn.py
         self.encoder = nn.Sequential(self.tcn) # Wrap in sequential for consistency if needed, or just use self.tcn directly
@@ -275,7 +275,7 @@ class EncoderTCN(nn.Module):
 
     # get_embedding should likely return the raw encoder output (last step)
     def get_embedding(self, x):
-         # Input x: (N, L, C_in)
+        # Input x: (N, L, C_in)
         x = x.permute(0, 2, 1)  # Permute to (N, C_in, L) for Conv1d
         y = self.encoder(x)    # Output y: (N, C_out, L_out)
         # Return the last time step as the embedding
@@ -346,6 +346,7 @@ class TCN_clf(nn.Module):
         self.triplet = triplet
         self.classification = classification
 
+        print(f"nb_filters: {nb_filters}")
         # Determine the input size for the classifier head
         # EncoderTCN outputs (N, nb_filters) when prediction_mode=False
         encoder_output_features = nb_filters
@@ -364,7 +365,7 @@ class TCN_clf(nn.Module):
             if num_classes is None:
                 raise ValueError("num_classes must be provided if classification is True")
             self.clf_out = nn.Linear(clf_input_features, num_classes)
-            # Note: Softmax is often applied *outside* the model during loss calculation (e.g., with nn.CrossEntropyLoss)
+            # TODO: Softmax is often applied *outside* the model during loss calculation (e.g., with nn.CrossEntropyLoss)
             # If you need softmax output directly, add nn.Softmax(dim=1) here or apply it in forward pass.
 
 
@@ -379,7 +380,7 @@ class TCN_clf(nn.Module):
             features_for_clf = F.relu(self.clf_dense(encoder_features))
         else:
             features_for_clf = encoder_features
-
+        print(f"Features for classification: {features_for_clf.shape}") # Debugging output
         out = []
 
         # Triplet output (embedding) - Use the features *before* the final clf_out layer

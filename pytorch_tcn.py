@@ -11,7 +11,7 @@ class Chomp1d(nn.Module):
 
     def forward(self, x):
         return x[:, :, :-self.chomp_size].contiguous()
-    
+
 
 class TemporalBlock(nn.Module):
     def __init__(self, n_inputs, n_outputs, kernel_size, stride, dilation, padding, dropout=0.2):
@@ -51,6 +51,7 @@ class TemporalConvNet(nn.Module):
         super(TemporalConvNet, self).__init__()
         layers = []
         num_levels = len(num_channels)
+        print(f"num_levels: {num_levels}, num_channels: {num_channels}")
         for i in range(num_levels):
             dilation_size = 2 ** i
             in_channels = num_inputs if i == 0 else num_channels[i-1]
