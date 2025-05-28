@@ -184,7 +184,7 @@ if __name__ == "__main__":
         # # NTU-120 Data sets to optimize the therapy data
         # "train_annotations": "./ntu_annotations/one_shot_aux_set_train_full8.txt",
         # "val_annotations": "./ntu_annotations/one_shot_aux_set_val_full8.txt",
-        "eval_therapies": True,       ### Therapy data needed for its evaluation
+        # "eval_therapies": True,       ### Therapy data needed for its evaluation
         # "eval_therapies_triplets_dataset": "./therapies_annotations/triplets/triplets_dataset.pckl",
         # "eval_therapies_triplets_bgnd_dataset": "./therapies_annotations/triplets/triplets_ther_pat_bgnd_dataset.pckl",
         # "eval_therapies_video_skels": "./therapies_annotations/video_skels.pckl",
@@ -194,7 +194,7 @@ if __name__ == "__main__":
         # NTU-120 Data sets to optimize the NTU one-shot benchmark
         "train_annotations": "./ntu_annotations/one_shot_aux_set.txt",
         "val_annotations": "",
-        # "eval_therapies": False,
+        "eval_therapies": False,
         "h_flip": False,
         "monitor": "ntu_one_shot_acc_euc",
         "min_monitor": False,

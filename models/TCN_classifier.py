@@ -37,23 +37,6 @@ class EncoderTCN(Model):
             print('MASKING')
             self.encoder_layers.append(Masking())
 
-        num_tcn = len(dilations)
-        print('num_tcn:', num_tcn)
-        for i in range(num_tcn-1):
-            l = TCN(
-                nb_filters=nb_filters,
-                kernel_size=kernel_size,
-                nb_stacks=nb_stacks,
-                use_skip_connections=use_skip_connections,
-                padding=padding,
-                dilations=dilations[i],
-                dropout_rate=lstm_dropout,
-                return_sequences=True,
-                use_batch_norm=tcn_batch_norm
-            )
-            self.encoder_layers.append(l)
-            print('TCN', i, dilations[i], l.receptive_field)
-
         l = TCN(
             nb_filters=nb_filters,
             kernel_size=kernel_size,
@@ -66,7 +49,7 @@ class EncoderTCN(Model):
             use_batch_norm=tcn_batch_norm
         )
         self.encoder_layers.append(l)
-        # print('TCN', -1, dilations[-1], l.receptive_field)
+        print('TCN', -1, dilations[-1], l.receptive_field)
 
         for l in self.encoder_layers:
             print('************* layer', l)
@@ -117,6 +100,7 @@ class TCN_clf(Model):
             raise ValueError(
                 'conv_params length not recognized', len(conv_params))
 
+        print('dilations', dilations)
         self.encoder_net = EncoderTCN(
             num_feats=num_feats,
             nb_filters=nb_filters,
@@ -146,7 +130,7 @@ class TCN_clf(Model):
 
     def call(self, x):
         encoder_raw = self.encoder_net(x)
-
+        print('encoder_raw', encoder_raw.shape)
         if self.clf_neurons != 0:
             encoder = self.clf_dense(encoder_raw)
         else:
