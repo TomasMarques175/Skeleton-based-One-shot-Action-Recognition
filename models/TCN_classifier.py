@@ -236,31 +236,17 @@ class EncoderTCN(nn.Module):
         # kernel_size -> kernel_size
         # lstm_dropout -> dropout
 
-        num_levels = nb_stacks # Number of TemporalBlocks based on TF param interpretation
-        #num_channels = [nb_filters] * num_levels # List of output channels for each level
-        num_channels = [nb_filters] * 3 # List of output channels for each level
-
-        print(f"PyTorch TCN: num_levels={num_levels}, num_channels={num_channels}, kernel_size={kernel_size}, dropout={lstm_dropout}")
-        # *** This assumes the pytorch_tcn.TemporalConvNet is the desired structure ***
+        print(f"nb_stacks: {nb_stacks}, kernel_size: {kernel_size}, lstm_dropout: {lstm_dropout}")
         self.tcn = TemporalConvNet(
-            num_inputs=num_feats,
-            num_channels=num_channels, # e.g., [256, 256] if nb_stacks=2
+            input_dim=num_feats,
+            nb_filters=nb_filters, # e.g., 256 if nb_filters=256
             kernel_size=kernel_size,
-            dropout=lstm_dropout
+            dilations=dilations, # e.g., [1, 2, 4, 8, 16, 32] or [[1,2,4]] if complex structure
+            nb_stacks=nb_stacks, # e.g., [256, 256] if nb_stacks=2
+            dropout_rate=lstm_dropout
         )
-        # If you *did* want multiple sequential TemporalConvNets like in TF:
-        # layers = []
-        # current_channels = num_feats
-        # for i in range(num_tcn): # num_tcn from len(dilations)
-        #     # You'd need to adapt TemporalConvNet or TemporalBlock to handle custom dilations per block
-        #     # The current pytorch_tcn code has hardcoded dilations = 2**i within TemporalConvNet
-        #     tcn_layer = TemporalConvNet(...) # Needs adjustment for inputs/dilations
-        #     layers.append(tcn_layer)
-        #     current_channels = nb_filters # output of TCN
-        # self.encoder = nn.Sequential(*layers) # Use this if building sequentially
-
-        # Using the single TemporalConvNet based on its implementation in pytorch_tcn.py
-        self.encoder = nn.Sequential(self.tcn) # Wrap in sequential for consistency if needed, or just use self.tcn directly
+    
+        self.encoder = nn.Sequential(self.tcn)
 
     def forward(self, x):
         # Input x: (N, L, C_in)
@@ -293,13 +279,7 @@ class TCN_clf(nn.Module):
                  clf_neurons=None,
                  num_classes=None,
                  prediction_mode=False, # Pass this to EncoderTCN
-                 # These params seem related to the TF LSTM version, not TCN, but keep if needed elsewhere
-                 lstm_decoder=False,
-                 num_layers=None,
-                 num_neurons=None,
-                 # ---
                  tcn_batch_norm=False, # Pass to EncoderTCN
-                 use_gru=False,        # Not used in TCN part
                  **kwargs):
 
         super(TCN_clf, self).__init__()
