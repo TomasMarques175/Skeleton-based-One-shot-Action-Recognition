@@ -191,24 +191,24 @@ def main(model_params):
 
     # --- PyTorch Optimizer and Loss (Mimicking Keras printouts) ---
     print('\n * Setting optimizer (PyTorch)')
-    optimizer_pt = optim.Adam(model.parameters(), lr=model_params['init_lr'])
+    optimizer = optim.Adam(model.parameters(), lr=model_params['init_lr'])
     # Note: clipnorm is applied manually in PyTorch training loop (torch.nn.utils.clip_grad_norm_)
-    print(f"   Optimizer: {type(optimizer_pt)}, LR: {model_params['init_lr']}")
+    print(f"   Optimizer: {type(optimizer)}, LR: {model_params['init_lr']}")
 
     print(' * Defining losses and loss_weights (PyTorch)')
-    active_losses_pt = {}
+    active_losses = {}
     loss_weights_pytorch_pt = {}
     if model_params.get('classification', True):
-        criterion_clf_pt = nn.CrossEntropyLoss()
-        active_losses_pt['classification'] = type(criterion_clf_pt)
+        criterion_clf = nn.CrossEntropyLoss()
+        active_losses['classification'] = criterion_clf
         # Match Keras loss_weights['output_1'] = 0.4 if classification is the primary/first output
         loss_weights_pytorch_pt['classification'] = model_params.get('clf_loss_weight', 0.4)
     if model_params.get('triplet', False): # If you also had triplet loss in Keras
         criterion_triplet_pt = nn.TripletMarginLoss(margin=model_params.get('triplet_margin', 1.0))
-        active_losses_pt['triplet'] = type(criterion_triplet_pt)
+        active_losses['triplet'] = criterion_clf
         loss_weights_pytorch_pt['triplet'] = model_params.get('triplet_loss_weight', 0.6) # Example
 
-    print(' * losses (PyTorch types):', active_losses_pt)
+    print(' * losses (PyTorch types):', active_losses)
     print(' * loss_weights (PyTorch):', loss_weights_pytorch_pt)
     # sample_weights_mode is not a direct PyTorch concept, handled manually if needed
 
@@ -221,8 +221,8 @@ def main(model_params):
     except Exception as e:
         print(f"torchinfo summary failed: {e}.\nBasic model structure:\n{model}")
 
-    print("\nExiting after Keras-like debugging block.")
-    exit(0) # Exit here to match the Keras script's behavior
+    #print("\nExiting after Keras-like debugging block.")
+    #exit(0) # Exit here to match the Keras script's behavior
 
 
     tb_log_dir = os.path.join(model_params['path_model'], 'tensorboard_logs')
@@ -329,8 +329,8 @@ def main(model_params):
 
             # Calculate Classification Loss
             if 'classification' in active_losses and clf_logits_batch is not None:
-                loss_c = active_losses['classification'](clf_logits_batch, labels_batch)
-                current_batch_total_loss += loss_weights_pytorch['classification'] * loss_c
+                loss_c = active_losses['classification'](clf_logits_batch, labels_batch.to(device).long())
+                current_batch_total_loss += loss_weights_pytorch_pt['classification'] * loss_c
                 running_train_loss_clf += loss_c.item()
                 if batch_idx == 0 and epoch == 0: print(f"  Classification loss component active. Example batch loss_c: {loss_c.item():.4f}")
 
@@ -407,7 +407,7 @@ def main(model_params):
 
                     if 'classification' in active_losses and clf_logits_batch_val is not None:
                         loss_c_val = active_losses['classification'](clf_logits_batch_val, labels_batch_val)
-                        current_batch_val_total_loss += loss_weights_pytorch['classification'] * loss_c_val # Use configured weight
+                        current_batch_val_total_loss += loss_weights_pytorch_pt['classification'] * loss_c_val # Use configured weight
                         running_val_loss_clf += loss_c_val.item()
 
                         _, predicted_indices = torch.max(clf_logits_batch_val, 1)
@@ -545,6 +545,7 @@ if __name__ == "__main__":
         "num_layers": 2,
         "num_neurons": 256,
         "batch_size": 64,
+        "epochs": 100,
         "masking": True,
         "center_skels": True,
         "scale_by_torso": True,
