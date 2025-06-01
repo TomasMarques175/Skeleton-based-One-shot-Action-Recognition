@@ -285,7 +285,7 @@ def main(model_params):
             val_loader = None
     else:
         print("No validation annotations provided, val_loader will be None.")
-
+    exit(0)
     # --- Training Loop ---
     print("\n--- Starting PyTorch Training ---")
     num_epochs = model_params.get('epochs', 1)
