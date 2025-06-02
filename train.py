@@ -138,7 +138,8 @@ def main(model_params):
                 print("Warning: get_scaler_filename did not return a path. Scaler not copied.")
         except Exception as e:
             print(f"Warning: Error handling scaler file: {e}. Skipping scaler copy.")
-        
+    
+    
     # --- PyTorch Model Instantiation ---
     print('\n * Setting model parameters (PyTorch)') # Mimicking Keras log
     # Ensure num_classes is correctly derived if dataset re-indexing happened,
@@ -152,23 +153,23 @@ def main(model_params):
     )
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
-    print(f"Model moved to device: {device}")
+    print(f"\n* Model moved to device: {device}\n")
 
 
     # --- Keras-like Debugging Block ---
-    print('\n * Building model (PyTorch does not require explicit build)')
+    print('\n* Building model (PyTorch does not require explicit build)\n')
     # No model.build() in PyTorch, it's built on first forward pass or by knowing input shape
 
-    print(' * Initializing inputs and outputs (PyTorch)')
+    print('\n* Initializing inputs and outputs (PyTorch)')
     # Use parameters from model_params for dummy input size
     # Keras dummy_inpt was (batch_size, max(abs(max_seq_len), 123), num_feats)
-    dummy_batch_size = model_params.get('batch_size', 64)
+    dummy_batch_size = model_params.get('batch_size', 32)
     dummy_seq_len_abs = abs(model_params.get('max_seq_len', -32))
     dummy_seq_len = max(dummy_seq_len_abs if dummy_seq_len_abs > 0 else 32, 123) # Match Keras logic
     dummy_num_feats = model_params['num_feats']
-
+    print(f"\n* Dummy input shape: (batch_size={dummy_batch_size}, seq_len={dummy_seq_len}, num_feats={dummy_num_feats})")
     dummy_inpt_np = np.random.rand(dummy_batch_size, dummy_seq_len, dummy_num_feats).astype(np.float32)
-    print(' * dummy_inpt_np shape (NumPy):', dummy_inpt_np.shape)
+    print(f"\n* Dummy input shape (NumPy): {dummy_inpt_np.shape}")
 
     # Convert NumPy to PyTorch tensor
     dummy_inpt_torch = torch.from_numpy(dummy_inpt_np).to(device)
@@ -188,6 +189,17 @@ def main(model_params):
         # Ensure get_embedding also takes a PyTorch tensor
         dummy_emb_torch = model.get_embedding(dummy_inpt_torch)
         print(' * dummy_emb_torch shape (PyTorch get_embedding(input)):', dummy_emb_torch.shape)
+
+    # If model returns a single tensor instead of a list
+    if isinstance(dummy_pred_torch_call, torch.Tensor):
+        dummy_pred_torch_call = [dummy_pred_torch_call]
+
+    # Save each full output (not each sample)
+    for i, out in enumerate(dummy_pred_torch_call):
+        np.save(f'pytorch_output_{i}.npy', out.cpu().numpy())
+        # Optional readable version
+        reshaped = out.view(out.size(0), -1).cpu().numpy()
+        np.savetxt(f'pytorch_output_{i}.txt', reshaped)
 
     # --- PyTorch Optimizer and Loss (Mimicking Keras printouts) ---
     print('\n * Setting optimizer (PyTorch)')
@@ -217,13 +229,10 @@ def main(model_params):
     try:
         # Use the dummy input shape for summary
         summary_input_shape_for_debug = (dummy_batch_size, dummy_seq_len, dummy_num_feats)
+        print(f"* Using input shape for summary: {summary_input_shape_for_debug}\n")
         summary(model, input_size=summary_input_shape_for_debug, col_names=["input_size", "output_size", "num_params", "kernel_size"], verbose=1)
     except Exception as e:
         print(f"torchinfo summary failed: {e}.\nBasic model structure:\n{model}")
-
-    #print("\nExiting after Keras-like debugging block.")
-    #exit(0) # Exit here to match the Keras script's behavior
-
 
     tb_log_dir = os.path.join(model_params['path_model'], 'tensorboard_logs')
     os.makedirs(tb_log_dir, exist_ok=True)
@@ -252,6 +261,8 @@ def main(model_params):
     early_stopping_patience = model_params.get('es_patience', 6)
     early_stopping_counter = 0
     best_val_for_early_stop = float('-inf') if monitor_mode == 'max' else float('inf')
+
+    exit(0)
 
     # --- Data Loading ---
     print("\n--- Setting up PyTorch DataLoaders ---")
@@ -285,11 +296,14 @@ def main(model_params):
             val_loader = None
     else:
         print("No validation annotations provided, val_loader will be None.")
-    exit(0)
+
+
     # --- Training Loop ---
     print("\n--- Starting PyTorch Training ---")
     num_epochs = model_params.get('epochs', 1)
-
+    train_losses = []
+    softmax_outputs = [] # To store softmax outputs if needed
+    
     for epoch in range(num_epochs):
         epoch_start_time = time.time()
         print(f"\nEpoch {epoch+1}/{num_epochs}")
@@ -326,6 +340,11 @@ def main(model_params):
             else:
                 print("Warning: Neither triplet nor classification is enabled. No loss to compute. Skipping batch.")
                 continue
+                
+            if clf_logits_batch is not None:
+                with torch.no_grad():
+                    probs = torch.softmax(clf_logits_batch, dim=1)
+                    softmax_outputs.append(probs.cpu().numpy())
 
             # Calculate Classification Loss
             if 'classification' in active_losses and clf_logits_batch is not None:
@@ -367,6 +386,7 @@ def main(model_params):
                 print(f"  Train Batch: {batch_idx+1}/{len(train_loader)} Loss: {current_batch_total_loss.item():.4f}")
 
         avg_epoch_train_loss = running_train_loss / len(train_loader) if len(train_loader) > 0 else 0
+        train_losses.append(avg_epoch_train_loss)
         tb_writer.add_scalar('LossEpoch_Train/Total', avg_epoch_train_loss, epoch)
         if 'classification' in active_losses:
             tb_writer.add_scalar('LossEpoch_Train/Classification', running_train_loss_clf / len(train_loader) if len(train_loader) > 0 else 0, epoch)
@@ -376,6 +396,7 @@ def main(model_params):
         current_lr = optimizer.param_groups[0]['lr']
         tb_writer.add_scalar('LearningRate', current_lr, epoch)
         print(f"Epoch {epoch+1} Train Summary: Avg Total Loss: {avg_epoch_train_loss:.4f}, LR: {current_lr}")
+
 
         # --- Validation Phase ---
         val_metrics = {} # To store metrics like loss, accuracy
@@ -404,7 +425,6 @@ def main(model_params):
                     elif model_params.get('classification', True):
                         clf_logits_batch_val = model_output_val
                     # else if triplet only, handle embeddings_batch_val
-
                     if 'classification' in active_losses and clf_logits_batch_val is not None:
                         loss_c_val = active_losses['classification'](clf_logits_batch_val, labels_batch_val)
                         current_batch_val_total_loss += loss_weights_pytorch_pt['classification'] * loss_c_val # Use configured weight
@@ -479,6 +499,10 @@ def main(model_params):
         print(f"Epoch {epoch+1} duration: {epoch_duration:.2f} seconds")
         if epoch_duration > 0 : tb_writer.add_scalar('Performance/epoch_duration_sec', epoch_duration, epoch)
 
+    np.savez('torch_training_data.npz',
+            train_losses=np.array(train_losses),
+            softmax_outputs=np.concatenate(softmax_outputs, axis=0),  # optional
+    )
 
     tb_writer.close()
     print("\n--- PyTorch Training Finished ---")
@@ -545,12 +569,15 @@ if __name__ == "__main__":
         "num_layers": 2,
         "num_neurons": 256,
         "batch_size": 64,
-        "epochs": 100,
+        "epochs": 1,
         "masking": True,
         "center_skels": True,
         "scale_by_torso": True,
         "temporal_scale": [0.8, 1.2],
-        "classification": True, "triplet": False, "decoder": False, "reverse_decoder": False,
+        "classification": True,
+        "triplet": False,
+        "decoder": False,
+        "reverse_decoder": False,
         "num_classes": 120,
         "clf_neurons": 0,
 

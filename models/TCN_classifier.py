@@ -33,9 +33,9 @@ class EncoderTCN(nn.Module):
             # nn.Conv1d doesn't have a built-in masking argument like Keras.
             # You might need to handle padding/masking *before* the TCN or
             # use libraries that support masked convolutions if needed.
-            print("MASKING — requires manual implementation or specific handling in PyTorch")
+            print("\t* MASKING — requires manual implementation or specific handling in PyTorch")
 
-        print(f"nb_stacks: {nb_stacks}, kernel_size: {kernel_size}, lstm_dropout: {lstm_dropout}")
+        print(f"\t* nb_stacks: {nb_stacks}, kernel_size: {kernel_size}, lstm_dropout: {lstm_dropout}")
         self.tcn = TemporalConvNet(
             input_dim=num_feats,
             nb_filters=nb_filters, # e.g., 256 if nb_filters=256
@@ -101,12 +101,12 @@ class TCN_clf(nn.Module):
                  # This structure implies multiple sequential TCNs like in TF EncoderTCN1
                  # The current pytorch_tcn.TemporalConvNet doesn't support this directly
                  dilations_structure = [[i for i in [1, 2, 4, 8, 16, 32] if i <= d] for d in dilations_param]
-                 print("Complex dilations structure:", dilations_structure, "- Not directly used by provided pytorch_tcn.py")
+                 print("\t* Complex dilations structure:", dilations_structure, "- Not directly used by provided pytorch_tcn.py")
                  dilations = dilations_structure # Store it, but may not be used by EncoderTCN as written
         else:
             raise ValueError('conv_params length not recognised', len(conv_params))
 
-        print("Initializing PyTorch EncoderTCN...")
+        print("\t* Initializing PyTorch EncoderTCN...")
         # Encoder - Pass relevant interpreted parameters
         self.encoder_net = EncoderTCN(num_feats=num_feats,
                                       nb_filters=nb_filters,
@@ -123,7 +123,7 @@ class TCN_clf(nn.Module):
         self.triplet = triplet
         self.classification = classification
 
-        print(f"nb_filters: {nb_filters}")
+        print(f"\t* nb_filters: {nb_filters}")
         # Determine the input size for the classifier head
         # EncoderTCN outputs (N, nb_filters) when prediction_mode=False
         encoder_output_features = nb_filters
@@ -148,14 +148,17 @@ class TCN_clf(nn.Module):
         # Input x: (N, L, C)
         # Encoder output depends on prediction_mode
         # Assuming prediction_mode=False (default for training/classification) -> (N, C_out)
+        # print(f'\t******** Call TCN_clf with input shape: {x.shape} ********\n')
         encoder_features = self.encoder_net(x) # Shape (N, nb_filters)
-
+        # print(f'\t* Encoder features shape: {encoder_features.shape}') # Debugging output
         # Pass through optional intermediate dense layer
         if self.clf_dense is not None:
             features_for_clf = F.relu(self.clf_dense(encoder_features))
         else:
             features_for_clf = encoder_features
-        print(f"Features for classification: {features_for_clf.shape}") # Debugging output
+        
+        # print(f"\t* Features for classification: {features_for_clf.shape}\n")
+        
         out = []
 
         # Triplet output (embedding) - Use the features *before* the final clf_out layer
@@ -177,7 +180,9 @@ class TCN_clf(nn.Module):
             # out.append(clf_probs)
             # Otherwise, return logits (common for nn.CrossEntropyLoss)
             out.append(clf_logits)
-
+        
+        # print(f'\t******** Exit TCN_clf with output shape: {[o.shape for o in out]} ********\n\n')
+        
         # Return list of outputs (consistent with Keras multi-output models)
         # If only one output is active, consider returning just that tensor
         if len(out) == 1:
@@ -256,4 +261,4 @@ class TCN_clf(nn.Module):
     # def set_encoder_return_sequences(self, return_sequences):
     #     # In our PyTorch EncoderTCN, this is controlled by the 'prediction_mode' flag
     #     self.encoder_net.prediction_mode = return_sequences
-    #     print(f"EncoderTCN prediction_mode set to: {self.encoder_net.prediction_mode}")
+    #     print(f"\t* EncoderTCN prediction_mode set to: {self.encoder_net.prediction_mode}")

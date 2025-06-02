@@ -46,9 +46,9 @@ class ResidualBlock(nn.Module):
         self.conv2 = nn.Conv1d(out_channels, out_channels, kernel_size,
                                padding=conv_padding2, dilation=dilation)
 
-        print(f"self.conv1 kernel_size={self.conv1.kernel_size}, "
+        print(f"\t\t* self.conv1 kernel_size={self.conv1.kernel_size}, "
               f"self.conv1 padding={self.pad1}, dilation={self.conv1.dilation}")
-        print(f"self.conv2 kernel_size={self.conv2.kernel_size}, "
+        print(f"\t\t* self.conv2 kernel_size={self.conv2.kernel_size}, "
                 f"self.conv2 padding={self.pad2}, dilation={self.conv2.dilation}")
 
         if use_weight_norm:
@@ -73,49 +73,60 @@ class ResidualBlock(nn.Module):
         # Skip connection
         self.downsample = nn.Conv1d(in_channels, out_channels, 1) if in_channels != out_channels else None
 
-    def forward(self, x_input): # x_input shape: (batch, channels, time)
-        # Convolutional path (F(x))
+    def forward(self, x_input):  # x_input shape: (batch, channels, time)
+        print(f"\n\t\t>> Input to ResidualBlock: {x_input.shape}")
+
         # Block 1
         out = self.pad1(x_input)
+        print(f"\t\t  After pad1: {out.shape}")
         out = self.conv1(out)
-        if self.norm1: out = self.norm1(out)
+        print(f"\t\t  After conv1: {out.shape}")
+        if self.norm1:
+            out = self.norm1(out)
+            print(f"\t\t  After norm1: {out.shape}")
         out = self.activation_fn(out)
         out = self.dropout1(out)
+        print(f"\t\t  After activation + dropout1: {out.shape}")
+
         # Block 2
         out = self.pad2(out)
+        print(f"\t\t  After pad2: {out.shape}")
         out = self.conv2(out)
-        if self.norm2: out = self.norm2(out)
+        print(f"\t\t  After conv2: {out.shape}")
+        if self.norm2:
+            out = self.norm2(out)
+            print(f"\t\t  After norm2: {out.shape}")
         out = self.activation_fn(out)
         out = self.dropout2(out)
+        print(f"\t\t  After activation + dropout2: {out.shape}")
 
         # Skip connection path
         res = x_input
         if self.downsample:
+            print("\t\t  * Applying 1x1 conv to match input/output channels")
             res = self.downsample(res)
+            print(f"\t\t  After downsample (res): {res.shape}")
 
-        # Add skip connection: F(x) + x
-        # Ensure lengths match if causal padding affected output length differently from input
-        # (Proper causal padding should maintain length for the residual connection)
+        # Length check
         if out.size(-1) != res.size(-1):
-            # This might occur if padding isn't perfectly preserving length relative to residual.
-            # Keras 'causal' Conv1D output length is input_length.
-            # Our nn.ConstantPad1d + conv(padding=0) should also yield input_length.
-            # This check is a safeguard.
+            print(f"\t\t  * Sequence length mismatch! out: {out.shape[-1]}, res: {res.shape[-1]}")
             target_len = res.size(-1)
             if out.size(-1) > target_len:
                 out = out[..., :target_len]
-            elif out.size(-1) < target_len: # Should not happen with correct padding
-                 # Pad 'out' if it's shorter, though this indicates a padding issue earlier
-                 padding_diff = target_len - out.size(-1)
-                 out = F.pad(out, (0, padding_diff)) # Pad at the end of sequence dim
+                print(f"\t\t  -> Truncated out to: {out.shape}")
+            elif out.size(-1) < target_len:
+                padding_diff = target_len - out.size(-1)
+                out = F.pad(out, (0, padding_diff))
+                print(f"\t\t  -> Padded out to: {out.shape}")
 
         output_sum = out + res
-        
-        # Final activation (standard in Keras-TCN)
+        print(f"\t\t  After residual addition: {output_sum.shape}")
+
+        # Final activation
         final_output = self.activation_fn(output_sum)
-        
-        return final_output # Keras version returns [final_output, out_before_skip_add_and_final_activation]
-                            # Here we return only the main path output, which is common.
+        print(f"\t\t  Final output after activation: {final_output.shape}")
+
+        return final_output
 
 
 class TemporalConvNet(nn.Module):
@@ -145,21 +156,21 @@ class TemporalConvNet(nn.Module):
         if not use_skip_connections:
             total_num_blocks += 1
 
-        print(f"TCN: padding: {self.padding}")
-        print(f"TCN: Number of stacks: {self.nb_stacks}")
-        print(f"TCN: Number of filters: {self.nb_filters}")
-        print(f"TCN: Kernel size: {self.kernel_size}")
-        print(f"TCN: Dilations: {self.dilations}")
-        print(f"TCN: Dropout rate: {self.dropout_rate}")
-        print(f"TCN: Activation function: {self.activation.__name__}")
-        print(f"TCN: Use skip connections: {self.use_skip_connections}")
-        print(f"TCN: Use batch normalization: {self.use_batch_norm}")
-        print(f"TCN: Use layer normalization: {self.use_layer_norm}")
-        print(f"TCN: Total number of blocks: {total_num_blocks}")
-
+        print(f"\t\t* TCN: padding: {self.padding}")
+        print(f"\t\t* TCN: Number of stacks: {self.nb_stacks}")
+        print(f"\t\t* TCN: Number of filters: {self.nb_filters}")
+        print(f"\t\t* TCN: Kernel size: {self.kernel_size}")
+        print(f"\t\t* TCN: Dilations: {self.dilations}")
+        print(f"\t\t* TCN: Dropout rate: {self.dropout_rate}")
+        print(f"\t\t* TCN: Activation function: {self.activation.__name__}")
+        print(f"\t\t* TCN: Use skip connections: {self.use_skip_connections}")
+        print(f"\t\t* TCN: Use batch normalization: {self.use_batch_norm}")
+        print(f"\t\t* TCN: Use layer normalization: {self.use_layer_norm}")
+        print(f"\t\t* TCN: Total number of blocks: {total_num_blocks}")
+        print("\n")
         for s in range(nb_stacks):
             for i, d in enumerate(self.dilations):
-                print(f" \n [DEBUG] dilation at block {len(self.residual_blocks)}: {d} (type: {type(d)})")
+                print(f"\t\t* [DEBUG] dilation at block {len(self.residual_blocks)}: {d} (type: {type(d)})")
                 res_block_filters = nb_filters[i] if isinstance(nb_filters, list) else nb_filters
                 in_channels = input_dim if len(self.residual_blocks) == 0 else res_block_filters
                 block = ResidualBlock(
@@ -171,7 +182,8 @@ class TemporalConvNet(nn.Module):
                     dropout_rate=dropout_rate,
                     activation_str=activation,
                     use_batch_norm=use_batch_norm,
-                    use_layer_norm=use_layer_norm
+                    use_layer_norm=use_layer_norm,
+                    use_weight_norm=False
                 )
                 self.residual_blocks.append(block)
         self.output_slice_index = None
