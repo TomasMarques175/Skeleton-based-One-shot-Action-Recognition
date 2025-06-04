@@ -34,7 +34,7 @@ class EncoderTCN(Model):
 
         # Add masking layer
         if masking:
-            print('MASKING')
+            # print('\tMASKING')
             self.encoder_layers.append(Masking())
 
         l = TCN(
@@ -49,12 +49,12 @@ class EncoderTCN(Model):
             use_batch_norm=tcn_batch_norm
         )
         self.encoder_layers.append(l)
-        print('TCN', -1, dilations[-1], l.receptive_field)
-
-        for l in self.encoder_layers:
-            print('************* layer', l)
+        # print('\tTCN', -1, dilations[-1], l.receptive_field)
 
         self.encoder = Sequential(self.encoder_layers)
+
+        for l in self.encoder_layers:
+            print('\t************* layer', l)
 
     def call(self, x):
         encoder = self.encoder(x)
@@ -95,12 +95,12 @@ class TCN_clf(Model):
                 dilations = [[i for i in [1, 2, 4, 8, 16, 32] if i <= d]
                              for d in dilations]
 
-            print('dilations', dilations)
+            # print('\tdilations', dilations)
         else:
             raise ValueError(
                 'conv_params length not recognized', len(conv_params))
 
-        print('dilations', dilations)
+        # print('\tdilations', dilations)
         self.encoder_net = EncoderTCN(
             num_feats=num_feats,
             nb_filters=nb_filters,
@@ -114,23 +114,24 @@ class TCN_clf(Model):
             prediction_mode=prediction_mode,
             tcn_batch_norm=tcn_batch_norm)
 
-        self.norm = Lambda(lambda x: tf.math.l2_normalize(x, axis=-1))
-        self.triplet = triplet
-
         if clf_neurons != 0:
             self.clf_dense = Dense(clf_neurons, activation='relu')
         self.clf_neurons = clf_neurons
 
+        self.norm = Lambda(lambda x: tf.math.l2_normalize(x, axis=-1))
+        self.triplet = triplet
+
         if classification:
-            self.clf_out = Dense(
-                num_classes, activation='softmax', name='out_clf')
+            self.clf_out = Dense(num_classes, activation='softmax', name='out_clf')
         self.classification = classification
 
         # self.unify = Lambda(lambda x: x/tf.math.reduce_sum(x, axis=-1, keepdims=True))
 
     def call(self, x):
+        # print(f'\t******** Call TCN_clf with input shape: {x.shape} ********\n')
         encoder_raw = self.encoder_net(x)
-        print('encoder_raw', encoder_raw.shape)
+        # print(f'\tencoder_raw shape: {encoder_raw.shape}\n')
+
         if self.clf_neurons != 0:
             encoder = self.clf_dense(encoder_raw)
         else:
@@ -138,12 +139,15 @@ class TCN_clf(Model):
 
         out = []
         if self.triplet:
+            # print(f'\t******** TCN_clf with triplet ********\n')
             emb = self.norm(encoder)
             out.append(emb)
         if self.classification:
+            # print(f'\t******** TCN_clf with classification ********\n')
             clf = self.clf_out(encoder)
             out.append(clf)
 
+        # print(f'\t******** Exit TCN_clf with output shape: {[o.shape for o in out]} ********\n\n')
         return out
 
     def get_embedding(self, x, batch=None, unify=False):

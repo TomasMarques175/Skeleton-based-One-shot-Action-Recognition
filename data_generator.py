@@ -439,6 +439,26 @@ def triplet_data_generator(pose_annotations_file,
             new_label = np.random.choice(list(pose_files.keys()))
             return get_random_sample(new_label)
 
+    print ('\n\n')
+    print('Loading data generator with the following parameters:')
+    print('Batch size:', batch_size)
+    print('Max sequence length:', max_seq_len)
+    print('Joints num:', joints_num)
+    print('Joints dim:', joints_dim)
+    print('Num JCD features:', num_jcd_feats)
+    print('Scale data:', scale_data)
+    print('In memory generator:', in_memory_generator)
+    print('Decoder:', decoder)
+    print('Reverse decoder:', reverse_decoder)
+    print('Center skeletons:', center_skels)
+    print('Horizontal flip:', h_flip)
+    print('Scale by torso:', scale_by_torso)
+    print('Temporal scale:', temporal_scale)
+    print('Validation:', validation)
+    print('Triplet:', triplet)
+    print('Classification:', classification)
+    print('Num classes:', num_classes)
+
     if in_memory_generator:
         print(' ** Data Generator | data will be cached | Validation: {} **'.format(validation))
         cached_data = {}
@@ -463,11 +483,13 @@ def triplet_data_generator(pose_annotations_file,
     assert batch_size % K == 0
     P = batch_size // K
     pose_files = read_annotations()
-    print('*************', K, P, batch_size)
-
+    print(f'K: {K}, P: {P}, Batch size: {batch_size} | Total poses: {sum([len(v) for v in pose_files.values()])}'
+            , K, P, batch_size)
+        
     if classification:
         total_labels = sorted(list(pose_files.keys()))
         labels_dict = {l: i for i, l in enumerate(total_labels)}
+        print('Total labels:', len(total_labels), 'Labels dict:', labels_dict)
 
     while True:
         if sum([len(v) for v in pose_files.values()]) < batch_size:
@@ -545,4 +567,138 @@ def triplet_data_generator(pose_annotations_file,
         # print(X.shape, len(Y))
         yield X, Y, sample_weights
 
+def triplet_data_generator_deterministic(pose_annotations_file,
+                           batch_size,
+                           max_seq_len, joints_num, joints_dim, num_jcd_feats,
+                           scale_data, in_memory_generator,
+                           decoder, reverse_decoder,
+                           center_skels, h_flip, scale_by_torso,
+                           temporal_scale, validation,
+                           triplet,
+                           classification, num_classes,
+
+                           use_jcd_features, use_speeds,
+                           use_coords_raw, use_coords, use_jcd_diff,
+                           use_bone_angles,
+                           use_bone_angles_cent,
+                           num_feats,
+
+                           skip_frames=[],
+                           average_wrong_skels=True,
+                           is_tcn=False,
+                           K=4,
+                           **kwargs):
+
+    # Reads the annotations and stores them into a dict. Annotations are shuffled
+    def read_annotations():
+        print('Reading annotations from:', pose_annotations_file)
+        with open(pose_annotations_file, 'r') as f:
+            return [(filename, int(label)) for filename, label in (line.strip().split() for line in f)]
+
+    if in_memory_generator:
+        print(' ** Data Generator | data will be cached | Validation: {} **'.format(validation))
+        cached_data = {}
+    if scale_data:
+        print(' ** Loading data scaler | Validation: {} **'.format(validation))
+        scaler = load_scaler(joints_num, joints_dim,
+                             center_skels, scale_by_torso,
+
+                             use_jcd_features, use_speeds,
+                             use_coords_raw, use_coords, use_jcd_diff,
+                             use_bone_angles,
+                             use_bone_angles_cent,
+                             num_feats)
+    else:
+        scaler = None
+
+    if not triplet:
+        K = 1
+
+    assert batch_size % K == 0
+    P = batch_size // K
+    pose_list = read_annotations()
+    pose_idx = 0  # global index tracker
+    print(f'K: {K}, P: {P}, Batch size: {batch_size} | Total poses: {len(pose_list)}'
+            , K, P, batch_size)
+
+    if classification:
+        total_labels = sorted(set(label for _, label in pose_list))
+        labels_dict = {l: i for i, l in enumerate(total_labels)}
+        print('Total labels:', len(total_labels), 'Labels dict:', labels_dict)
+
+    while True:
+        batch_labels = []
+        batch_samples = []
+        if classification:
+            y_clf = []
+            y_raw = []  # store the true/original label
+        for _ in range(batch_size):
+            if pose_idx >= len(pose_list):
+                pose_list = read_annotations()
+                pose_idx = 0
+
+            filename, label = pose_list[pose_idx]
+            pose_idx += 1
+
+            if classification:
+                label_cat = to_categorical(labels_dict[int(label)], num_classes=num_classes)
+                # print('Label:', label, 'Category:', label_cat)
+                y_clf.append(label_cat)
+                y_raw.append(label)
+            if in_memory_generator and filename in cached_data.keys():
+                print('Recovering data', filename)
+                sample = cached_data[filename]
+            else:
+                # print('******', filename, '********')
+                pose_raw = np.load(filename, allow_pickle=True).item()
+
+                p = get_body_skel(pose_raw, validation)
+
+                if average_wrong_skels:
+                    average_wrong_frame_skels(p)
+                sample = get_pose_data_v2(p, max_seq_len, joints_num, joints_dim,
+                                            center_skels, h_flip, scale_by_torso,
+                                            temporal_scale, scaler, validation,
+                                            use_jcd_features, use_speeds,
+                                            use_coords_raw, use_coords, use_jcd_diff,
+                                            use_bone_angles, use_bone_angles_cent,
+                                            skip_frames=skip_frames,
+                                            )
+
+                # print(validation, in_memory_generator)
+                if in_memory_generator:
+                    # print('Storing:', filename)
+                    cached_data[filename] = sample
+            batch_samples.append(sample)
+            batch_labels.append(label)
+
+        if triplet:
+            batch_labels = np.stack(batch_labels)       # for triplets
+        if classification:
+            y_clf = np.stack(y_clf).astype(
+                'int')              # for classification
+
+        X, Y, sample_weights = [], [], {}
+
+        X = pad_sequences(batch_samples, padding='pre', dtype='float32')
+
+        if triplet:
+            Y.append(batch_labels)
+        if classification:
+            # Y.append(y_clf)
+            Y = y_clf
+        if decoder:
+            decoder_data = [bs[::-1]
+                            for bs in batch_samples] if reverse_decoder else batch_samples
+            padding = 'pre' if is_tcn else 'post'
+            # decoder_data = pad_sequences(decoder_data, padding='post', dtype='float32')
+            decoder_data = pad_sequences(
+                decoder_data, padding=padding, dtype='float32')
+            Y.append(decoder_data)
+            sample_weights['output_{}'.format(len(Y))] = (
+                decoder_data[:, :, 0] != 0).astype('float32')
+
+        # print(Y)
+        # print(X.shape, len(Y))
+        yield X, Y, sample_weights, y_raw
 # %%

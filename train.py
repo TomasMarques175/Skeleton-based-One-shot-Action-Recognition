@@ -6,6 +6,7 @@ Created on Sat Apr 18 18:10:29 2020
 @author: asabater
 """
 
+import random
 from scipy.special import comb
 import numpy as np
 import tensorflow as tf
@@ -13,7 +14,7 @@ from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint, ReduceLROnPlateau, EarlyStopping, LambdaCallback
 import json
 
-from data_generator import triplet_data_generator, get_scaler_filename, get_num_feats
+from data_generator import triplet_data_generator_deterministic, triplet_data_generator, get_scaler_filename, get_num_feats
 from train_callbacks import get_lr_metric  # eval_one_shot_callback, eval_one_shot_therapies_callback, 
 import train_utils
 from shutil import copyfile
@@ -26,11 +27,26 @@ from dataset_scripts.therapies.triplet_therapies_callback import eval_therapies_
 
 from remove_suboptimal_weights import remove_path_weights
 
+SEED = 123
+random.seed(SEED)
+np.random.seed(SEED)
+tf.random.set_seed(SEED)
 
+class BatchLossLogger(tf.keras.callbacks.Callback):
+    def __init__(self, filename='batch_losses.json'):
+        super().__init__()
+        self.filename = filename
+        self.batch_losses = []
 
-np.random.seed(123)
-tf.random.set_seed(123)
+    def on_train_batch_end(self, batch, logs=None):
+        logs = logs or {}
+        loss = logs.get('loss')
+        if loss is not None:
+            self.batch_losses.append(loss)
 
+    def on_train_end(self, logs=None):
+        with open(self.filename, 'w') as f:
+            json.dump(self.batch_losses, f)
 
 
 def main(model_params):
@@ -63,16 +79,37 @@ def main(model_params):
     print(' * Building model')
     model.build((None, None, model_params['num_feats']))    
     
-    # Initialize inputs and outputs
-    print(' * Initializing inputs and outputs')
-    dummy_inpt = (np.random.rand(model_params['batch_size'], max(abs(model_params['max_seq_len']), 123), model_params['num_feats']))
-    print(' * dummy_inpt shape:', dummy_inpt.shape)
-    dummy_pred = model(dummy_inpt);
-    print(' * dummy_pred shape', [ p.shape for p in dummy_pred ])
-    dummy_pred = model.predict(dummy_inpt);
-    print(' * dummy_pred predict shape', [ p.shape for p in dummy_pred ])
-    dummy_emb = model.get_embedding(dummy_inpt);
-    print(' * dummy_emb shape', dummy_emb.shape)
+    # Initialise dummy input and test model outputs
+    print(' * Initialising dummy input and checking model outputs')
+    print(' * model_params[batch_size]:', model_params['batch_size'])
+    dummy_input = np.random.rand(
+        model_params['batch_size'],
+        max(abs(model_params['max_seq_len']), 123),
+        model_params['num_feats']
+    )
+
+    print(' * dummy_input shape:', dummy_input.shape)
+
+    # Forward pass via direct call
+    model_output_direct = model(dummy_input)
+    print(' * model_output_direct shapes:', [output.shape for output in model_output_direct])
+
+    # Forward pass via predict()
+    model_output_predict = model.predict(dummy_input)
+    print(' * model_output_predict shapes:', [output.shape for output in model_output_predict])
+
+    # Save each output (assumes model returns a list of tensors)
+    for i, output in enumerate(model_output_predict):
+        np.save(f'keras_output_{i}.npy', output)
+
+    # If you want a text file viewable line-by-line (works best for 2D arrays):
+    for i, output in enumerate(model_output_predict):
+        reshaped = output.reshape(output.shape[0], -1)  # Flatten inner dims if needed
+        np.savetxt(f'keras_output_{i}.txt', reshaped)
+
+    # Get only the embedding output
+    dummy_embedding = model.get_embedding(dummy_input)
+    print(' * dummy_embedding shape:', dummy_embedding.shape)
     
     # Set optimizer
     print(' * Setting optimizer')
@@ -94,8 +131,7 @@ def main(model_params):
     print(' * Model summary')
     model.summary(100)
 
-    exit(0)
-
+    
     monitor = model_params.get('monitor', 'val_loss')
     print(' * Monitor:', monitor)
     model_chkpt_path = 'ep{epoch:03d}-loss{loss:.5f}-' + monitor + '{' + monitor + ':.5f}.ckpt'
@@ -139,38 +175,77 @@ def main(model_params):
     # Save model
     model.save(model_params['path_model'] + 'model')
     
+    print('\n\n')
+    print(' * Model saved to:', model_params['path_model'] + 'model')
+    
+    # train_gen = triplet_data_generator(pose_annotations_file=model_params['train_annotations'], 
+    #                         validation=False, 
+    #                         in_memory_generator=model_params['in_memory_generator_train'],
+    #                         **model_params)
+    
+    # Deterministic Batches
+    train_gen = triplet_data_generator_deterministic(pose_annotations_file=model_params['train_annotations'], 
+                                   validation=False, 
+                                   in_memory_generator=model_params['in_memory_generator_train'],
+                                   **model_params)
 
-    train_gen = triplet_data_generator(pose_annotations_file=model_params['train_annotations'], 
-                           validation=False, 
-                           in_memory_generator=model_params['in_memory_generator_train'],
-                           **model_params)
     if model_params['val_annotations'] == '': val_gen = None
     else:
+        print(' * Creating validation data generator')
         val_gen = triplet_data_generator(pose_annotations_file=model_params['val_annotations'], 
                            validation=True, 
                            in_memory_generator=model_params['in_memory_generator_val'],
                            **model_params)
+    print(train_gen, val_gen)    
 
-    print(train_gen, val_gen)
+    # Print the labels for the first 2 batches
+    for i in range(2):
+        X, Y, sample_weights, y_raw = next(train_gen)
+        print(f"\nBatch {i+1} Input Shape:", X.shape)
+        print(f"Batch {i+1} Labels Shape:", Y.shape)
+        # If y_raw is not None, print its shape and contents
+        print(f"\nBatch {i+1} Labels:", y_raw)
+
+    
+    batch_loss_logger = BatchLossLogger(filename='batch_losses.json')
     
     model.fit(
             train_gen,
             validation_data = val_gen,
             steps_per_epoch = num_train_files//model_params['batch_size'],
             validation_steps = None if num_val_files == 0 else num_val_files//model_params['batch_size'],
-            # epochs = 300, 
             epochs = 1,
+            # epochs = 50, 
+            # epochs = 300, 
             # steps_per_epoch = 10,         # num_val_files//model_params['batch_size'],
             # validation_steps = 10,
-            # epochs = 50, 
             verbose = train_verbose,
             #callbacks = callbacks,
+            callbacks=callbacks + [batch_loss_logger],  
         )
+    
+    # Extract weights and biases from softmax output layer (Dense layer named 'out_clf')
+    softmax_weights, softmax_biases = model.clf_out.get_weights()
+
+    # Save them as numpy files for easy loading later
+    np.save('softmax_weights.npy', softmax_weights)
+    np.save('softmax_biases.npy', softmax_biases)
+
+    model.summary(100)
+    
+    # Assuming train_gen is your training data generator
+    last_batch_input, _ = next(iter(train_gen))
+
+    np.savez('tf_results.npz',
+        weights=model.get_weights(),
+        outputs=model.predict(last_batch_input))
+
+    # Save sample batch for comparison
+    np.save('tf_sample_batch.npy', last_batch_input)
 
     del train_gen; del val_gen
     #del callbacks
 
-    model.summary(100)
     
     # Remove suboptimal weights
     remove_path_weights(model_params['path_model'], model_params['monitor'], model_params['min_monitor'])
