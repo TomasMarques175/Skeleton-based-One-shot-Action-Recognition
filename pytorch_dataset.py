@@ -411,7 +411,6 @@ def get_pose_data_processed(body_raw, is_validation, model_params):
         _num_feats_fallback = model_params.get('num_feats', 100) # Get this from model_params or calculate
         return np.zeros((_target_len_fallback, _num_feats_fallback), dtype=np.float32)
 
-
     max_seq_len_param = model_params.get('max_seq_len', -32)
     joints_num = model_params.get('joints_num', 25)
     joints_dim = model_params.get('joints_dim', 3)
@@ -722,7 +721,6 @@ class TripletPoseDataset(Dataset):
             raw_data_sample = self.loaded_raw_cache.get(file_path)
         else:
             raw_data_sample = load_skeleton_data(file_path)
-
         if raw_data_sample is None:
             print(f"Warning: Failed to load raw data for sample at index {idx}, path {file_path}. Returning dummy data.")
             _seq_len = abs(self.model_params.get('max_seq_len', 32))

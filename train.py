@@ -8,6 +8,7 @@ Created on Sat Apr 18 18:10:29 2020
 
 # --- Imports ---
 import os
+import random
 import torch
 import torch.nn as nn
 # import torch.nn.functional as F # TCN_classifier might use it
@@ -56,10 +57,19 @@ except ImportError:
 
 
 # Seed PyTorch
-torch.manual_seed(123)
+SEED = 123
+random.seed(SEED)
+torch.manual_seed(SEED)
 if torch.cuda.is_available():
-    torch.cuda.manual_seed_all(123)
-np.random.seed(123)
+    torch.cuda.manual_seed_all(SEED)
+np.random.seed(SEED)
+
+
+def init_weights_constant(m):
+    if hasattr(m, 'weight') and m.weight is not None:
+        nn.init.constant_(m.weight, 0.01)
+    if hasattr(m, 'bias') and m.bias is not None:
+        nn.init.constant_(m.bias, 0.01)
 
 
 def main(model_params):
@@ -151,6 +161,8 @@ def main(model_params):
         triplet=model_params.get('triplet', False), classification=model_params.get('classification', True),
         clf_neurons=model_params['clf_neurons'], num_classes=num_classes_for_model
     )
+    # TODO: remove this after trying with constant weights
+    model.apply(init_weights_constant)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
     print(f"\n* Model moved to device: {device}\n")
@@ -262,7 +274,6 @@ def main(model_params):
     early_stopping_counter = 0
     best_val_for_early_stop = float('-inf') if monitor_mode == 'max' else float('inf')
 
-    exit(0)
 
     # --- Data Loading ---
     print("\n--- Setting up PyTorch DataLoaders ---")
@@ -272,7 +283,8 @@ def main(model_params):
                                            validation_mode=False,
                                            in_memory=model_params['in_memory_generator_train'],
                                            **dataset_params_for_loader)
-        train_loader = DataLoader(train_dataset, batch_size=model_params['batch_size'], shuffle=True,
+        # TODO: Add shuffle again if needed, but for debugging we are not using to make it deterministic.
+        train_loader = DataLoader(train_dataset, batch_size=model_params['batch_size'], shuffle=False,
                                   num_workers=model_params.get('num_workers', 0),
                                   pin_memory=True if device.type == 'cuda' else False, drop_last=True)
         print(f"Train DataLoader: Batches per epoch approx {len(train_loader)}")
@@ -317,6 +329,11 @@ def main(model_params):
             features_batch = features_batch.to(device, non_blocking=True)
             labels_batch = labels_batch.to(device, non_blocking=True) # Integer class labels
 
+            # Debugging print in order to see the batch shapes and labels
+            if train_verbose > 0 and batch_idx < 2 and epoch < 2:
+                for i, feature in enumerate(features_batch):
+                    print(f"  Batch {batch_idx+1}, Sample {i}: Feature shape: {feature.shape}, Label: {labels_batch[i]}")
+            # Reset gradients
             optimizer.zero_grad()
 
             # Forward pass
@@ -527,7 +544,8 @@ if __name__ == "__main__":
     print("GPU name:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "No GPU found")
 
     model_params = {
-        "num_workers": 4,
+        "train_verbose": 1,  # Set to 0 for no training logs, 1 for basic logs, >1 for more detailed logs
+        "num_workers": 1,
         "path_results": "./pretrained_models_Pytorch/",
 
         # # NTU-120 Data sets to optimize the therapy data
@@ -541,7 +559,7 @@ if __name__ == "__main__":
         # "skip_frames": [2, 3],
 
         # NTU-120 Data sets to optimize the NTU one-shot benchmark
-        "train_annotations": "./ntu_annotations/one_shot_aux_set_full.txt",
+        "train_annotations": "./ntu_annotations/one_shot_aux_set.txt",
         "val_annotations": "",
         # "eval_therapies": False,
         "h_flip": False,

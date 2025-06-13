@@ -74,57 +74,57 @@ class ResidualBlock(nn.Module):
         self.downsample = nn.Conv1d(in_channels, out_channels, 1) if in_channels != out_channels else None
 
     def forward(self, x_input):  # x_input shape: (batch, channels, time)
-        print(f"\n\t\t>> Input to ResidualBlock: {x_input.shape}")
+        # print(f"\n\t\t>> Input to ResidualBlock: {x_input.shape}")
 
         # Block 1
         out = self.pad1(x_input)
-        print(f"\t\t  After pad1: {out.shape}")
+        # print(f"\t\t  After pad1: {out.shape}")
         out = self.conv1(out)
-        print(f"\t\t  After conv1: {out.shape}")
+        # print(f"\t\t  After conv1: {out.shape}")
         if self.norm1:
             out = self.norm1(out)
-            print(f"\t\t  After norm1: {out.shape}")
+            # print(f"\t\t  After norm1: {out.shape}")
         out = self.activation_fn(out)
         out = self.dropout1(out)
-        print(f"\t\t  After activation + dropout1: {out.shape}")
+        # print(f"\t\t  After activation + dropout1: {out.shape}")
 
         # Block 2
         out = self.pad2(out)
-        print(f"\t\t  After pad2: {out.shape}")
+        # print(f"\t\t  After pad2: {out.shape}")
         out = self.conv2(out)
-        print(f"\t\t  After conv2: {out.shape}")
+        # print(f"\t\t  After conv2: {out.shape}")
         if self.norm2:
             out = self.norm2(out)
-            print(f"\t\t  After norm2: {out.shape}")
+            # print(f"\t\t  After norm2: {out.shape}")
         out = self.activation_fn(out)
         out = self.dropout2(out)
-        print(f"\t\t  After activation + dropout2: {out.shape}")
+        # print(f"\t\t  After activation + dropout2: {out.shape}")
 
         # Skip connection path
         res = x_input
         if self.downsample:
-            print("\t\t  * Applying 1x1 conv to match input/output channels")
+            # print("\t\t  * Applying 1x1 conv to match input/output channels")
             res = self.downsample(res)
-            print(f"\t\t  After downsample (res): {res.shape}")
+            # print(f"\t\t  After downsample (res): {res.shape}")
 
         # Length check
         if out.size(-1) != res.size(-1):
-            print(f"\t\t  * Sequence length mismatch! out: {out.shape[-1]}, res: {res.shape[-1]}")
+            # print(f"\t\t  * Sequence length mismatch! out: {out.shape[-1]}, res: {res.shape[-1]}")
             target_len = res.size(-1)
             if out.size(-1) > target_len:
                 out = out[..., :target_len]
-                print(f"\t\t  -> Truncated out to: {out.shape}")
+                # print(f"\t\t  -> Truncated out to: {out.shape}")
             elif out.size(-1) < target_len:
                 padding_diff = target_len - out.size(-1)
                 out = F.pad(out, (0, padding_diff))
-                print(f"\t\t  -> Padded out to: {out.shape}")
+                # print(f"\t\t  -> Padded out to: {out.shape}")
 
         output_sum = out + res
-        print(f"\t\t  After residual addition: {output_sum.shape}")
+        # print(f"\t\t  After residual addition: {output_sum.shape}")
 
         # Final activation
         final_output = self.activation_fn(output_sum)
-        print(f"\t\t  Final output after activation: {final_output.shape}")
+        # print(f"\t\t  Final output after activation: {final_output.shape}")
 
         return final_output
 
