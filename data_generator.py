@@ -700,5 +700,5 @@ def triplet_data_generator_deterministic(pose_annotations_file,
 
         # print(Y)
         # print(X.shape, len(Y))
-        yield X, Y, sample_weights, y_raw
+        yield X, Y, sample_weights
 # %%

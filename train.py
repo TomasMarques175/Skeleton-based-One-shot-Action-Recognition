@@ -27,10 +27,24 @@ from dataset_scripts.therapies.triplet_therapies_callback import eval_therapies_
 
 from remove_suboptimal_weights import remove_path_weights
 
+
 SEED = 123
 random.seed(SEED)
 np.random.seed(SEED)
 tf.random.set_seed(SEED)
+
+
+def set_all_weights_to_value(model, value=0.01):
+    for layer in model.layers:
+        # Recursively access sub-layers (important for Sequential inside custom models)
+        if isinstance(layer, tf.keras.Model):
+            set_all_weights_to_value(layer, value)
+        else:
+            weights = layer.get_weights()
+            if weights:
+                new_weights = [np.full_like(w, value) for w in weights]
+                layer.set_weights(new_weights)
+
 
 class BatchLossLogger(tf.keras.callbacks.Callback):
     def __init__(self, filename='batch_losses.json'):
@@ -78,7 +92,8 @@ def main(model_params):
     # Build model
     print(' * Building model')
     model.build((None, None, model_params['num_feats']))    
-    
+    set_all_weights_to_value(model, value=0.01)
+
     # Initialise dummy input and test model outputs
     print(' * Initialising dummy input and checking model outputs')
     print(' * model_params[batch_size]:', model_params['batch_size'])
@@ -185,9 +200,9 @@ def main(model_params):
     
     # Deterministic Batches
     train_gen = triplet_data_generator_deterministic(pose_annotations_file=model_params['train_annotations'], 
-                                   validation=False, 
-                                   in_memory_generator=model_params['in_memory_generator_train'],
-                                   **model_params)
+                                  validation=False, 
+                                  in_memory_generator=model_params['in_memory_generator_train'],
+                                  **model_params)
 
     if model_params['val_annotations'] == '': val_gen = None
     else:
@@ -196,18 +211,21 @@ def main(model_params):
                            validation=True, 
                            in_memory_generator=model_params['in_memory_generator_val'],
                            **model_params)
-    print(train_gen, val_gen)    
+    # print(train_gen, val_gen)    
 
     # Print the labels for the first 2 batches
     for i in range(2):
-        X, Y, sample_weights, y_raw = next(train_gen)
+        X, Y, sample_weights = next(train_gen)
         print(f"\nBatch {i+1} Input Shape:", X.shape)
         print(f"Batch {i+1} Labels Shape:", Y.shape)
         # If y_raw is not None, print its shape and contents
-        print(f"\nBatch {i+1} Labels:", y_raw)
+        print(f"\nSample Weights {i+1} Labels:", sample_weights)
 
+    # batch_loss_logger = BatchLossLogger(filename='batch_losses.json')
     
-    batch_loss_logger = BatchLossLogger(filename='batch_losses.json')
+    batch = next(iter(train_gen))  # or your generator
+    print(type(batch), len(batch))
+    # TODO: Check why batch len is 4 instead of 3
     
     model.fit(
             train_gen,
@@ -221,7 +239,7 @@ def main(model_params):
             # validation_steps = 10,
             verbose = train_verbose,
             #callbacks = callbacks,
-            callbacks=callbacks + [batch_loss_logger],  
+            #callbacks=callbacks + [batch_loss_logger],  
         )
     
     # Extract weights and biases from softmax output layer (Dense layer named 'out_clf')
