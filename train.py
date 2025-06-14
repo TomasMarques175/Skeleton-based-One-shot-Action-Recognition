@@ -93,7 +93,9 @@ def main(model_params):
     print(' * Building model')
     model.build((None, None, model_params['num_feats']))    
     set_all_weights_to_value(model, value=0.01)
+    # print([w.numpy() for w in model.weights])  # Keras
 
+    
     # Initialise dummy input and test model outputs
     print(' * Initialising dummy input and checking model outputs')
     print(' * model_params[batch_size]:', model_params['batch_size'])
@@ -193,6 +195,7 @@ def main(model_params):
     print('\n\n')
     print(' * Model saved to:', model_params['path_model'] + 'model')
     
+    # TODO: change everything back to normal and not deterministic
     # train_gen = triplet_data_generator(pose_annotations_file=model_params['train_annotations'], 
     #                         validation=False, 
     #                         in_memory_generator=model_params['in_memory_generator_train'],
@@ -207,7 +210,7 @@ def main(model_params):
     if model_params['val_annotations'] == '': val_gen = None
     else:
         print(' * Creating validation data generator')
-        val_gen = triplet_data_generator(pose_annotations_file=model_params['val_annotations'], 
+        val_gen = triplet_data_generator_deterministic(pose_annotations_file=model_params['val_annotations'], 
                            validation=True, 
                            in_memory_generator=model_params['in_memory_generator_val'],
                            **model_params)
