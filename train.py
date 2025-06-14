@@ -165,8 +165,8 @@ def main(model_params):
     model.apply(init_weights_constant)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
+    # print(model.state_dict())
     print(f"\n* Model moved to device: {device}\n")
-
 
     # --- Keras-like Debugging Block ---
     print('\n* Building model (PyTorch does not require explicit build)\n')
@@ -213,6 +213,7 @@ def main(model_params):
         reshaped = out.view(out.size(0), -1).cpu().numpy()
         np.savetxt(f'pytorch_output_{i}.txt', reshaped)
 
+
     # --- PyTorch Optimizer and Loss (Mimicking Keras printouts) ---
     print('\n * Setting optimizer (PyTorch)')
     optimizer = optim.Adam(model.parameters(), lr=model_params['init_lr'])
@@ -235,6 +236,7 @@ def main(model_params):
     print(' * losses (PyTorch types):', active_losses)
     print(' * loss_weights (PyTorch):', loss_weights_pytorch_pt)
     # sample_weights_mode is not a direct PyTorch concept, handled manually if needed
+
 
     # --- PyTorch Model Summary ---
     print('\n * Model summary (PyTorch - torchinfo)')
@@ -416,12 +418,12 @@ def main(model_params):
 
 
         # --- Validation Phase ---
-        val_metrics = {} # To store metrics like loss, accuracy
+        val_metrics = {}  # To store metrics like loss, accuracy
         if val_loader:
             model.eval()
             running_val_loss = 0.0
             running_val_loss_clf = 0.0
-            # running_val_loss_triplet = 0.0 # If calculating triplet loss on val
+            running_val_loss_triplet = 0.0
             all_clf_preds_val = []
             all_clf_labels_val = []
 
@@ -432,50 +434,61 @@ def main(model_params):
 
                     model_output_val = model(features_batch_val)
                     current_batch_val_total_loss = 0.0
+                    embeddings_batch_val = None
                     clf_logits_batch_val = None
-                    # embeddings_batch_val = None # If needed for triplet val loss
 
                     if model_params.get('triplet', False) and model_params.get('classification', True):
                         if isinstance(model_output_val, list) and len(model_output_val) == 2:
-                            _, clf_logits_batch_val = model_output_val # Assuming order [emb, clf]
-                        else: continue # Skip if format is wrong
+                            embeddings_batch_val, clf_logits_batch_val = model_output_val
+                        else:
+                            continue  # Skip if format is wrong
+                    elif model_params.get('triplet', True):
+                        embeddings_batch_val = model_output_val
                     elif model_params.get('classification', True):
                         clf_logits_batch_val = model_output_val
-                    # else if triplet only, handle embeddings_batch_val
+
                     if 'classification' in active_losses and clf_logits_batch_val is not None:
                         loss_c_val = active_losses['classification'](clf_logits_batch_val, labels_batch_val)
-                        current_batch_val_total_loss += loss_weights_pytorch_pt['classification'] * loss_c_val # Use configured weight
+                        current_batch_val_total_loss += loss_weights_pytorch_pt['classification'] * loss_c_val
                         running_val_loss_clf += loss_c_val.item()
 
                         _, predicted_indices = torch.max(clf_logits_batch_val, 1)
                         all_clf_preds_val.extend(predicted_indices.cpu().numpy())
                         all_clf_labels_val.extend(labels_batch_val.cpu().numpy())
 
-                    # TODO: Add triplet validation loss if applicable (requires mining or assumptions)
+                    if 'triplet' in active_losses and embeddings_batch_val is not None:
+                        triplet_loss_val = active_losses['triplet'](embeddings_batch_val, labels_batch_val)
+                        current_batch_val_total_loss += loss_weights_pytorch_pt['triplet'] * triplet_loss_val
+                        running_val_loss_triplet += triplet_loss_val.item()
+
                     if isinstance(current_batch_val_total_loss, torch.Tensor):
                         running_val_loss += current_batch_val_total_loss.item()
 
-
             avg_epoch_val_loss = running_val_loss / len(val_loader) if len(val_loader) > 0 else 0
-            val_metrics['val_loss'] = avg_epoch_val_loss # This is the primary val_loss
+            val_metrics['val_loss'] = avg_epoch_val_loss
             tb_writer.add_scalar('LossEpoch_Val/Total', avg_epoch_val_loss, epoch)
 
             if 'classification' in active_losses:
-                avg_val_loss_clf = running_val_loss_clf / len(val_loader) if len(val_loader) > 0 else 0
+                avg_val_loss_clf = running_val_loss_clf / len(val_loader)
                 tb_writer.add_scalar('LossEpoch_Val/Classification', avg_val_loss_clf, epoch)
                 val_metrics['val_clf_loss'] = avg_val_loss_clf
 
-                if all_clf_labels_val: # Calculate accuracy if classification was done
+                if all_clf_labels_val:
                     correct_val = sum(p == t for p, t in zip(all_clf_preds_val, all_clf_labels_val))
                     val_accuracy = correct_val / len(all_clf_labels_val)
-                    val_metrics['val_accuracy'] = val_accuracy # Keras often uses 'val_accuracy'
+                    val_metrics['val_accuracy'] = val_accuracy
                     tb_writer.add_scalar('Accuracy/val', val_accuracy, epoch)
                     print(f"Epoch {epoch+1} Val Summary: Avg Total Loss: {avg_epoch_val_loss:.4f}, Accuracy: {val_accuracy:.4f}")
                 else:
                     print(f"Epoch {epoch+1} Val Summary: Avg Total Loss: {avg_epoch_val_loss:.4f} (No classification preds for accuracy)")
-            else:
-                 print(f"Epoch {epoch+1} Val Summary: Avg Total Loss: {avg_epoch_val_loss:.4f}")
 
+            if 'triplet' in active_losses:
+                avg_val_loss_triplet = running_val_loss_triplet / len(val_loader)
+                val_metrics['val_triplet_loss'] = avg_val_loss_triplet
+                tb_writer.add_scalar('LossEpoch_Val/Triplet', avg_val_loss_triplet, epoch)
+
+            if 'classification' not in active_losses:
+                print(f"Epoch {epoch+1} Val Summary: Avg Total Loss: {avg_epoch_val_loss:.4f}")
 
             # --- "Callbacks" logic for this epoch ---
             current_metric_for_scheduler_es = val_metrics.get(monitor_metric_name, avg_epoch_val_loss)
