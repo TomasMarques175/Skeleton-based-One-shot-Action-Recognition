@@ -601,7 +601,7 @@ if __name__ == "__main__":
         "num_layers": 2,
         "num_neurons": 256,
         "batch_size": 64,
-        "epochs": 1,
+        "epochs": 100,
         "masking": True,
         "center_skels": True,
         "scale_by_torso": True,
