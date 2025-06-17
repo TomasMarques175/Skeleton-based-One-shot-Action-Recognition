@@ -7,6 +7,13 @@ ENV/
 env.bak/
 venv.bak/
 
+# Ignore common virtual environment folders
+.venv/
+env/
+.old_env/
+*/.venv/
+*/.env/
+
 # Spyder project settings
 .spyderproject
 .spyproject
@@ -35,9 +42,4 @@ ntu_annotations
 pretrained_models
 datasets/ntu_rgb120_missings.txt
 
-# Ignore common virtual environment folders
-.venv/
-env/
-.old_env/
-*/.venv/
-*/.env/
+torch_training_data.npz
