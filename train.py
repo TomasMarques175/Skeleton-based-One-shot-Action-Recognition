@@ -529,10 +529,10 @@ def main(model_params):
         print(f"Epoch {epoch+1} duration: {epoch_duration:.2f} seconds")
         if epoch_duration > 0 : tb_writer.add_scalar('Performance/epoch_duration_sec', epoch_duration, epoch)
 
-    np.savez('torch_training_data.npz',
-            train_losses=np.array(train_losses),
-            softmax_outputs=np.concatenate(softmax_outputs, axis=0),  # optional
-    )
+    # np.savez('torch_training_data.npz',
+    #         train_losses=np.array(train_losses),
+    #         softmax_outputs=np.concatenate(softmax_outputs, axis=0),  # optional
+    # )
 
     tb_writer.close()
     print("\n--- PyTorch Training Finished ---")
