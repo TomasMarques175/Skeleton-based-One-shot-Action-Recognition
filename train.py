@@ -315,6 +315,8 @@ def main(model_params):
     # --- Training Loop ---
     print("\n--- Starting PyTorch Training ---")
     num_epochs = model_params.get('epochs', 1)
+    print(f"Training for {num_epochs} epochs with batch size {model_params['batch_size']}")
+    time.sleep(5)  # Small delay for readability in logs
     train_losses = []
     softmax_outputs = [] # To store softmax outputs if needed
     
@@ -529,10 +531,9 @@ def main(model_params):
         print(f"Epoch {epoch+1} duration: {epoch_duration:.2f} seconds")
         if epoch_duration > 0 : tb_writer.add_scalar('Performance/epoch_duration_sec', epoch_duration, epoch)
 
-    # np.savez('torch_training_data.npz',
-    #         train_losses=np.array(train_losses),
-    #         softmax_outputs=np.concatenate(softmax_outputs, axis=0),  # optional
-    # )
+    np.savez('torch_training_data.npz',
+            train_losses=np.array(train_losses),
+    )
 
     tb_writer.close()
     print("\n--- PyTorch Training Finished ---")
