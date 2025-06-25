@@ -23,6 +23,11 @@ import json
 from shutil import copyfile
 import glob # For file searching if adapting remove_suboptimal_weights
 import time # For timing epochs
+from sklearn.metrics import f1_score
+from sklearn.metrics import confusion_matrix
+import seaborn as sns
+from matplotlib import pyplot as plt
+from sklearn.metrics import roc_auc_score
 
 # --- PyTorch specific imports ---
 from models.TCN_classifier import TCN_clf # Your PyTorch model
@@ -63,6 +68,9 @@ torch.manual_seed(SEED)
 if torch.cuda.is_available():
     torch.cuda.manual_seed_all(SEED)
 np.random.seed(SEED)
+
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 
 def init_weights_constant(m):
@@ -317,9 +325,12 @@ def main(model_params):
     num_epochs = model_params.get('epochs', 1)
     print(f"Training for {num_epochs} epochs with batch size {model_params['batch_size']}")
     time.sleep(5)  # Small delay for readability in logs
-    train_losses = []
     softmax_outputs = [] # To store softmax outputs if needed
-    
+    train_losses = []
+    val_losses = []
+    val_f1_scores = []
+    val_auc_scores = []  # Move this to the top, before the epoch loop
+
     for epoch in range(num_epochs):
         epoch_start_time = time.time()
         print(f"\nEpoch {epoch+1}/{num_epochs}")
@@ -428,6 +439,7 @@ def main(model_params):
             running_val_loss_triplet = 0.0
             all_clf_preds_val = []
             all_clf_labels_val = []
+            all_clf_probs_val = []
 
             with torch.no_grad():
                 for features_batch_val, labels_batch_val in val_loader:
@@ -454,7 +466,9 @@ def main(model_params):
                         current_batch_val_total_loss += loss_weights_pytorch_pt['classification'] * loss_c_val
                         running_val_loss_clf += loss_c_val.item()
 
-                        _, predicted_indices = torch.max(clf_logits_batch_val, 1)
+                        probs_val = torch.softmax(clf_logits_batch_val, dim=1)  # (batch_size, num_classes)
+                        all_clf_probs_val.extend(probs_val.cpu().numpy())  # Collect probabilities
+                        _, predicted_indices = torch.max(probs_val, 1)
                         all_clf_preds_val.extend(predicted_indices.cpu().numpy())
                         all_clf_labels_val.extend(labels_batch_val.cpu().numpy())
 
@@ -468,21 +482,49 @@ def main(model_params):
 
             avg_epoch_val_loss = running_val_loss / len(val_loader) if len(val_loader) > 0 else 0
             val_metrics['val_loss'] = avg_epoch_val_loss
+            val_losses.append(avg_epoch_val_loss)
             tb_writer.add_scalar('LossEpoch_Val/Total', avg_epoch_val_loss, epoch)
+
+            # AUC-ROC Calculation (if classification and probabilities available)
+            if all_clf_labels_val and all_clf_probs_val:
+                y_true = np.array(all_clf_labels_val)
+                y_scores = np.array(all_clf_probs_val)
+
+                if y_scores.shape[1] == 2:
+                    # Binary classification: take score for class 1
+                    auc = roc_auc_score(y_true, y_scores[:, 1])
+                else:
+                    # Multiclass classification
+                    auc = roc_auc_score(y_true, y_scores, multi_class='ovr')
+
+                val_metrics['val_auc'] = auc
+                tb_writer.add_scalar('AUC_ROC/val', auc, epoch)
+                val_auc_scores.append(auc)
 
             if 'classification' in active_losses:
                 avg_val_loss_clf = running_val_loss_clf / len(val_loader)
                 tb_writer.add_scalar('LossEpoch_Val/Classification', avg_val_loss_clf, epoch)
                 val_metrics['val_clf_loss'] = avg_val_loss_clf
 
-                if all_clf_labels_val:
-                    correct_val = sum(p == t for p, t in zip(all_clf_preds_val, all_clf_labels_val))
-                    val_accuracy = correct_val / len(all_clf_labels_val)
-                    val_metrics['val_accuracy'] = val_accuracy
-                    tb_writer.add_scalar('Accuracy/val', val_accuracy, epoch)
-                    print(f"Epoch {epoch+1} Val Summary: Avg Total Loss: {avg_epoch_val_loss:.4f}, Accuracy: {val_accuracy:.4f}")
-                else:
-                    print(f"Epoch {epoch+1} Val Summary: Avg Total Loss: {avg_epoch_val_loss:.4f} (No classification preds for accuracy)")
+            if all_clf_labels_val:
+                correct_val = sum(p == t for p, t in zip(all_clf_preds_val, all_clf_labels_val))
+                val_accuracy = correct_val / len(all_clf_labels_val)
+                val_metrics['val_accuracy'] = val_accuracy
+                tb_writer.add_scalar('Accuracy/val', val_accuracy, epoch)
+
+                f1_macro = f1_score(all_clf_labels_val, all_clf_preds_val, average='macro')
+                val_metrics['val_f1_macro'] = f1_macro
+                tb_writer.add_scalar('F1Score/val_macro', f1_macro, epoch)
+                val_f1_scores.append(f1_macro)
+
+                print(f"Epoch {epoch+1} Val Summary:")
+                print(f"  - Total Loss       : {avg_epoch_val_loss:.4f}")
+                print(f"  - Accuracy         : {val_accuracy:.4f}")
+                print(f"  - F1 Score (macro) : {f1_macro:.4f}")
+                print(f"  - AUC-ROC          : {auc:.4f}")
+
+            else:
+                print(f"Epoch {epoch+1} Val Summary: Avg Total Loss: {avg_epoch_val_loss:.4f} (No classification preds for accuracy)")
 
             if 'triplet' in active_losses:
                 avg_val_loss_triplet = running_val_loss_triplet / len(val_loader)
@@ -499,7 +541,7 @@ def main(model_params):
 
             # ModelCheckpoint
             if (monitor_mode == 'max' and current_metric_for_scheduler_es > best_monitor_metric_val) or \
-               (monitor_mode == 'min' and current_metric_for_scheduler_es < best_monitor_metric_val):
+            (monitor_mode == 'min' and current_metric_for_scheduler_es < best_monitor_metric_val):
                 best_monitor_metric_val = current_metric_for_scheduler_es
                 # Keras format: 'ep{epoch:03d}-loss{loss:.5f}-' + monitor + '{' + monitor + ':.5f}.ckpt'
                 # Using train loss for 'loss' part of filename for consistency with Keras.
@@ -512,8 +554,35 @@ def main(model_params):
                     early_stopping_counter = 0
             else: # Only increment early stopping counter if not improving on its specific metric
                 if monitor_metric_name == model_params.get('monitor', 'val_loss'):
-                     early_stopping_counter += 1
+                    early_stopping_counter += 1
 
+            # Confusion Matrix (Every 10 epochs)
+            if epoch == 0 or (epoch + 1) % 10 == 0: # Every 10 epochs, save confusion matrix (starting from epoch 0)
+                # Get the current directory (where the script is)
+                current_dir = os.path.dirname(os.path.abspath(__file__))
+
+                # Navigate one level up and into "Conversion comparison"
+                parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
+                confusion_matrix_dir = os.path.join(parent_dir, 'Conversion comparison')
+                os.makedirs(confusion_matrix_dir, exist_ok=True)
+
+                # Compute confusion matrix (example)
+                conf_mat = confusion_matrix(all_clf_labels_val, all_clf_preds_val)
+
+                # Save the raw matrix as .npy
+                npy_path = os.path.join(confusion_matrix_dir, f'conf_matrix_epoch_{epoch+1:03d}.npy')
+                np.save(npy_path, conf_mat)
+
+                # Optionally save a visualisation as PNG
+                plt.figure(figsize=(8, 6))
+                sns.heatmap(conf_mat, annot=True, fmt="d", cmap="Blues")
+                plt.xlabel("Predicted")
+                plt.ylabel("Actual")
+                plt.title(f"Confusion Matrix - Epoch {epoch+1}")
+                plt.tight_layout()
+                png_path = os.path.join(confusion_matrix_dir, f'conf_matrix_epoch_{epoch+1:03d}.png')
+                plt.savefig(png_path)
+                plt.close()
 
             # EarlyStopping (check against its own best metric, which might be same as checkpointing or different)
             if early_stopping_counter >= early_stopping_patience:
@@ -526,20 +595,28 @@ def main(model_params):
             torch.save(model.state_dict(), os.path.join(weights_save_path, checkpoint_filename))
             print(f"  Saved model checkpoint (no validation): {checkpoint_filename}")
 
-
         epoch_duration = time.time() - epoch_start_time
         print(f"Epoch {epoch+1} duration: {epoch_duration:.2f} seconds")
         if epoch_duration > 0 : tb_writer.add_scalar('Performance/epoch_duration_sec', epoch_duration, epoch)
 
-    np.savez('torch_training_data.npz',
-            train_losses=np.array(train_losses),
+    # Determine folder one level up
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
+    metrics_save_dir = os.path.join(parent_dir, 'Conversion comparison')
+    os.makedirs(metrics_save_dir, exist_ok=True)
+
+    np.savez(os.path.join(metrics_save_dir, 'pytorch_train_loss_val_loss_val_f1_val_auc.npz'),
+        train_losses=np.array(train_losses),
+        val_losses=np.array(val_losses),
+        val_f1_scores=np.array(val_f1_scores),
+        val_auc_scores=np.array(val_auc_scores),
     )
 
     tb_writer.close()
     print("\n--- PyTorch Training Finished ---")
 
     # --- Post-training actions ---
-    # Example: remove_suboptimal_weights (needs careful implementation)
+    # TODO: Example: remove_suboptimal_weights (needs careful implementation)
     # if model_params.get('remove_suboptimal_weights', False):
     #     try:
     #         # This function needs to be defined and robust
@@ -561,29 +638,30 @@ if __name__ == "__main__":
         "train_verbose": 1,  # Set to 0 for no training logs, 1 for basic logs, >1 for more detailed logs
         "num_workers": 1,
         "path_results": "./pretrained_models_Pytorch/",
+        "epochs": 1,
 
         # # NTU-120 Data sets to optimize the therapy data
-        # "train_annotations": "./ntu_annotations/one_shot_aux_set_train_full8.txt",
-        # "val_annotations": "./ntu_annotations/one_shot_aux_set_val_full8.txt",
+        "train_annotations": "./ntu_annotations/one_shot_aux_set_train_full8.txt",
+        "val_annotations": "./ntu_annotations/one_shot_aux_set_val_full8.txt",
         "eval_therapies": True,       ### Therapy data needed for its evaluation
-        # "eval_therapies_triplets_dataset": "./therapies_annotations/triplets/triplets_dataset.pckl",
-        # "eval_therapies_triplets_bgnd_dataset": "./therapies_annotations/triplets/triplets_ther_pat_bgnd_dataset.pckl",
-        # "eval_therapies_video_skels": "./therapies_annotations/video_skels.pckl",
-        # "h_flip": True,
-        # "skip_frames": [2, 3],
+        "eval_therapies_triplets_dataset": "./therapies_annotations/triplets/triplets_dataset.pckl",
+        "eval_therapies_triplets_bgnd_dataset": "./therapies_annotations/triplets/triplets_ther_pat_bgnd_dataset.pckl",
+        "eval_therapies_video_skels": "./therapies_annotations/video_skels.pckl",
+        "h_flip": True,
+        "skip_frames": [2, 3],
 
         # NTU-120 Data sets to optimize the NTU one-shot benchmark
-        "train_annotations": "./ntu_annotations/one_shot_aux_set.txt",
-        "val_annotations": "",
+        #"train_annotations": "./ntu_annotations/one_shot_aux_set.txt",
+        # "val_annotations": "",
         # "eval_therapies": False,
-        "h_flip": False,
-        "monitor": "ntu_one_shot_acc_euc",
-        "min_monitor": False,
-        "skip_frames": [2],
+        #"h_flip": False,
+        #"monitor": "ntu_one_shot_acc_euc",
+        #"min_monitor": False,
+        #"skip_frames": [2],
 
         "in_memory_generator_train": False,
-        "in_memory_generator_val": True,
-        "in_memory_callback": True,
+        "in_memory_generator_val": False,
+        #"in_memory_callback": True,
 
         "eval_ntu": True,
         "eval_ntu_one_shot_eval_anchors_file": "./ntu_annotations/one_shot_eval_anchors.txt",
@@ -601,7 +679,6 @@ if __name__ == "__main__":
         "num_layers": 2,
         "num_neurons": 256,
         "batch_size": 64,
-        "epochs": 100,
         "masking": True,
         "center_skels": True,
         "scale_by_torso": True,
