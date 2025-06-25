@@ -574,11 +574,20 @@ def main(model_params):
                 np.save(npy_path, conf_mat)
 
                 # Optionally save a visualisation as PNG
-                plt.figure(figsize=(8, 6))
-                sns.heatmap(conf_mat, annot=True, fmt="d", cmap="Blues")
+                plt.figure(figsize=(40, 30))  # Adjust size as needed
+                ax = sns.heatmap(
+                    conf_mat,
+                    annot=True,
+                    fmt='d',
+                    cmap='Blues',
+                    annot_kws={"size": 5},  # Smaller font to fit more
+                    cbar=True
+                )
                 plt.xlabel("Predicted")
                 plt.ylabel("Actual")
                 plt.title(f"Confusion Matrix - Epoch {epoch+1}")
+                plt.xticks(rotation=90, fontsize=5)  # Rotate and reduce font size
+                plt.yticks(fontsize=5)
                 plt.tight_layout()
                 png_path = os.path.join(confusion_matrix_dir, f'conf_matrix_epoch_{epoch+1:03d}.png')
                 plt.savefig(png_path)
@@ -638,7 +647,7 @@ if __name__ == "__main__":
         "train_verbose": 1,  # Set to 0 for no training logs, 1 for basic logs, >1 for more detailed logs
         "num_workers": 0,
         "path_results": "./pretrained_models_Pytorch/",
-        "epochs": 1,
+        "epochs": 50,
 
         # # NTU-120 Data sets to optimize the therapy data
         "train_annotations": "./ntu_annotations/one_shot_aux_set_train_full8.txt",
