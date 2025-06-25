@@ -636,7 +636,7 @@ if __name__ == "__main__":
 
     model_params = {
         "train_verbose": 1,  # Set to 0 for no training logs, 1 for basic logs, >1 for more detailed logs
-        "num_workers": 1,
+        "num_workers": 0,
         "path_results": "./pretrained_models_Pytorch/",
         "epochs": 1,
 
