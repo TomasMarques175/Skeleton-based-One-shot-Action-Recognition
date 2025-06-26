@@ -12,6 +12,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint, ReduceLROnPlateau, EarlyStopping, LambdaCallback
+from tensorflow.keras.metrics import Precision, Recall
 import json
 
 from data_generator import triplet_data_generator_deterministic, triplet_data_generator, get_scaler_filename, get_num_feats
@@ -24,6 +25,7 @@ from models.TCN_classifier import TCN_clf
 
 from dataset_scripts.ntu120_utils.triplet_ntu_callback import eval_ntu_one_shot_triplets_callback
 from dataset_scripts.therapies.triplet_therapies_callback import eval_therapies_triplet_callback
+from classification_callback import ClassificationMetricsCallback
 
 from remove_suboptimal_weights import remove_path_weights
 
@@ -136,8 +138,11 @@ def main(model_params):
     loss_weights['output_1'] = 0.4
     # loss_weights = None
     # loss_weights = [ 1.0 ]
-    metrics = [ 'accuracy', get_lr_metric(optimizer) ]
-    
+    # metrics = [ 'accuracy', get_lr_metric(optimizer) ]
+    metrics = {
+        'output_1': ['accuracy', Precision(name='precision'), Recall(name='recall'), get_lr_metric(optimizer)],
+    }
+
     # Show losses, metrics and loss_weights
     print(' * losses:', losses)
     print(' * loss_weights:', loss_weights)
@@ -160,11 +165,15 @@ def main(model_params):
                     ReduceLROnPlateau(monitor=monitor, min_delta=0.001, factor=0.1, patience=3, verbose=1, min_lr=1e-7),
                     EarlyStopping(monitor=monitor, min_delta=0.001, patience=6, verbose=1),
                 ]
+    
+    val_steps = num_val_files // model_params['batch_size']
 
+    if val_gen is not None:
+        clf_callback = ClassificationMetricsCallback(val_gen, val_steps, output_dir=model_params['path_model'])
+        callbacks.append(clf_callback)
 
     file_writer = tf.summary.create_file_writer(model_params['path_model'] + "/metrics")
     file_writer.set_as_default()
-    
 
     #if model_params['eval_ntu']: 
     #    callbacks = [LambdaCallback(_supports_tf_logs = True, 
@@ -241,7 +250,7 @@ def main(model_params):
             # steps_per_epoch = 10,         # num_val_files//model_params['batch_size'],
             # validation_steps = 10,
             verbose = train_verbose,
-            #callbacks = callbacks,
+            callbacks = callbacks,
             #callbacks=callbacks + [batch_loss_logger],  
         )
     
@@ -267,7 +276,6 @@ def main(model_params):
     del train_gen; del val_gen
     #del callbacks
 
-    
     # Remove suboptimal weights
     remove_path_weights(model_params['path_model'], model_params['monitor'], model_params['min_monitor'])
 
@@ -278,27 +286,27 @@ if __name__ == "__main__":
         "path_results": "./pretrained_models/",
 
         # # NTU-120 Data sets to optimize the therapy data
-        # "train_annotations": "./ntu_annotations/one_shot_aux_set_train_full8.txt",
-        # "val_annotations": "./ntu_annotations/one_shot_aux_set_val_full8.txt",
-        # "eval_therapies": True,       ### Therapy data needed for its evaluation
-        # "eval_therapies_triplets_dataset": "./therapies_annotations/triplets/triplets_dataset.pckl",
-        # "eval_therapies_triplets_bgnd_dataset": "./therapies_annotations/triplets/triplets_ther_pat_bgnd_dataset.pckl",
-        # "eval_therapies_video_skels": "./therapies_annotations/video_skels.pckl",
-        # "h_flip": True,
-        # "skip_frames": [2, 3],
+        "train_annotations": "./ntu_annotations/one_shot_aux_set_train_full8.txt",
+        "val_annotations": "./ntu_annotations/one_shot_aux_set_val_full8.txt",
+        "eval_therapies": True,       ### Therapy data needed for its evaluation
+        "eval_therapies_triplets_dataset": "./therapies_annotations/triplets/triplets_dataset.pckl",
+        "eval_therapies_triplets_bgnd_dataset": "./therapies_annotations/triplets/triplets_ther_pat_bgnd_dataset.pckl",
+        "eval_therapies_video_skels": "./therapies_annotations/video_skels.pckl",
+        "h_flip": True,
+        "skip_frames": [2, 3],
 
         # NTU-120 Data sets to optimize the NTU one-shot benchmark
-        "train_annotations": "./ntu_annotations/one_shot_aux_set.txt",
-        "val_annotations": "",
-        "eval_therapies": False,
-        "h_flip": False,
-        "monitor": "ntu_one_shot_acc_euc",
-        "min_monitor": False,
-        "skip_frames": [2],
+        # "train_annotations": "./ntu_annotations/one_shot_aux_set.txt",
+        # "val_annotations": "",
+        # "eval_therapies": False,
+        # "h_flip": False,
+        # "monitor": "ntu_one_shot_acc_euc",
+        # "min_monitor": False,
+        # "skip_frames": [2],
 
         "in_memory_generator_train": False,
-        "in_memory_generator_val": True,
-        "in_memory_callback": True,
+        "in_memory_generator_val": False,
+        #"in_memory_callback": True,
 
         "eval_ntu": True,
         "eval_ntu_one_shot_eval_anchors_file": "./ntu_annotations/one_shot_eval_anchors.txt",
