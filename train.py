@@ -153,7 +153,6 @@ def main(model_params):
     print(' * Model summary')
     model.summary(100)
 
-    
     monitor = model_params.get('monitor', 'val_loss')
     print(' * Monitor:', monitor)
     model_chkpt_path = 'ep{epoch:03d}-loss{loss:.5f}-' + monitor + '{' + monitor + ':.5f}.ckpt'
@@ -251,7 +250,7 @@ def main(model_params):
             # steps_per_epoch = 10,         # num_val_files//model_params['batch_size'],
             # validation_steps = 10,
             verbose = train_verbose,
-            callbacks = callbacks,
+            # callbacks = callbacks,
             #callbacks=callbacks + [batch_loss_logger],  
         )
     
