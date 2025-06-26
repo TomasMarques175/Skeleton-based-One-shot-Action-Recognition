@@ -1,6 +1,6 @@
 import torch.nn as nn
 import torch.nn.functional as F
-
+import time
 
 class ResidualBlock(nn.Module):
     def __init__(self,
@@ -77,27 +77,51 @@ class ResidualBlock(nn.Module):
         # print(f"\n\t\t>> Input to ResidualBlock: {x_input.shape}")
 
         # Block 1
+        t1 = time.time()
         out = self.pad1(x_input)
+        t2 = time.time()
+        # print(f"\t\t  After pad1: {out.shape} (Time taken for pad1: {t2 - t1:.4f} seconds)")
         # print(f"\t\t  After pad1: {out.shape}")
         out = self.conv1(out)
+        t3 = time.time()
+        print(f"\t\t  After conv1: {out.shape} (Time taken for conv1: {t3 - t2:.4f} seconds)")
         # print(f"\t\t  After conv1: {out.shape}")
         if self.norm1:
             out = self.norm1(out)
             # print(f"\t\t  After norm1: {out.shape}")
+        t4 = time.time()
+        # print(f"\t\t  After norm1: {out.shape} (Time taken for norm1: {t4 - t3:.4f} seconds)")
         out = self.activation_fn(out)
+        t5 = time.time()
+        # print(f"\t\t  After activation: {out.shape} (Time taken for activation: {t5 - t4:.4f} seconds)")
         out = self.dropout1(out)
+        t6 = time.time()
+        # print(f"\t\t  After dropout1: {out.shape} (Time taken for dropout1: {t6 - t5:.4f} seconds)")   
         # print(f"\t\t  After activation + dropout1: {out.shape}")
 
         # Block 2
         out = self.pad2(out)
+        t7 = time.time()
+        # print(f"\t\t  After pad2: {out.shape} (Time taken for pad2: {t7 - t6:.4f} seconds)")
         # print(f"\t\t  After pad2: {out.shape}")
         out = self.conv2(out)
+        t8 = time.time()
+        print(f"\t\t  After conv2: {out.shape} (Time taken for conv2: {t8 - t7:.4f} seconds)")
+        print(f"\t\t  After conv2: {out.is_cuda}")
+        
         # print(f"\t\t  After conv2: {out.shape}")
         if self.norm2:
             out = self.norm2(out)
             # print(f"\t\t  After norm2: {out.shape}")
+        t9 = time.time()
+        # print(f"\t\t  After norm2: {out.shape} (Time taken for norm2: {t9 - t8:.4f} seconds)")
         out = self.activation_fn(out)
+        t10 = time.time()
+        # print(f"\t\t  After activation: {out.shape} (Time taken for activation: {t10 - t9:.4f} seconds)")
         out = self.dropout2(out)
+        t11 = time.time()
+        # print(f"\t\t  After dropout2: {out.shape} (Time taken for dropout2: {t11 - t10:.4f} seconds)")
+        
         # print(f"\t\t  After activation + dropout2: {out.shape}")
 
         # Skip connection path
@@ -106,7 +130,8 @@ class ResidualBlock(nn.Module):
             # print("\t\t  * Applying 1x1 conv to match input/output channels")
             res = self.downsample(res)
             # print(f"\t\t  After downsample (res): {res.shape}")
-
+        # t11 = time.time()
+        # print(f"\t\t  After downsample (res): {res.shape} (Time taken for downsample: {t11 - t10:.4f} seconds)")
         # Length check
         if out.size(-1) != res.size(-1):
             # print(f"\t\t  * Sequence length mismatch! out: {out.shape[-1]}, res: {res.shape[-1]}")
@@ -119,13 +144,19 @@ class ResidualBlock(nn.Module):
                 out = F.pad(out, (0, padding_diff))
                 # print(f"\t\t  -> Padded out to: {out.shape}")
 
+        t12 = time.time()
+        # print(f"\t\t  After length adjustment: {out.shape} (Time taken for length adjustment: {t12 - t11:.4f} seconds)")    
+        
         output_sum = out + res
         # print(f"\t\t  After residual addition: {output_sum.shape}")
-
+        t13 = time.time()
+        # print(f"\t\t  After residual addition: {output_sum.shape} (Time taken for addition: {t13 - t12:.4f} seconds)")
         # Final activation
         final_output = self.activation_fn(output_sum)
         # print(f"\t\t  Final output after activation: {final_output.shape}")
-
+        t14 = time.time()
+        # print(f"\t\t  Final output after activation: {final_output.shape} (Time taken for final activation: {t14 - t13:.4f} seconds)")
+        print(f"\t  Total time for ResidualBlock forward: {t14 - t1:.4f} seconds\n")
         return final_output
 
 
@@ -190,8 +221,12 @@ class TemporalConvNet(nn.Module):
 
     def forward(self, x):
         # Expecting input shape: (batch, channels, time)
+        
+        # print(f"\n\t* Forwarding through TCN with input shape: {x.shape}")
         for block in self.residual_blocks:
             x = block(x)
+        # print(f"\t* Output shape after TCN: {x.shape}")
+        
         time_dim = x.shape[-1]
         if self.padding == 'same':
             self.output_slice_index = time_dim // 2

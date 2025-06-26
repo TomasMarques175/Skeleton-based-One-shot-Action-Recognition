@@ -16,6 +16,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader # Dataset is imported from pytorch_dataset
 from torch.utils.tensorboard import SummaryWriter
 from torchinfo import summary
+from torch.cuda.amp import autocast, GradScaler
 
 from scipy.special import comb # Used by get_num_feats
 import numpy as np
@@ -339,23 +340,33 @@ def main(model_params):
         # Store individual loss components if needed for logging
         running_train_loss_clf = 0.0
         running_train_loss_triplet = 0.0
+        scaler = GradScaler()
 
         for batch_idx, (features_batch, labels_batch) in enumerate(train_loader):
+            start_batch_time = time.time()
+            
+            t0 = time.time()
             features_batch = features_batch.to(device, non_blocking=True)
             labels_batch = labels_batch.to(device, non_blocking=True) # Integer class labels
-
+            t1 = time.time()
+            
             # Debugging print in order to see the batch shapes and labels
             if train_verbose > 0 and batch_idx < 2 and epoch < 2:
                 for i, feature in enumerate(features_batch):
                     print(f"  Batch {batch_idx+1}, Sample {i}: Feature shape: {feature.shape}, Label: {labels_batch[i]}")
             # Reset gradients
             optimizer.zero_grad()
+            
+            current_batch_total_loss = torch.tensor(0.0, device=device)
 
             # Forward pass
             # Model output: [embedding, clf_logits] if both active, or just one of them
-            model_output = model(features_batch)
+            t2 = time.time()
+            with autocast():
+                model_output = model(features_batch)
+            print("Feature batch shape:", features_batch.shape)
+            t3 = time.time()
 
-            current_batch_total_loss = 0.0
             embeddings_batch = None
             clf_logits_batch = None
 
@@ -373,19 +384,21 @@ def main(model_params):
                 print("Warning: Neither triplet nor classification is enabled. No loss to compute. Skipping batch.")
                 continue
                 
-            if clf_logits_batch is not None:
-                with torch.no_grad():
-                    probs = torch.softmax(clf_logits_batch, dim=1)
-                    softmax_outputs.append(probs.cpu().numpy())
-
+            # if clf_logits_batch is not None:
+            #     with torch.no_grad():
+            #         probs = torch.softmax(clf_logits_batch, dim=1)
+            #         softmax_outputs.append(probs.cpu().numpy())
+            t4 = time.time()
+            
             # Calculate Classification Loss
-            if 'classification' in active_losses and clf_logits_batch is not None:
-                loss_c = active_losses['classification'](clf_logits_batch, labels_batch.to(device).long())
-                current_batch_total_loss += loss_weights_pytorch_pt['classification'] * loss_c
-                running_train_loss_clf += loss_c.item()
-                if batch_idx == 0 and epoch == 0: print(f"  Classification loss component active. Example batch loss_c: {loss_c.item():.4f}")
-
-
+            with autocast():
+                if 'classification' in active_losses and clf_logits_batch is not None:
+                    loss_c = active_losses['classification'](clf_logits_batch, labels_batch)
+                    current_batch_total_loss += loss_weights_pytorch_pt['classification'] * loss_c
+                    running_train_loss_clf += loss_c.item()
+                    if batch_idx == 0 and epoch == 0: print(f"  Classification loss component active. Example batch loss_c: {loss_c.item():.4f}")
+            t5 = time.time()
+            
             # Calculate Triplet Loss (Requires Batch Mining)
             if 'triplet' in active_losses and embeddings_batch is not None:
                 # TODO: Implement Triplet Mining here if not using a library that does it.
@@ -403,20 +416,33 @@ def main(model_params):
                 pass # Placeholder for triplet loss calculation
 
             if isinstance(current_batch_total_loss, torch.Tensor): # Check if any loss was added
-                current_batch_total_loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) # Gradient Clipping
-                optimizer.step()
+                scaler.scale(current_batch_total_loss).backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                scaler.step(optimizer)
+                scaler.update()
                 running_train_loss += current_batch_total_loss.item()
             elif current_batch_total_loss == 0.0 and not (model_params.get('triplet',False) or model_params.get('classification',True)):
                 pass # No losses active, normal
             else:
                 if train_verbose > 0: print(f"  Train Batch: {batch_idx+1}/{len(train_loader)} - No loss computed for this batch.")
                 continue
+            t6 = time.time()
 
+            end_batch_time = time.time()
 
             if train_verbose > 0 and batch_idx % log_interval == 0 and isinstance(current_batch_total_loss, torch.Tensor):
                 print(f"  Train Batch: {batch_idx+1}/{len(train_loader)} Loss: {current_batch_total_loss.item():.4f}")
+                print(
+                    f"[Batch {batch_idx+1}] "
+                    f"load: {(t1-t0)*1000:.1f}ms | "
+                    f"fwd: {(t3-t2)*1000:.1f}ms | "
+                    f"parse: {(t4-t3)*1000:.1f}ms | "
+                    f"loss: {(t5-t4)*1000:.1f}ms | "
+                    f"bkwd+step: {(t6-t5)*1000:.1f}ms | "
+                    f"total: {(end_batch_time-start_batch_time)*1000:.1f}ms"
+                )
 
+        # End of epoch training loop
         avg_epoch_train_loss = running_train_loss / len(train_loader) if len(train_loader) > 0 else 0
         train_losses.append(avg_epoch_train_loss)
         tb_writer.add_scalar('LossEpoch_Train/Total', avg_epoch_train_loss, epoch)
@@ -644,19 +670,21 @@ if __name__ == "__main__":
 
     model_params = {
         "train_verbose": 1,  # Set to 0 for no training logs, 1 for basic logs, >1 for more detailed logs
-        "num_workers": 4,  # Number of workers for DataLoader, adjust based on your system
+        "num_workers": 1,  # Number of workers for DataLoader, adjust based on your system
         "path_results": "./pretrained_models_Pytorch/",
         "epochs": 10,
+        "in_memory_generator_train": False,
+        "in_memory_generator_val": False,
 
         # # NTU-120 Data sets to optimize the therapy data
         "train_annotations": "./ntu_annotations/one_shot_aux_set_train_full8.txt",
         "val_annotations": "./ntu_annotations/one_shot_aux_set_val_full8.txt",
         "eval_therapies": True,       ### Therapy data needed for its evaluation
-        "eval_therapies_triplets_dataset": "./therapies_annotations/triplets/triplets_dataset.pckl",
-        "eval_therapies_triplets_bgnd_dataset": "./therapies_annotations/triplets/triplets_ther_pat_bgnd_dataset.pckl",
-        "eval_therapies_video_skels": "./therapies_annotations/video_skels.pckl",
-        "h_flip": True,
-        "skip_frames": [2, 3],
+        # "eval_therapies_triplets_dataset": "./therapies_annotations/triplets/triplets_dataset.pckl",
+        # "eval_therapies_triplets_bgnd_dataset": "./therapies_annotations/triplets/triplets_ther_pat_bgnd_dataset.pckl",
+        # "eval_therapies_video_skels": "./therapies_annotations/video_skels.pckl",
+        # "h_flip": True,
+        # "skip_frames": [2, 3],
 
         # NTU-120 Data sets to optimize the NTU one-shot benchmark
         #"train_annotations": "./ntu_annotations/one_shot_aux_set.txt",
@@ -667,8 +695,6 @@ if __name__ == "__main__":
         #"min_monitor": False,
         #"skip_frames": [2],
 
-        "in_memory_generator_train": False,
-        "in_memory_generator_val": False,
         #"in_memory_callback": True,
 
         "eval_ntu": True,

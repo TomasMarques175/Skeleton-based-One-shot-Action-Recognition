@@ -13,6 +13,7 @@ from pytorch_tcn import TemporalConvNet
 from torch import nn
 import torch
 import torch.nn.functional as F
+import time # For timing epochs 
 
 
 class EncoderTCN(nn.Module):
@@ -49,8 +50,15 @@ class EncoderTCN(nn.Module):
 
     def forward(self, x):
         # Input x: (N, L, C_in)
+        t1 = time.time()
+        # Permute to (N, C_in, L) for Conv1d compatibility
         x = x.permute(0, 2, 1)  # Permute to (N, C_in, L) for Conv1d
+        t2 = time.time()
+        print(f"\t* Permutation time: {t2 - t1:.4f} sec")
+        # Pass through the TCN encoder
         y = self.tcn(x)  # Shape: (N, C, L)
+        t3 = time.time()
+        print(f"\t* Encoder output shape: {y.shape} (Time: {t3 - t2:.4f} sec)")
         if not self.prediction_mode:
             return y[:, :, -1]  # Output shape: (N, C)
         return y  # Shape: (N, C, L)
@@ -119,7 +127,6 @@ class TCN_clf(nn.Module):
                                       masking=masking,          # Placeholder info
                                       prediction_mode=prediction_mode, # Controls encoder output shape
                                       tcn_batch_norm=tcn_batch_norm) # Not implemented in pytorch_tcn
-
         self.triplet = triplet
         self.classification = classification
 
@@ -149,25 +156,34 @@ class TCN_clf(nn.Module):
         # Encoder output depends on prediction_mode
         # Assuming prediction_mode=False (default for training/classification) -> (N, C_out)
         # print(f'\t******** Call TCN_clf with input shape: {x.shape} ********\n')
+        t1 = time.time()
         encoder_features = self.encoder_net(x) # Shape (N, nb_filters)
+        t2 = time.time()
+        print(f"\t* Encoder output shape: {encoder_features.shape} (Time: {t2 - t1:.4f} sec)")
         # print(f'\t* Encoder features shape: {encoder_features.shape}') # Debugging output
         # Pass through optional intermediate dense layer
+        t3 = time.time()
         if self.clf_dense is not None:
             features_for_clf = F.relu(self.clf_dense(encoder_features))
         else:
             features_for_clf = encoder_features
-        
+        t4 = time.time()
+        # print(f"\t* Features after clf_dense shape: {features_for_clf.shape} (Time: {t4 - t3:.4f} sec)")
         # print(f"\t* Features for classification: {features_for_clf.shape}\n")
         
         out = []
 
+        t5 = time.time()
         # Triplet output (embedding) - Use the features *before* the final clf_out layer
         if self.triplet:
             # Usually normalize the features *after* the optional clf_dense if it exists,
             # or the raw encoder output if it doesn't. Let's use features_for_clf.
             emb = F.normalize(features_for_clf, p=2, dim=-1)
             out.append(emb)
+        t6 = time.time()
+        # print(f"\t* Triplet embedding shape: {emb.shape} (Time: {t6 - t5:.4f} sec)")
 
+        t7 = time.time()
         # Classification output
         if self.classification:
             if self.clf_out is None:
@@ -180,9 +196,11 @@ class TCN_clf(nn.Module):
             # out.append(clf_probs)
             # Otherwise, return logits (common for nn.CrossEntropyLoss)
             out.append(clf_logits)
-        
+        t8 = time.time()
+        # print(f"\t* Classification output shape: {clf_logits.shape} (Time: {t8 - t7:.4f} sec)")
         # print(f'\t******** Exit TCN_clf with output shape: {[o.shape for o in out]} ********\n\n')
         
+        print(f"\t* Total forward pass time: {t8 - t1:.4f} sec")
         # Return list of outputs (consistent with Keras multi-output models)
         # If only one output is active, consider returning just that tensor
         if len(out) == 1:
@@ -224,6 +242,7 @@ class TCN_clf(nn.Module):
                     x = torch.tensor(x, dtype=torch.float32) # Convert if numpy
                 x = x.to(next(self.parameters()).device) # Move to model's device
 
+                for_loop_start = time.time() # Start timing the for loop
                 embs_list = []
                 # This loop is potentially very slow in Python
                 for i in range(N):
@@ -245,11 +264,14 @@ class TCN_clf(nn.Module):
 
                         # Get embedding for this padded subsequence
                         # Note: get_embedding itself expects (N, L, C) and handles batch=None case
+                        start = time.time()
                         emb = self.get_embedding(padded_seq, batch=None) # Shape (1, embedding_dim)
+                        print(f"Total embedding time: {time.time() - start:.2f} sec")
                         sample_embs.append(emb)
 
                     embs_list.append(torch.cat(sample_embs, dim=0)) # Shape (L, embedding_dim)
-
+                for_loop_end = time.time()
+                print(f"\t* For loop time: {for_loop_end - for_loop_start:.4f} seconds")
                 # Stack embeddings for all samples
                 all_embs = torch.stack(embs_list, dim=0) # Shape (N, L, embedding_dim)
                 return all_embs
