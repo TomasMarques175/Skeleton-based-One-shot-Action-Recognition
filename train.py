@@ -408,7 +408,7 @@ def main(model_params):
                 optimizer.step()
                 running_train_loss += current_batch_total_loss.item()
             elif current_batch_total_loss == 0.0 and not (model_params.get('triplet',False) or model_params.get('classification',True)):
-                 pass # No losses active, normal
+                pass # No losses active, normal
             else:
                 if train_verbose > 0: print(f"  Train Batch: {batch_idx+1}/{len(train_loader)} - No loss computed for this batch.")
                 continue
@@ -428,7 +428,6 @@ def main(model_params):
         current_lr = optimizer.param_groups[0]['lr']
         tb_writer.add_scalar('LearningRate', current_lr, epoch)
         print(f"Epoch {epoch+1} Train Summary: Avg Total Loss: {avg_epoch_train_loss:.4f}, LR: {current_lr}")
-
 
         # --- Validation Phase ---
         val_metrics = {}  # To store metrics like loss, accuracy
@@ -645,9 +644,9 @@ if __name__ == "__main__":
 
     model_params = {
         "train_verbose": 1,  # Set to 0 for no training logs, 1 for basic logs, >1 for more detailed logs
-        "num_workers": 0,
+        "num_workers": 4,  # Number of workers for DataLoader, adjust based on your system
         "path_results": "./pretrained_models_Pytorch/",
-        "epochs": 50,
+        "epochs": 10,
 
         # # NTU-120 Data sets to optimize the therapy data
         "train_annotations": "./ntu_annotations/one_shot_aux_set_train_full8.txt",
