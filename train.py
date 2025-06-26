@@ -168,9 +168,6 @@ def main(model_params):
     
     val_steps = num_val_files // model_params['batch_size']
 
-    if val_gen is not None:
-        clf_callback = ClassificationMetricsCallback(val_gen, val_steps, output_dir=model_params['path_model'])
-        callbacks.append(clf_callback)
 
     file_writer = tf.summary.create_file_writer(model_params['path_model'] + "/metrics")
     file_writer.set_as_default()
@@ -223,7 +220,11 @@ def main(model_params):
                            validation=True, 
                            in_memory_generator=model_params['in_memory_generator_val'],
                            **model_params)
-    # print(train_gen, val_gen)    
+    # print(train_gen, val_gen) 
+    
+    if val_gen is not None:
+        clf_callback = ClassificationMetricsCallback(val_gen, val_steps, output_dir=model_params['path_model'])
+        callbacks.append(clf_callback)
 
     # Print the labels for the first 2 batches
     for i in range(2):
