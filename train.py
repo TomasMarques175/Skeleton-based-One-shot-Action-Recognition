@@ -13,6 +13,9 @@ import tensorflow as tf
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint, ReduceLROnPlateau, EarlyStopping, LambdaCallback
 from tensorflow.keras.metrics import Precision, Recall
+from metrics_logger import MetricsLogger
+import os
+
 import json
 
 from data_generator import triplet_data_generator_deterministic, triplet_data_generator, get_scaler_filename, get_num_feats
@@ -25,7 +28,6 @@ from models.TCN_classifier import TCN_clf
 
 from dataset_scripts.ntu120_utils.triplet_ntu_callback import eval_ntu_one_shot_triplets_callback
 from dataset_scripts.therapies.triplet_therapies_callback import eval_therapies_triplet_callback
-from classification_callback import ClassificationMetricsCallback
 
 from remove_suboptimal_weights import remove_path_weights
 
@@ -87,6 +89,12 @@ def main(model_params):
         scaler_filename = get_scaler_filename(**model_params)
         copyfile(scaler_filename, model_params['path_model'] + '/scaler.pckl')    
     
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
+    metrics_save_dir = os.path.join(parent_dir, 'Conversion comparison')
+    os.makedirs(metrics_save_dir, exist_ok=True)
+
+    
     # Set model parameters
     print(' * Setting model parameters')
     model = TCN_clf(**model_params)
@@ -138,10 +146,9 @@ def main(model_params):
     loss_weights['output_1'] = 0.4
     # loss_weights = None
     # loss_weights = [ 1.0 ]
-    # metrics = [ 'accuracy', get_lr_metric(optimizer) ]
-    metrics = {
-        'output_1': ['accuracy', Precision(name='precision'), Recall(name='recall'), get_lr_metric(optimizer)],
-    }
+    #metrics = [ 'accuracy', get_lr_metric(optimizer) ]
+    metrics = [ 'accuracy', Precision(name='precision'), Recall(name='recall'), get_lr_metric(optimizer) ]
+
 
     # Show losses, metrics and loss_weights
     print(' * losses:', losses)
@@ -164,7 +171,7 @@ def main(model_params):
                     ReduceLROnPlateau(monitor=monitor, min_delta=0.001, factor=0.1, patience=3, verbose=1, min_lr=1e-7),
                     EarlyStopping(monitor=monitor, min_delta=0.001, patience=6, verbose=1),
                 ]
-    
+
     val_steps = num_val_files // model_params['batch_size']
 
 
@@ -208,50 +215,53 @@ def main(model_params):
     
     # Deterministic Batches
     train_gen = triplet_data_generator_deterministic(pose_annotations_file=model_params['train_annotations'], 
-                                  validation=False, 
-                                  in_memory_generator=model_params['in_memory_generator_train'],
+                                validation=False, 
+                                in_memory_generator=model_params['in_memory_generator_train'],
                                   **model_params)
 
     if model_params['val_annotations'] == '': val_gen = None
     else:
         print(' * Creating validation data generator')
         val_gen = triplet_data_generator_deterministic(pose_annotations_file=model_params['val_annotations'], 
-                           validation=True, 
-                           in_memory_generator=model_params['in_memory_generator_val'],
+                        validation=True, 
+                        in_memory_generator=model_params['in_memory_generator_val'],
                            **model_params)
-    # print(train_gen, val_gen) 
-    
+
     if val_gen is not None:
-        clf_callback = ClassificationMetricsCallback(val_gen, val_steps, output_dir=model_params['path_model'])
-        callbacks.append(clf_callback)
+        metrics_logger = MetricsLogger(val_gen, metrics_save_dir)
+        callbacks.append(metrics_logger)
 
     # Print the labels for the first 2 batches
-    for i in range(2):
-        X, Y, sample_weights = next(train_gen)
-        print(f"\nBatch {i+1} Input Shape:", X.shape)
-        print(f"Batch {i+1} Labels Shape:", Y.shape)
-        # If y_raw is not None, print its shape and contents
-        print(f"\nSample Weights {i+1} Labels:", sample_weights)
+    # for i in range(2):
+    #     X_train, Y_train, sample_weights_train = next(train_gen)
+    #     print(f"\nBatch {i+1} Input Shape:", X_train.shape)
+    #     print(f"Batch {i+1} Labels Shape:", Y_train.shape)
+    #     # If y_raw is not None, print its shape and contents
+    #     X_val, Y_val, sample_weights_val = next(val_gen) if val_gen is not None else (None, None, None)
+    #     if X_val is not None:
+    #         print(f"\nValidation Batch {i+1} Input Shape:", X_val.shape)
+    #         print(f"Validation Batch {i+1} Labels Shape:", Y_val.shape)
+    #         print(f"\nSample Weights Validation {i+1} Labels:", sample_weights_val)
 
     # batch_loss_logger = BatchLossLogger(filename='batch_losses.json')
     
-    batch = next(iter(train_gen))  # or your generator
-    print(type(batch), len(batch))
+    # batch = next(iter(train_gen))  # or your generator
+    # print(type(batch), len(batch))
     # TODO: Check why batch len is 4 instead of 3
+    
     
     model.fit(
             train_gen,
             validation_data = val_gen,
             steps_per_epoch = num_train_files//model_params['batch_size'],
             validation_steps = None if num_val_files == 0 else num_val_files//model_params['batch_size'],
-            epochs = 1,
+            epochs = 10,
             # epochs = 50, 
             # epochs = 300, 
             # steps_per_epoch = 10,         # num_val_files//model_params['batch_size'],
             # validation_steps = 10,
             verbose = train_verbose,
-            # callbacks = callbacks,
-            #callbacks=callbacks + [batch_loss_logger],  
+            callbacks = callbacks,
         )
     
     # Extract weights and biases from softmax output layer (Dense layer named 'out_clf')
@@ -288,12 +298,12 @@ if __name__ == "__main__":
         # # NTU-120 Data sets to optimize the therapy data
         "train_annotations": "./ntu_annotations/one_shot_aux_set_train_full8.txt",
         "val_annotations": "./ntu_annotations/one_shot_aux_set_val_full8.txt",
-        "eval_therapies": True,       ### Therapy data needed for its evaluation
-        "eval_therapies_triplets_dataset": "./therapies_annotations/triplets/triplets_dataset.pckl",
-        "eval_therapies_triplets_bgnd_dataset": "./therapies_annotations/triplets/triplets_ther_pat_bgnd_dataset.pckl",
-        "eval_therapies_video_skels": "./therapies_annotations/video_skels.pckl",
+        # "eval_therapies": False,       ### Therapy data needed for its evaluation
+        # "eval_therapies_triplets_dataset": "./therapies_annotations/triplets/triplets_dataset.pckl",
+        # "eval_therapies_triplets_bgnd_dataset": "./therapies_annotations/triplets/triplets_ther_pat_bgnd_dataset.pckl",
+        # "eval_therapies_video_skels": "./therapies_annotations/video_skels.pckl",
         "h_flip": True,
-        "skip_frames": [2, 3],
+        # "skip_frames": [2, 3],
 
         # NTU-120 Data sets to optimize the NTU one-shot benchmark
         # "train_annotations": "./ntu_annotations/one_shot_aux_set.txt",
@@ -308,9 +318,9 @@ if __name__ == "__main__":
         "in_memory_generator_val": False,
         #"in_memory_callback": True,
 
-        "eval_ntu": True,
-        "eval_ntu_one_shot_eval_anchors_file": "./ntu_annotations/one_shot_eval_anchors.txt",
-        "eval_ntu_one_shot_eval_set_file": "./ntu_annotations/one_shot_eval_set.txt",
+        # "eval_ntu": True,
+        # "eval_ntu_one_shot_eval_anchors_file": "./ntu_annotations/one_shot_eval_anchors.txt",
+        # "eval_ntu_one_shot_eval_set_file": "./ntu_annotations/one_shot_eval_set.txt",
 
         "joints_num": 25,
         "joints_dim": 3,
@@ -347,4 +357,3 @@ if __name__ == "__main__":
         }
     
     main(model_params)
-    

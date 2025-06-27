@@ -147,7 +147,7 @@ class TCN_clf(Model):
             clf = self.clf_out(encoder)
             out.append(clf)
 
-        # print(f'\t******** Exit TCN_clf with output shape: {[o.shape for o in out]} ********\n\n')
+        print(f'\t******** Exit TCN_clf with output shape: {[o.shape for o in out]} ********\n\n')
         return out
 
     def get_embedding(self, x, batch=None, unify=False):
