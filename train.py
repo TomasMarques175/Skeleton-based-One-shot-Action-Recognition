@@ -595,7 +595,7 @@ def main(model_params):
                 conf_mat = confusion_matrix(all_clf_labels_val, all_clf_preds_val)
 
                 # Save the raw matrix as .npy
-                npy_path = os.path.join(confusion_matrix_dir, f'conf_matrix_epoch_{epoch+1:03d}.npy')
+                npy_path = os.path.join(confusion_matrix_dir, f'pytorch_conf_matrix_epoch_{epoch+1:03d}.npy')
                 np.save(npy_path, conf_mat)
 
                 # Optionally save a visualisation as PNG
