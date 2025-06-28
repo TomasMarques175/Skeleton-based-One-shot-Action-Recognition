@@ -96,4 +96,5 @@ class MetricsLogger(tf.keras.callbacks.Callback):
             plt.close()
 
             print(f"[MetricsLogger] Saved confusion matrix (.npy and .png) to {confusion_matrix_dir}")
+        print(f"[MetricsLogger] Epoch {epoch+1} - Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, Val F1: {f1:.4f}, Val AUC: {auc:.4f}")
 
