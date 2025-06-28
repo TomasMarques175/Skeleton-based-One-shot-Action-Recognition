@@ -28,10 +28,19 @@ class MetricsLogger(tf.keras.callbacks.Callback):
 
         val_data = self.validation_data
         if val_data is not None:
-            X_val, y_val, *_ = next(iter(val_data))
-            y_pred = self.model.predict(X_val)
+            # get predictions for the entire validation dataset
+            y_pred = self.model.predict(val_data, verbose=0)
+
+            # collect true labels for the entire validation dataset
+            y_true_list = []
+            for batch in val_data:
+                _, y_batch, *_ = batch
+                y_true_list.append(y_batch)
+            y_true = np.concatenate(y_true_list, axis=0)
+
+            # convert to classes
             y_pred_classes = np.argmax(y_pred, axis=1)
-            y_true_classes = np.argmax(y_val, axis=1)
+            y_true_classes = np.argmax(y_true, axis=1)
             
             f1 = f1_score(y_true_classes, y_pred_classes, average="macro")
             self.val_f1_scores.append(f1)
