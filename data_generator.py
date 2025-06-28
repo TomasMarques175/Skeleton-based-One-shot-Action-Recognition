@@ -589,7 +589,7 @@ def triplet_data_generator_deterministic(pose_annotations_file,
                            K=4,
                            **kwargs):
 
-    # Reads the annotations and stores them into a dict. Annotations are shuffled
+    # Reads the annotations and stores them into a dict.
     def read_annotations():
         print('Reading annotations from:', pose_annotations_file)
         with open(pose_annotations_file, 'r') as f:
@@ -617,7 +617,8 @@ def triplet_data_generator_deterministic(pose_annotations_file,
     assert batch_size % K == 0
     P = batch_size // K
     pose_list = read_annotations()
-    pose_idx = 0  # global index tracker
+    total_samples = len(pose_list)
+
     print(f'K: {K}, P: {P}, Batch size: {batch_size} | Total poses: {len(pose_list)}'
             , K, P, batch_size)
 
@@ -626,22 +627,15 @@ def triplet_data_generator_deterministic(pose_annotations_file,
         labels_dict = {l: i for i, l in enumerate(total_labels)}
         print('Total labels:', len(total_labels), 'Labels dict:', labels_dict)
 
-    while True:
+    for i in range(0, total_samples, batch_size):
+        batch = pose_list[i:i+batch_size]
+        
         batch_labels = []
         batch_samples = []
         if classification:
             y_clf = []
             y_raw = []  # store the true/original label
-        for _ in range(batch_size):
-            # print(f'pose_idx: {pose_idx}, len(pose_list): {len(pose_list)}')
-            if pose_idx >= len(pose_list):
-                # print(f'pose_idx {pose_idx} >= len(pose_list) {len(pose_list)}')
-                pose_list = read_annotations()
-                pose_idx = 0
-
-            filename, label = pose_list[pose_idx]
-            pose_idx += 1
-
+        for filename, label in batch:
             if classification:
                 label_cat = to_categorical(labels_dict[int(label)], num_classes=num_classes)
                 # print('Label:', label, 'Category:', label_cat)
