@@ -633,9 +633,9 @@ def triplet_data_generator_deterministic(pose_annotations_file,
             y_clf = []
             y_raw = []  # store the true/original label
         for _ in range(batch_size):
-            print(f'pose_idx: {pose_idx}, len(pose_list): {len(pose_list)}')
+            # print(f'pose_idx: {pose_idx}, len(pose_list): {len(pose_list)}')
             if pose_idx >= len(pose_list):
-                print(f'pose_idx {pose_idx} >= len(pose_list) {len(pose_list)}')
+                # print(f'pose_idx {pose_idx} >= len(pose_list) {len(pose_list)}')
                 pose_list = read_annotations()
                 pose_idx = 0
 
