@@ -5,12 +5,15 @@ import tensorflow as tf
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import confusion_matrix
-
+from data_generator import triplet_data_generator_deterministic
 
 class MetricsLogger(tf.keras.callbacks.Callback):
-    def __init__(self, validation_data, validation_steps, metrics_save_dir):
+    def __init__(self, validation_steps, pose_annotations_file, metrics_save_dir, 
+                in_memory_generator, model_params):
         super().__init__()
-        self.validation_data = validation_data
+        self.validation_file = pose_annotations_file
+        self.in_memory_generator = in_memory_generator
+        self.model_params = model_params
         self.validation_steps = validation_steps
         self.metrics_save_dir = metrics_save_dir
         self.train_losses = []
@@ -27,10 +30,18 @@ class MetricsLogger(tf.keras.callbacks.Callback):
         val_loss = logs.get("val_loss")
         self.val_losses.append(val_loss)
 
+        val_gen_for_metrics = triplet_data_generator_deterministic(
+            pose_annotations_file=self.validation_file,
+            validation=True,
+            in_memory_generator=self.in_memory_generator,
+            **self.model_params
+        )
+
+        
         val_data = self.validation_data
         if val_data is not None:
             # get predictions for the entire validation dataset
-            y_pred = self.model.predict(self.validation_data, steps=self.validation_steps, verbose=2)
+            y_pred = self.model.predict(val_gen_for_metrics, steps=self.validation_steps)
 
             # collect true labels for the entire validation dataset
             y_true_list = []
