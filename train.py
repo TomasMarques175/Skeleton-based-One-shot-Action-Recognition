@@ -229,7 +229,8 @@ def main(model_params):
 
     if val_gen is not None:
         validation_steps = None if num_val_files == 0 else num_val_files//model_params['batch_size'],
-        metrics_logger = MetricsLogger(validation_steps, pose_annotations_file=model_params['val_annotations'], metrics_save_dir=metrics_save_dir, in_memory_generator=model_params['in_memory_generator_val'], model_params)
+        metrics_logger = MetricsLogger(validation_steps, pose_annotations_file=model_params['val_annotations'], 
+                                       metrics_save_dir=metrics_save_dir, in_memory_generator=model_params['in_memory_generator_val'], **model_params)
         callbacks.append(metrics_logger)
 
     # Print the labels for the first 2 batches
