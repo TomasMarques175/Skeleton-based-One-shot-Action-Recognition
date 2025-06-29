@@ -8,9 +8,10 @@ from sklearn.metrics import confusion_matrix
 
 
 class MetricsLogger(tf.keras.callbacks.Callback):
-    def __init__(self, validation_data, metrics_save_dir):
+    def __init__(self, validation_data, validation_steps, metrics_save_dir):
         super().__init__()
         self.validation_data = validation_data
+        self.validation_steps = validation_steps
         self.metrics_save_dir = metrics_save_dir
         self.train_losses = []
         self.val_losses = []
@@ -29,7 +30,7 @@ class MetricsLogger(tf.keras.callbacks.Callback):
         val_data = self.validation_data
         if val_data is not None:
             # get predictions for the entire validation dataset
-            y_pred = self.model.predict(val_data, verbose=0)
+            y_pred = self.model.predict(self.validation_data, steps=self.validation_steps, verbose=2)
 
             # collect true labels for the entire validation dataset
             y_true_list = []

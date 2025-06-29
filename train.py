@@ -228,7 +228,8 @@ def main(model_params):
                            **model_params)
 
     if val_gen is not None:
-        metrics_logger = MetricsLogger(val_gen, metrics_save_dir)
+        validation_steps = None if num_val_files == 0 else num_val_files//model_params['batch_size'],
+        metrics_logger = MetricsLogger(val_gen, validation_steps, metrics_save_dir)
         callbacks.append(metrics_logger)
 
     # Print the labels for the first 2 batches
