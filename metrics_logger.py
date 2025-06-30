@@ -46,7 +46,7 @@ class MetricsLogger(tf.keras.callbacks.Callback):
         )
 
         if val_data is not None:
-            print(f"[MetricsLogger] Validation data loaded with {len(val_data)} batches.")
+            print(f"[MetricsLogger] Validation data generator created for {self.validation_steps} steps.")
             # get predictions for the entire validation dataset
             y_pred = self.model.predict(val_gen_for_metrics, steps=self.validation_steps)
 
