@@ -38,8 +38,15 @@ class MetricsLogger(tf.keras.callbacks.Callback):
             **self.model_params
         )
 
-        val_data = self.validation_generator
+        val_data = triplet_data_generator_deterministic(
+            pose_annotations_file=self.validation_file,
+            validation=True,
+            in_memory_generator=self.in_memory_generator,
+            **self.model_params
+        )
+
         if val_data is not None:
+            print(f"[MetricsLogger] Validation data loaded with {len(val_data)} batches.")
             # get predictions for the entire validation dataset
             y_pred = self.model.predict(val_gen_for_metrics, steps=self.validation_steps)
 

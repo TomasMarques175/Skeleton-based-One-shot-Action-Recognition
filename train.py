@@ -236,6 +236,11 @@ def main(model_params):
                                        model_params=model_params,
                                        validation_generator=val_gen)
         callbacks.append(metrics_logger)
+    
+    
+    batch = next(iter(val_gen))
+    print("Validation batch shapes:")
+    print(batch[0].shape, batch[1].shape)
 
     # Print the labels for the first 2 batches
     # for i in range(2):
