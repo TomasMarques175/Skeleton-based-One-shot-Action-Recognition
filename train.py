@@ -232,7 +232,8 @@ def main(model_params):
         metrics_logger = MetricsLogger(validation_steps, pose_annotations_file=model_params['val_annotations'], 
                                        metrics_save_dir=metrics_save_dir, 
                                        in_memory_generator=model_params['in_memory_generator_val'], 
-                                       model_params=model_params)
+                                       model_params=model_params,
+                                       validation_generator=val_gen)
         callbacks.append(metrics_logger)
 
     # Print the labels for the first 2 batches

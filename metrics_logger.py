@@ -9,7 +9,7 @@ from data_generator import triplet_data_generator_deterministic
 
 class MetricsLogger(tf.keras.callbacks.Callback):
     def __init__(self, validation_steps, pose_annotations_file, metrics_save_dir, 
-                in_memory_generator, model_params):
+                in_memory_generator, model_params, validation_generator=None):
         super().__init__()
         self.validation_file = pose_annotations_file
         self.in_memory_generator = in_memory_generator
@@ -20,6 +20,7 @@ class MetricsLogger(tf.keras.callbacks.Callback):
         self.val_losses = []
         self.val_f1_scores = []
         self.val_auc_scores = []
+        self.validation_generator  = validation_generator
 
     def on_epoch_end(self, epoch, logs=None):
         logs = logs or {}
@@ -37,8 +38,7 @@ class MetricsLogger(tf.keras.callbacks.Callback):
             **self.model_params
         )
 
-        
-        val_data = self.validation_data
+        val_data = self.validation_generator
         if val_data is not None:
             # get predictions for the entire validation dataset
             y_pred = self.model.predict(val_gen_for_metrics, steps=self.validation_steps)
