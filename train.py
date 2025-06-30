@@ -256,9 +256,9 @@ def main(model_params):
     
     model.fit(
             train_gen,
-            #validation_data = val_gen,
+            validation_data = val_gen,
             steps_per_epoch = num_train_files//model_params['batch_size'],
-            #validation_steps = None if num_val_files == 0 else num_val_files//model_params['batch_size'],
+            validation_steps = None if num_val_files == 0 else num_val_files//model_params['batch_size'],
             epochs = 10,
             # epochs = 50, 
             # epochs = 300, 
