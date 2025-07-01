@@ -264,7 +264,6 @@ def main(model_params):
     print(' * Steps per epoch:', steps_per_epoch)
 
     print(f' Num train files: {num_train_files}, Num val files: {num_val_files}')
-    exit(0)
     
     model.fit(
             train_gen,
