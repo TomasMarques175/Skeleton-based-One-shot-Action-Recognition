@@ -568,27 +568,28 @@ def triplet_data_generator(pose_annotations_file,
         yield X, Y, sample_weights
 
 def triplet_data_generator_deterministic(pose_annotations_file,
-                           batch_size,
-                           max_seq_len, joints_num, joints_dim, num_jcd_feats,
-                           scale_data, in_memory_generator,
-                           decoder, reverse_decoder,
-                           center_skels, h_flip, scale_by_torso,
-                           temporal_scale, validation,
-                           triplet,
-                           classification, num_classes,
+                        batch_size,
+                        max_seq_len, joints_num, joints_dim, num_jcd_feats,
+                        scale_data, in_memory_generator,
+                        decoder, reverse_decoder,
+                        center_skels, h_flip, scale_by_torso,
+                        temporal_scale, validation,
+                        triplet,
+                        classification, num_classes,
 
-                           use_jcd_features, use_speeds,
-                           use_coords_raw, use_coords, use_jcd_diff,
-                           use_bone_angles,
-                           use_bone_angles_cent,
-                           num_feats,
+                        use_jcd_features, use_speeds,
+                        use_coords_raw, use_coords, use_jcd_diff,
+                        use_bone_angles,
+                        use_bone_angles_cent,
+                        num_feats,
 
-                           skip_frames=[],
-                           average_wrong_skels=True,
-                           is_tcn=False,
-                           K=4,
-                           **kwargs,
-                           repeat=False):
+                        skip_frames=[],
+                        average_wrong_skels=True,
+                        is_tcn=False,
+                        K=4,
+                        repeat=False,
+                        **kwargs
+                        ):
 
     # Reads the annotations and stores them into a dict.
     def read_annotations():
