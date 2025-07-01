@@ -43,7 +43,6 @@ class MetricsLogger(tf.keras.callbacks.Callback):
             pose_annotations_file=self.validation_file,
             validation=True,
             in_memory_generator=self.in_memory_generator,
-            , repeat=True
             **self.model_params, 
             repeat=False
         )
