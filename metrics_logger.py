@@ -35,23 +35,21 @@ class MetricsLogger(tf.keras.callbacks.Callback):
             pose_annotations_file=self.validation_file,
             validation=True,
             in_memory_generator=self.in_memory_generator,
-            **self.model_params, 
-            repeat=False
+            **self.model_params
         )
 
         val_data = triplet_data_generator_deterministic(
             pose_annotations_file=self.validation_file,
             validation=True,
             in_memory_generator=self.in_memory_generator,
-            **self.model_params, 
-            repeat=False
+            **self.model_params
         )
 
         if val_data is not None:
             print(f"[MetricsLogger] Validation data generator created for {self.validation_steps} steps.")
 
             # get predictions for the entire validation dataset
-            y_pred = self.model.predict(val_gen_for_metrics, steps=None)
+            y_pred = self.model.predict(val_gen_for_metrics, steps=self.validation_steps)
 
             print(f"[MetricsLogger] Raw y_pred type: {type(y_pred)}")
             if isinstance(y_pred, list):

@@ -587,7 +587,6 @@ def triplet_data_generator_deterministic(pose_annotations_file,
                         average_wrong_skels=True,
                         is_tcn=False,
                         K=4,
-                        repeat=False,
                         **kwargs
                         ):
 
@@ -616,19 +615,19 @@ def triplet_data_generator_deterministic(pose_annotations_file,
     if not triplet:
         K = 1
 
-    assert batch_size % K == 0
-    P = batch_size // K
-    pose_list = read_annotations()
-    total_samples = len(pose_list)
-
-    print(f'K: {K}, P: {P}, Batch size: {batch_size} | Total poses: {len(pose_list)}'
-            , K, P, batch_size)
-
-    if classification:
-        total_labels = sorted(set(label for _, label in pose_list))
-        labels_dict = {l: i for i, l in enumerate(total_labels)}
-        print('Total labels:', len(total_labels), 'Labels dict:', labels_dict)
     while True:
+        assert batch_size % K == 0
+        P = batch_size // K
+        pose_list = read_annotations()
+        total_samples = len(pose_list)
+
+        print(f'K: {K}, P: {P}, Batch size: {batch_size} | Total poses: {len(pose_list)}'
+                , K, P, batch_size)
+
+        if classification:
+            total_labels = sorted(set(label for _, label in pose_list))
+            labels_dict = {l: i for i, l in enumerate(total_labels)}
+            print('Total labels:', len(total_labels), 'Labels dict:', labels_dict)
         for i in range(0, total_samples, batch_size):
             batch = pose_list[i:i+batch_size]
             
@@ -699,7 +698,5 @@ def triplet_data_generator_deterministic(pose_annotations_file,
             # print(Y)
             # print(X.shape, len(Y))
             yield X, Y, sample_weights
-        if not repeat:
-            break
 
 # %%

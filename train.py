@@ -217,8 +217,7 @@ def main(model_params):
     train_gen = triplet_data_generator_deterministic(pose_annotations_file=model_params['train_annotations'], 
                                 validation=False, 
                                 in_memory_generator=model_params['in_memory_generator_train'],
-                                **model_params,
-                                repeat=True)
+                                **model_params)
 
     if model_params['val_annotations'] == '': val_gen = None
     else:
@@ -226,8 +225,7 @@ def main(model_params):
         val_gen = triplet_data_generator_deterministic(pose_annotations_file=model_params['val_annotations'], 
                         validation=True, 
                         in_memory_generator=model_params['in_memory_generator_val'],
-                        **model_params,
-                        repeat=False)
+                        **model_params)
 
     if val_gen is not None:
         validation_steps = None if num_val_files == 0 else num_val_files//model_params['batch_size']
@@ -264,6 +262,9 @@ def main(model_params):
     
     steps_per_epoch = num_train_files//model_params['batch_size']
     print(' * Steps per epoch:', steps_per_epoch)
+
+    print(f' Num train files: {num_train_files}, Num val files: {num_val_files}')
+    exit(0)
     
     model.fit(
             train_gen,
