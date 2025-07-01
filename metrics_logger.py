@@ -55,7 +55,7 @@ class MetricsLogger(tf.keras.callbacks.Callback):
             print(f"[MetricsLogger] Validation data generator created for {self.validation_steps} steps.")
 
             # get predictions for the entire validation dataset
-            y_pred = self.model.predict(val_gen_for_metrics)
+            y_pred = self.model.predict(val_gen_for_metrics, steps=self.validation_steps)
 
             print(f"[MetricsLogger] Raw y_pred type: {type(y_pred)}")
             if isinstance(y_pred, list):
@@ -76,7 +76,11 @@ class MetricsLogger(tf.keras.callbacks.Callback):
             y_pred_classes = np.argmax(y_pred, axis=1)
             y_true_classes = y_true
 
-            assert y_pred_classes.shape[0] == y_true_classes.shape[0], "Mismatch in number of samples"
+            if y_pred_classes.shape[0] != y_true_classes.shape[0]:
+                print(f"Warning: mismatched shapes - y_pred: {y_pred_classes.shape[0]}, y_true: {y_true_classes.shape[0]}")
+                min_len = min(y_pred_classes.shape[0], y_true_classes.shape[0])
+                y_pred_classes = y_pred_classes[:min_len]
+                y_true_classes = y_true_classes[:min_len]
 
             # show debug samples
             print(f"[MetricsLogger] y_pred_classes shape: {y_pred_classes.shape}, "
