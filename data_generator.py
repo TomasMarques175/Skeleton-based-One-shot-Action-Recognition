@@ -587,7 +587,8 @@ def triplet_data_generator_deterministic(pose_annotations_file,
                            average_wrong_skels=True,
                            is_tcn=False,
                            K=4,
-                           **kwargs):
+                           **kwargs,
+                           repeat=False):
 
     # Reads the annotations and stores them into a dict.
     def read_annotations():
@@ -697,4 +698,7 @@ def triplet_data_generator_deterministic(pose_annotations_file,
             # print(Y)
             # print(X.shape, len(Y))
             yield X, Y, sample_weights
+        if not repeat:
+            break
+
 # %%

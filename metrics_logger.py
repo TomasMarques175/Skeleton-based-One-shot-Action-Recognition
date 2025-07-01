@@ -35,14 +35,17 @@ class MetricsLogger(tf.keras.callbacks.Callback):
             pose_annotations_file=self.validation_file,
             validation=True,
             in_memory_generator=self.in_memory_generator,
-            **self.model_params
+            **self.model_params, 
+            repeat=False
         )
 
         val_data = triplet_data_generator_deterministic(
             pose_annotations_file=self.validation_file,
             validation=True,
             in_memory_generator=self.in_memory_generator,
-            **self.model_params
+            , repeat=True
+            **self.model_params, 
+            repeat=False
         )
 
         if val_data is not None:

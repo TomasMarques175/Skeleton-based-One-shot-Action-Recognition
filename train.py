@@ -217,7 +217,8 @@ def main(model_params):
     train_gen = triplet_data_generator_deterministic(pose_annotations_file=model_params['train_annotations'], 
                                 validation=False, 
                                 in_memory_generator=model_params['in_memory_generator_train'],
-                                  **model_params)
+                                **model_params,
+                                repeat=True)
 
     if model_params['val_annotations'] == '': val_gen = None
     else:
@@ -225,7 +226,8 @@ def main(model_params):
         val_gen = triplet_data_generator_deterministic(pose_annotations_file=model_params['val_annotations'], 
                         validation=True, 
                         in_memory_generator=model_params['in_memory_generator_val'],
-                           **model_params)
+                        **model_params,
+                        repeat=False)
 
     if val_gen is not None:
         validation_steps = None if num_val_files == 0 else num_val_files//model_params['batch_size']
