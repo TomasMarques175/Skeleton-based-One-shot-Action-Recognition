@@ -49,7 +49,7 @@ class MetricsLogger(tf.keras.callbacks.Callback):
             print(f"[MetricsLogger] Validation data generator created for {self.validation_steps} steps.")
 
             # get predictions for the entire validation dataset
-            y_pred = self.model.predict(val_gen_for_metrics, steps=self.validation_steps)
+            y_pred = self.model.predict(val_gen_for_metrics, steps=self.validation_steps, steps=None)
 
             print(f"[MetricsLogger] Raw y_pred type: {type(y_pred)}")
             if isinstance(y_pred, list):
