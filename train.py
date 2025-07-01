@@ -264,7 +264,7 @@ def main(model_params):
     print(' * Steps per epoch:', steps_per_epoch)
     
     model.fit(
-            train_gen.repeat(),
+            train_gen,
             validation_data = val_gen,
             steps_per_epoch = num_train_files//model_params['batch_size'],
             validation_steps = None if num_val_files == 0 else num_val_files//model_params['batch_size'],
