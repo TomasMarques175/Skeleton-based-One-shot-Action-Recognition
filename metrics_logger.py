@@ -7,6 +7,7 @@ import seaborn as sns
 from sklearn.metrics import confusion_matrix
 from data_generator import triplet_data_generator_deterministic
 
+
 class MetricsLogger(tf.keras.callbacks.Callback):
     def __init__(self, validation_steps, pose_annotations_file, metrics_save_dir, 
                 in_memory_generator, model_params, validation_generator=None):
@@ -22,6 +23,11 @@ class MetricsLogger(tf.keras.callbacks.Callback):
         self.val_auc_scores = []
         self.validation_generator  = validation_generator
 
+    def read_annotations(self):
+        print('Reading annotations from:', self.validation_file)
+        with open(self.validation_file, 'r') as f:
+            return [(filename, int(label)) for filename, label in (line.strip().split() for line in f)]
+    
     def on_epoch_end(self, epoch, logs=None):
         logs = logs or {}
         
@@ -62,19 +68,13 @@ class MetricsLogger(tf.keras.callbacks.Callback):
                 print(f"[MetricsLogger] y_pred array shape: {y_pred.shape}")
 
             # collect true labels
-            y_true_list = []
-            num_batches = 0
-            for batch in val_data:
-                _, y_batch, *_ = batch
-                y_true_list.append(y_batch)
-                num_batches += 1
-            y_true = np.concatenate(y_true_list, axis=0)
-
-            print(f"[MetricsLogger] Collected y_true from {num_batches} batches with shape: {y_true.shape}")
+            pose_list = self.read_annotations()
+            labels_dict = {i: i-1 for i in range(1, 121)}  # same mapping as you printed
+            y_true = np.array([labels_dict[label] for (_, label) in pose_list])
 
             # convert to classes
             y_pred_classes = np.argmax(y_pred, axis=1)
-            y_true_classes = np.argmax(y_true, axis=1)
+            y_true_classes = y_true
 
             assert y_pred_classes.shape[0] == y_true_classes.shape[0], "Mismatch in number of samples"
 
