@@ -47,19 +47,42 @@ class MetricsLogger(tf.keras.callbacks.Callback):
 
         if val_data is not None:
             print(f"[MetricsLogger] Validation data generator created for {self.validation_steps} steps.")
+
             # get predictions for the entire validation dataset
             y_pred = self.model.predict(val_gen_for_metrics, steps=self.validation_steps)
 
-            # collect true labels for the entire validation dataset
+            print(f"[MetricsLogger] Raw y_pred type: {type(y_pred)}")
+            if isinstance(y_pred, list):
+                print(f"[MetricsLogger] y_pred is a list of length {len(y_pred)}")
+                for idx, pred in enumerate(y_pred):
+                    print(f"   y_pred[{idx}] shape: {pred.shape}")
+                y_pred = y_pred[0]
+                print(f"[MetricsLogger] Using y_pred[0] with shape: {y_pred.shape}")
+            else:
+                print(f"[MetricsLogger] y_pred array shape: {y_pred.shape}")
+
+            # collect true labels
             y_true_list = []
+            num_batches = 0
             for batch in val_data:
                 _, y_batch, *_ = batch
                 y_true_list.append(y_batch)
+                num_batches += 1
             y_true = np.concatenate(y_true_list, axis=0)
+
+            print(f"[MetricsLogger] Collected y_true from {num_batches} batches with shape: {y_true.shape}")
 
             # convert to classes
             y_pred_classes = np.argmax(y_pred, axis=1)
             y_true_classes = np.argmax(y_true, axis=1)
+
+            assert y_pred_classes.shape[0] == y_true_classes.shape[0], "Mismatch in number of samples"
+
+            # show debug samples
+            print(f"[MetricsLogger] y_pred_classes shape: {y_pred_classes.shape}, "
+                f"sample: {y_pred_classes[:10]}")
+            print(f"[MetricsLogger] y_true_classes shape: {y_true_classes.shape}, "
+                f"sample: {y_true_classes[:10]}")
             
             f1 = f1_score(y_true_classes, y_pred_classes, average="macro")
             self.val_f1_scores.append(f1)
