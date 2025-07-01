@@ -133,7 +133,7 @@ class MetricsLogger(tf.keras.callbacks.Callback):
             plt.xticks(rotation=90, fontsize=5)
             plt.yticks(fontsize=5)
             plt.tight_layout()
-            png_path = os.path.join(confusion_matrix_dir, f'conf_matrix_epoch_{epoch+1:03d}.png')
+            png_path = os.path.join(confusion_matrix_dir, f'tensorflow_conf_matrix_epoch_{epoch+1:03d}.png')
             plt.savefig(png_path)
             plt.close()
 

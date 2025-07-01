@@ -626,75 +626,75 @@ def triplet_data_generator_deterministic(pose_annotations_file,
         total_labels = sorted(set(label for _, label in pose_list))
         labels_dict = {l: i for i, l in enumerate(total_labels)}
         print('Total labels:', len(total_labels), 'Labels dict:', labels_dict)
-
-    for i in range(0, total_samples, batch_size):
-        batch = pose_list[i:i+batch_size]
-        
-        batch_labels = []
-        batch_samples = []
-        if classification:
-            y_clf = []
-            y_raw = []  # store the true/original label
-        for filename, label in batch:
+    while True:
+        for i in range(0, total_samples, batch_size):
+            batch = pose_list[i:i+batch_size]
+            
+            batch_labels = []
+            batch_samples = []
             if classification:
-                label_cat = to_categorical(labels_dict[int(label)], num_classes=num_classes)
-                # print('Label:', label, 'Category:', label_cat)
-                y_clf.append(label_cat)
-                y_raw.append(label)
-            if in_memory_generator and filename in cached_data.keys():
-                print('Recovering data', filename)
-                sample = cached_data[filename]
-            else:
-                # print('******', filename, '********')
-                pose_raw = np.load(filename, allow_pickle=True).item()
+                y_clf = []
+                y_raw = []  # store the true/original label
+            for filename, label in batch:
+                if classification:
+                    label_cat = to_categorical(labels_dict[int(label)], num_classes=num_classes)
+                    # print('Label:', label, 'Category:', label_cat)
+                    y_clf.append(label_cat)
+                    y_raw.append(label)
+                if in_memory_generator and filename in cached_data.keys():
+                    print('Recovering data', filename)
+                    sample = cached_data[filename]
+                else:
+                    # print('******', filename, '********')
+                    pose_raw = np.load(filename, allow_pickle=True).item()
 
-                p = get_body_skel(pose_raw, validation)
+                    p = get_body_skel(pose_raw, validation)
 
-                if average_wrong_skels:
-                    average_wrong_frame_skels(p)
-                sample = get_pose_data_v2(p, max_seq_len, joints_num, joints_dim,
-                                            center_skels, h_flip, scale_by_torso,
-                                            temporal_scale, scaler, validation,
-                                            use_jcd_features, use_speeds,
-                                            use_coords_raw, use_coords, use_jcd_diff,
-                                            use_bone_angles, use_bone_angles_cent,
-                                            skip_frames=skip_frames,
-                                            )
+                    if average_wrong_skels:
+                        average_wrong_frame_skels(p)
+                    sample = get_pose_data_v2(p, max_seq_len, joints_num, joints_dim,
+                                                center_skels, h_flip, scale_by_torso,
+                                                temporal_scale, scaler, validation,
+                                                use_jcd_features, use_speeds,
+                                                use_coords_raw, use_coords, use_jcd_diff,
+                                                use_bone_angles, use_bone_angles_cent,
+                                                skip_frames=skip_frames,
+                                                )
 
-                # print(validation, in_memory_generator)
-                if in_memory_generator:
-                    # print('Storing:', filename)
-                    cached_data[filename] = sample
-            batch_samples.append(sample)
-            batch_labels.append(label)
+                    # print(validation, in_memory_generator)
+                    if in_memory_generator:
+                        # print('Storing:', filename)
+                        cached_data[filename] = sample
+                batch_samples.append(sample)
+                batch_labels.append(label)
 
-        if triplet:
-            batch_labels = np.stack(batch_labels)       # for triplets
-        if classification:
-            y_clf = np.stack(y_clf).astype(
-                'int')              # for classification
+            if triplet:
+                batch_labels = np.stack(batch_labels)       # for triplets
+            if classification:
+                y_clf = np.stack(y_clf).astype(
+                    'int')              # for classification
 
-        X, Y, sample_weights = [], [], {}
+            X, Y, sample_weights = [], [], {}
 
-        X = pad_sequences(batch_samples, padding='pre', dtype='float32')
+            X = pad_sequences(batch_samples, padding='pre', dtype='float32')
 
-        if triplet:
-            Y.append(batch_labels)
-        if classification:
-            # Y.append(y_clf)
-            Y = y_clf
-        if decoder:
-            decoder_data = [bs[::-1]
-                            for bs in batch_samples] if reverse_decoder else batch_samples
-            padding = 'pre' if is_tcn else 'post'
-            # decoder_data = pad_sequences(decoder_data, padding='post', dtype='float32')
-            decoder_data = pad_sequences(
-                decoder_data, padding=padding, dtype='float32')
-            Y.append(decoder_data)
-            sample_weights['output_{}'.format(len(Y))] = (
-                decoder_data[:, :, 0] != 0).astype('float32')
+            if triplet:
+                Y.append(batch_labels)
+            if classification:
+                # Y.append(y_clf)
+                Y = y_clf
+            if decoder:
+                decoder_data = [bs[::-1]
+                                for bs in batch_samples] if reverse_decoder else batch_samples
+                padding = 'pre' if is_tcn else 'post'
+                # decoder_data = pad_sequences(decoder_data, padding='post', dtype='float32')
+                decoder_data = pad_sequences(
+                    decoder_data, padding=padding, dtype='float32')
+                Y.append(decoder_data)
+                sample_weights['output_{}'.format(len(Y))] = (
+                    decoder_data[:, :, 0] != 0).astype('float32')
 
-        # print(Y)
-        # print(X.shape, len(Y))
-        yield X, Y, sample_weights
+            # print(Y)
+            # print(X.shape, len(Y))
+            yield X, Y, sample_weights
 # %%
