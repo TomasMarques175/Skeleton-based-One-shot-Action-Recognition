@@ -687,7 +687,7 @@ if __name__ == "__main__":
         "path_results": "./pretrained_models_Pytorch/",
         "resume_training": False,  # Set to True to resume training from a checkpoint
         "checkpoint_path": None,  # Path to the checkpoint file if resuming training
-        "epochs": 10,
+        "epochs": 50,
         "in_memory_generator_train": False,
         "in_memory_generator_val": False,
 
