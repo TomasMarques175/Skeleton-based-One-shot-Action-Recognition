@@ -54,11 +54,11 @@ class EncoderTCN(nn.Module):
         # Permute to (N, C_in, L) for Conv1d compatibility
         x = x.permute(0, 2, 1)  # Permute to (N, C_in, L) for Conv1d
         t2 = time.time()
-        print(f"\t* Permutation time: {t2 - t1:.4f} sec")
+        # print(f"\t* Permutation time: {t2 - t1:.4f} sec")
         # Pass through the TCN encoder
         y = self.tcn(x)  # Shape: (N, C, L)
         t3 = time.time()
-        print(f"\t* Encoder output shape: {y.shape} (Time: {t3 - t2:.4f} sec)")
+        # print(f"\t* Encoder output shape: {y.shape} (Time: {t3 - t2:.4f} sec)")
         if not self.prediction_mode:
             return y[:, :, -1]  # Output shape: (N, C)
         return y  # Shape: (N, C, L)
@@ -159,7 +159,6 @@ class TCN_clf(nn.Module):
         t1 = time.time()
         encoder_features = self.encoder_net(x) # Shape (N, nb_filters)
         t2 = time.time()
-        print(f"\t* Encoder output shape: {encoder_features.shape} (Time: {t2 - t1:.4f} sec)")
         # print(f'\t* Encoder features shape: {encoder_features.shape}') # Debugging output
         # Pass through optional intermediate dense layer
         t3 = time.time()
@@ -200,7 +199,6 @@ class TCN_clf(nn.Module):
         # print(f"\t* Classification output shape: {clf_logits.shape} (Time: {t8 - t7:.4f} sec)")
         # print(f'\t******** Exit TCN_clf with output shape: {[o.shape for o in out]} ********\n\n')
         
-        print(f"\t* Total forward pass time: {t8 - t1:.4f} sec")
         # Return list of outputs (consistent with Keras multi-output models)
         # If only one output is active, consider returning just that tensor
         if len(out) == 1:
@@ -271,7 +269,6 @@ class TCN_clf(nn.Module):
 
                     embs_list.append(torch.cat(sample_embs, dim=0)) # Shape (L, embedding_dim)
                 for_loop_end = time.time()
-                print(f"\t* For loop time: {for_loop_end - for_loop_start:.4f} seconds")
                 # Stack embeddings for all samples
                 all_embs = torch.stack(embs_list, dim=0) # Shape (N, L, embedding_dim)
                 return all_embs

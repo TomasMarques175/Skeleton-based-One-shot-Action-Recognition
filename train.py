@@ -70,7 +70,6 @@ if torch.cuda.is_available():
     torch.cuda.manual_seed_all(SEED)
 np.random.seed(SEED)
 
-torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
 
@@ -170,11 +169,8 @@ def main(model_params):
         triplet=model_params.get('triplet', False), classification=model_params.get('classification', True),
         clf_neurons=model_params['clf_neurons'], num_classes=num_classes_for_model
     )
-    # TODO: remove this after trying with constant weights
-    model.apply(init_weights_constant)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
-    # print(model.state_dict())
     print(f"\n* Model moved to device: {device}\n")
 
     # --- Keras-like Debugging Block ---
@@ -294,8 +290,7 @@ def main(model_params):
                                            validation_mode=False,
                                            in_memory=model_params['in_memory_generator_train'],
                                            **dataset_params_for_loader)
-        # TODO: Add shuffle again if needed, but for debugging we are not using to make it deterministic.
-        train_loader = DataLoader(train_dataset, batch_size=model_params['batch_size'], shuffle=False,
+        train_loader = DataLoader(train_dataset, batch_size=model_params['batch_size'], shuffle=True,
                                   num_workers=model_params.get('num_workers', 0),
                                   pin_memory=True if device.type == 'cuda' else False, drop_last=True)
         print(f"Train DataLoader: Batches per epoch approx {len(train_loader)}")
@@ -310,7 +305,7 @@ def main(model_params):
                                              validation_mode=True,
                                              in_memory=model_params['in_memory_generator_val'],
                                              **dataset_params_for_loader)
-            val_loader = DataLoader(val_dataset, batch_size=model_params['batch_size'], shuffle=False,
+            val_loader = DataLoader(val_dataset, batch_size=model_params['batch_size'], shuffle=True,
                                     num_workers=model_params.get('num_workers', 0),
                                     pin_memory=True if device.type == 'cuda' else False, drop_last=False)
             print(f"Validation DataLoader: Batches per epoch approx {len(val_loader)}")
@@ -326,13 +321,30 @@ def main(model_params):
     num_epochs = model_params.get('epochs', 1)
     print(f"Training for {num_epochs} epochs with batch size {model_params['batch_size']}")
     time.sleep(5)  # Small delay for readability in logs
+    
+    if model_params.get('resume_training', False) and model_params.get('checkpoint_path', None) is not None:
+        checkpoint_path = model_params.get('checkpoint_path')
+        if checkpoint_path is None:
+            raise ValueError("resume_training is True, but no checkpoint_path was provided in model_params.")
+        checkpoint = torch.load(checkpoint_path)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        start_epoch = checkpoint['epoch']
+        best_monitor_metric_val = checkpoint['best_monitor_metric_val']
+        early_stopping_counter = checkpoint['early_stopping_counter']
+        print(f"Resuming training from checkpoint at epoch {start_epoch}")
+    else:
+        start_epoch = 0
+        best_monitor_metric_val = float('-inf') if monitor_mode == 'max' else float('inf')
+        early_stopping_counter = 0
+
     softmax_outputs = [] # To store softmax outputs if needed
     train_losses = []
     val_losses = []
     val_f1_scores = []
     val_auc_scores = []  # Move this to the top, before the epoch loop
 
-    for epoch in range(num_epochs):
+    for epoch in range(start_epoch, num_epochs):
         epoch_start_time = time.time()
         print(f"\nEpoch {epoch+1}/{num_epochs}")
         model.train()
@@ -351,9 +363,9 @@ def main(model_params):
             t1 = time.time()
             
             # Debugging print in order to see the batch shapes and labels
-            if train_verbose > 0 and batch_idx < 2 and epoch < 2:
-                for i, feature in enumerate(features_batch):
-                    print(f"  Batch {batch_idx+1}, Sample {i}: Feature shape: {feature.shape}, Label: {labels_batch[i]}")
+            # if train_verbose > 0 and batch_idx < 2 and epoch < 2:
+            #     for i, feature in enumerate(features_batch):
+            #         print(f"  Batch {batch_idx+1}, Sample {i}: Feature shape: {feature.shape}, Label: {labels_batch[i]}")
             # Reset gradients
             optimizer.zero_grad()
             
@@ -364,7 +376,6 @@ def main(model_params):
             t2 = time.time()
             with autocast():
                 model_output = model(features_batch)
-            print("Feature batch shape:", features_batch.shape)
             t3 = time.time()
 
             embeddings_batch = None
@@ -384,10 +395,6 @@ def main(model_params):
                 print("Warning: Neither triplet nor classification is enabled. No loss to compute. Skipping batch.")
                 continue
                 
-            # if clf_logits_batch is not None:
-            #     with torch.no_grad():
-            #         probs = torch.softmax(clf_logits_batch, dim=1)
-            #         softmax_outputs.append(probs.cpu().numpy())
             t4 = time.time()
             
             # Calculate Classification Loss
@@ -571,7 +578,13 @@ def main(model_params):
                 # Keras format: 'ep{epoch:03d}-loss{loss:.5f}-' + monitor + '{' + monitor + ':.5f}.ckpt'
                 # Using train loss for 'loss' part of filename for consistency with Keras.
                 checkpoint_filename = f"ep{epoch+1:03d}-trainloss{avg_epoch_train_loss:.5f}-{monitor_metric_name.replace('val_','')}{current_metric_for_scheduler_es:.5f}.pt"
-                torch.save(model.state_dict(), os.path.join(weights_save_path, checkpoint_filename))
+                torch.save({
+                    'epoch': epoch+1,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'best_monitor_metric_val': best_monitor_metric_val,
+                    'early_stopping_counter': early_stopping_counter
+                }, os.path.join(weights_save_path, checkpoint_filename))
                 print(f"  Saved checkpoint: {checkpoint_filename} (Monitored '{monitor_metric_name}': {current_metric_for_scheduler_es:.5f})")
                 # Update best_val_for_early_stop if this is the metric early stopping also monitors
                 if monitor_metric_name == model_params.get('monitor', 'val_loss'): # Check if it's the same metric
@@ -672,6 +685,8 @@ if __name__ == "__main__":
         "train_verbose": 1,  # Set to 0 for no training logs, 1 for basic logs, >1 for more detailed logs
         "num_workers": 1,  # Number of workers for DataLoader, adjust based on your system
         "path_results": "./pretrained_models_Pytorch/",
+        "resume_training": False,  # Set to True to resume training from a checkpoint
+        "checkpoint_path": None,  # Path to the checkpoint file if resuming training
         "epochs": 10,
         "in_memory_generator_train": False,
         "in_memory_generator_val": False,

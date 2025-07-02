@@ -46,10 +46,10 @@ class ResidualBlock(nn.Module):
         self.conv2 = nn.Conv1d(out_channels, out_channels, kernel_size,
                                padding=conv_padding2, dilation=dilation)
 
-        print(f"\t\t* self.conv1 kernel_size={self.conv1.kernel_size}, "
-              f"self.conv1 padding={self.pad1}, dilation={self.conv1.dilation}")
-        print(f"\t\t* self.conv2 kernel_size={self.conv2.kernel_size}, "
-                f"self.conv2 padding={self.pad2}, dilation={self.conv2.dilation}")
+        #print(f"\t\t* self.conv1 kernel_size={self.conv1.kernel_size}, "
+        #      f"self.conv1 padding={self.pad1}, dilation={self.conv1.dilation}")
+        #print(f"\t\t* self.conv2 kernel_size={self.conv2.kernel_size}, "
+        #        f"self.conv2 padding={self.pad2}, dilation={self.conv2.dilation}")
 
         if use_weight_norm:
             self.conv1 = nn.utils.weight_norm(self.conv1)
@@ -84,7 +84,7 @@ class ResidualBlock(nn.Module):
         # print(f"\t\t  After pad1: {out.shape}")
         out = self.conv1(out)
         t3 = time.time()
-        print(f"\t\t  After conv1: {out.shape} (Time taken for conv1: {t3 - t2:.4f} seconds)")
+        #print(f"\t\t  After conv1: {out.shape} (Time taken for conv1: {t3 - t2:.4f} seconds)")
         # print(f"\t\t  After conv1: {out.shape}")
         if self.norm1:
             out = self.norm1(out)
@@ -106,8 +106,8 @@ class ResidualBlock(nn.Module):
         # print(f"\t\t  After pad2: {out.shape}")
         out = self.conv2(out)
         t8 = time.time()
-        print(f"\t\t  After conv2: {out.shape} (Time taken for conv2: {t8 - t7:.4f} seconds)")
-        print(f"\t\t  After conv2: {out.is_cuda}")
+        #print(f"\t\t  After conv2: {out.shape} (Time taken for conv2: {t8 - t7:.4f} seconds)")
+        #print(f"\t\t  After conv2: {out.is_cuda}")
         
         # print(f"\t\t  After conv2: {out.shape}")
         if self.norm2:
@@ -156,7 +156,7 @@ class ResidualBlock(nn.Module):
         # print(f"\t\t  Final output after activation: {final_output.shape}")
         t14 = time.time()
         # print(f"\t\t  Final output after activation: {final_output.shape} (Time taken for final activation: {t14 - t13:.4f} seconds)")
-        print(f"\t  Total time for ResidualBlock forward: {t14 - t1:.4f} seconds\n")
+        # print(f"\t  Total time for ResidualBlock forward: {t14 - t1:.4f} seconds\n")
         return final_output
 
 
