@@ -288,16 +288,6 @@ def main(model_params):
 
     model.summary(100)
     
-    # Assuming train_gen is your training data generator
-    last_batch_input, _ = next(iter(train_gen))
-
-    np.savez('tf_results.npz',
-        weights=model.get_weights(),
-        outputs=model.predict(last_batch_input))
-
-    # Save sample batch for comparison
-    np.save('tf_sample_batch.npy', last_batch_input)
-
     del train_gen; del val_gen
     #del callbacks
 
