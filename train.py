@@ -322,10 +322,11 @@ def main(model_params):
     print(f"Training for {num_epochs} epochs with batch size {model_params['batch_size']}")
     time.sleep(5)  # Small delay for readability in logs
     
-    if model_params.get('resume_training', False) and model_params.get('checkpoint_path', None) is not None:
-        checkpoint_path = model_params.get('checkpoint_path')
-        if checkpoint_path is None:
-            raise ValueError("resume_training is True, but no checkpoint_path was provided in model_params.")
+    if model_params.get('resume_training', False) and model_params.get('checkpoint_filename', None) is not None:
+        checkpoint_filename = model_params.get('checkpoint_filename')
+        if checkpoint_filename is None:
+            raise ValueError("resume_training is True, but no checkpoint_filename was provided in model_params.")
+        checkpoint_path = os.path.join(weights_save_path, checkpoint_filename)
         checkpoint = torch.load(checkpoint_path)
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -685,8 +686,10 @@ if __name__ == "__main__":
         "train_verbose": 1,  # Set to 0 for no training logs, 1 for basic logs, >1 for more detailed logs
         "num_workers": 1,  # Number of workers for DataLoader, adjust based on your system
         "path_results": "./pretrained_models_Pytorch/",
-        "resume_training": False,  # Set to True to resume training from a checkpoint
-        "checkpoint_path": None,  # Path to the checkpoint file if resuming training
+        "resume_training": True,  # Set to True to resume training from a checkpoint
+        "checkpoint_filename":  "ep049-trainloss0.59053-loss0.58617.pt",  # Path to the checkpoint file if resuming training 
+        # (Place inside the same folder as the model weights)
+        
         "epochs": 50,
         "in_memory_generator_train": False,
         "in_memory_generator_val": False,
