@@ -322,12 +322,11 @@ def main(model_params):
     print(f"Training for {num_epochs} epochs with batch size {model_params['batch_size']}")
     time.sleep(5)  # Small delay for readability in logs
     
-    if model_params.get('resume_training', False) and model_params.get('checkpoint_filename', None) is not None:
-        checkpoint_filename = model_params.get('checkpoint_filename')
-        if checkpoint_filename is None:
-            raise ValueError("resume_training is True, but no checkpoint_filename was provided in model_params.")
-        checkpoint_path = os.path.join(weights_save_path, checkpoint_filename)
-        checkpoint = torch.load(checkpoint_path)
+    if model_params.get('resume_training', False) and model_params.get('checkpoint_file_path', None) is not None:
+        checkpoint_file_path = model_params.get('checkpoint_file_path')
+        if checkpoint_file_path is None:
+            raise ValueError("resume_training is True, but no checkpoint_file_path was provided in model_params.")
+        checkpoint = torch.load(checkpoint_file_path)
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         start_epoch = checkpoint['epoch']
@@ -586,7 +585,7 @@ def main(model_params):
                     'best_monitor_metric_val': best_monitor_metric_val,
                     'early_stopping_counter': early_stopping_counter
                 }, os.path.join(weights_save_path, checkpoint_filename))
-                print(f"  Saved checkpoint: {checkpoint_filename} (Monitored '{monitor_metric_name}': {current_metric_for_scheduler_es:.5f})")
+                print(f"  Saved checkpoint: {os.path.join(weights_save_path, checkpoint_filename)} (Monitored '{monitor_metric_name}': {current_metric_for_scheduler_es:.5f})")
                 # Update best_val_for_early_stop if this is the metric early stopping also monitors
                 if monitor_metric_name == model_params.get('monitor', 'val_loss'): # Check if it's the same metric
                     best_val_for_early_stop = best_monitor_metric_val
@@ -687,10 +686,9 @@ if __name__ == "__main__":
         "num_workers": 1,  # Number of workers for DataLoader, adjust based on your system
         "path_results": "./pretrained_models_Pytorch/",
         "resume_training": True,  # Set to True to resume training from a checkpoint
-        "checkpoint_filename":  "ep049-trainloss0.59053-loss0.58617.pt",  # Path to the checkpoint file if resuming training 
-        # (Place inside the same folder as the model weights)
+        "checkpoint_file_path":  "./pretrained_models_Pytorch/train_TCN_Pytorch_NTU120_one_shot_aux_set_full/0702_1539_model_195/weights/ep049-trainloss0.59053-loss0.58617.pt",  # Path to the checkpoint file if resuming training 
         
-        "epochs": 50,
+        "epochs": 100,
         "in_memory_generator_train": False,
         "in_memory_generator_val": False,
 
