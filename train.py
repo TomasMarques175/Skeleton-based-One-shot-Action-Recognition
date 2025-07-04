@@ -37,6 +37,31 @@ random.seed(SEED)
 np.random.seed(SEED)
 tf.random.set_seed(SEED)
 
+import prediction_utils
+import argparse
+
+def get_weights_filename(path_model, loss_name, verbose=False, num_file=None):
+    weights = sorted([ w for w in os.listdir(path_model + '/weights') if 'index' in w ])
+    if verbose: print(weights)
+    if loss_name is not None:
+        weights = [ w for w in weights  if loss_name in w ][0]
+    else:
+        if num_file is not None:
+            weights = weights[num_file]
+        # weights = weights[0]
+        elif 'mon' in weights[0]: 		# and False
+            if verbose:  print('weights by monitor')
+            weights = max(weights, key=lambda w: [ float(s[3:]) for s in w.replace('.ckpt.index', '').split('-') if s.startswith('mon') ][0])
+        elif 'val_loss' not in weights[0]:
+            if verbose: print('weights by last')
+            weights = weights[-1]
+        else:
+            if verbose: print('weights by val_loss')
+            losses = [ float(w.split('-')[2][8:15]) for w in weights ]
+            weights = weights[losses.index(min(losses))]
+    weights = weights[:-6]
+    return path_model + '/weights/' + weights
+
 
 def set_all_weights_to_value(model, value=0.01):
     for layer in model.layers:
@@ -94,7 +119,6 @@ def main(model_params):
     metrics_save_dir = os.path.join(parent_dir, 'Conversion comparison')
     os.makedirs(metrics_save_dir, exist_ok=True)
 
-    
     # Set model parameters
     print(' * Setting model parameters')
     model = TCN_clf(**model_params)
@@ -102,10 +126,9 @@ def main(model_params):
     # Build model
     print(' * Building model')
     model.build((None, None, model_params['num_feats']))    
-    set_all_weights_to_value(model, value=0.01)
+    # set_all_weights_to_value(model, value=0.01)
     # print([w.numpy() for w in model.weights])  # Keras
 
-    
     # Initialise dummy input and test model outputs
     print(' * Initialising dummy input and checking model outputs')
     print(' * model_params[batch_size]:', model_params['batch_size'])
@@ -172,9 +195,6 @@ def main(model_params):
                     EarlyStopping(monitor=monitor, min_delta=0.001, patience=6, verbose=1),
                 ]
 
-    val_steps = num_val_files // model_params['batch_size']
-
-
     file_writer = tf.summary.create_file_writer(model_params['path_model'] + "/metrics")
     file_writer.set_as_default()
 
@@ -214,7 +234,7 @@ def main(model_params):
     #                         **model_params)
     
     # Deterministic Batches
-    train_gen = triplet_data_generator_deterministic(pose_annotations_file=model_params['train_annotations'], 
+    train_gen = triplet_data_generator(pose_annotations_file=model_params['train_annotations'], 
                                 validation=False, 
                                 in_memory_generator=model_params['in_memory_generator_train'],
                                 **model_params)
@@ -222,7 +242,7 @@ def main(model_params):
     if model_params['val_annotations'] == '': val_gen = None
     else:
         print(' * Creating validation data generator')
-        val_gen = triplet_data_generator_deterministic(pose_annotations_file=model_params['val_annotations'], 
+        val_gen = triplet_data_generator(pose_annotations_file=model_params['val_annotations'], 
                         validation=True, 
                         in_memory_generator=model_params['in_memory_generator_val'],
                         **model_params)
@@ -237,11 +257,6 @@ def main(model_params):
                                        validation_generator=val_gen)
         callbacks.append(metrics_logger)
     
-    
-    batch = next(iter(val_gen))
-    print("Validation batch shapes:")
-    print(batch[0].shape, batch[1].shape)
-
     # Print the labels for the first 2 batches
     # for i in range(2):
     #     X_train, Y_train, sample_weights_train = next(train_gen)
@@ -270,7 +285,7 @@ def main(model_params):
             validation_data = val_gen,
             steps_per_epoch = num_train_files//model_params['batch_size'],
             validation_steps = None if num_val_files == 0 else num_val_files//model_params['batch_size'],
-            epochs = 10,
+            epochs = 100,
             # epochs = 50, 
             # epochs = 300, 
             # steps_per_epoch = 10,         # num_val_files//model_params['batch_size'],
@@ -279,13 +294,6 @@ def main(model_params):
             callbacks = callbacks,
         )
     
-    # Extract weights and biases from softmax output layer (Dense layer named 'out_clf')
-    softmax_weights, softmax_biases = model.clf_out.get_weights()
-
-    # Save them as numpy files for easy loading later
-    np.save('softmax_weights.npy', softmax_weights)
-    np.save('softmax_biases.npy', softmax_biases)
-
     model.summary(100)
     
     del train_gen; del val_gen

@@ -23,6 +23,7 @@ def main():
 
     model, model_params = prediction_utils.load_model(args.path_model, False)
 
+
     with open(model_params['eval_ntu_one_shot_eval_anchors_file'], 'r') as f:
         one_shot_eval_anchors = f.read().splitlines()
     with open(model_params['eval_ntu_one_shot_eval_set_file'], 'r') as f:
