@@ -685,8 +685,8 @@ if __name__ == "__main__":
         "train_verbose": 1,  # Set to 0 for no training logs, 1 for basic logs, >1 for more detailed logs
         "num_workers": 1,  # Number of workers for DataLoader, adjust based on your system
         "path_results": "./pretrained_models_Pytorch/",
-        "resume_training": True,  # Set to True to resume training from a checkpoint
-        "checkpoint_file_path":  "./pretrained_models_Pytorch/train_TCN_Pytorch_NTU120_one_shot_aux_set_full/0702_1539_model_195/weights/ep049-trainloss0.59053-loss0.58617.pt",  # Path to the checkpoint file if resuming training 
+        "resume_training": False,  # Set to True to resume training from a checkpoint
+        "checkpoint_file_path":  None,  # Path to the checkpoint file if resuming training 
         
         "epochs": 100,
         "in_memory_generator_train": False,
