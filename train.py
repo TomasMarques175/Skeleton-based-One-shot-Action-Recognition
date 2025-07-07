@@ -211,14 +211,6 @@ def main(model_params):
     if isinstance(dummy_pred_torch_call, torch.Tensor):
         dummy_pred_torch_call = [dummy_pred_torch_call]
 
-    # Save each full output (not each sample)
-    for i, out in enumerate(dummy_pred_torch_call):
-        np.save(f'pytorch_output_{i}.npy', out.cpu().numpy())
-        # Optional readable version
-        reshaped = out.view(out.size(0), -1).cpu().numpy()
-        np.savetxt(f'pytorch_output_{i}.txt', reshaped)
-
-
     # --- PyTorch Optimizer and Loss (Mimicking Keras printouts) ---
     print('\n * Setting optimizer (PyTorch)')
     optimizer = optim.Adam(model.parameters(), lr=model_params['init_lr'])
