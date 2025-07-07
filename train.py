@@ -149,13 +149,13 @@ def main(model_params):
     print(' * model_output_predict shapes:', [output.shape for output in model_output_predict])
 
     # Save each output (assumes model returns a list of tensors)
-    for i, output in enumerate(model_output_predict):
-        np.save(f'keras_output_{i}.npy', output)
+    #for i, output in enumerate(model_output_predict):
+    #    np.save(f'keras_output_{i}.npy', output)
 
     # If you want a text file viewable line-by-line (works best for 2D arrays):
-    for i, output in enumerate(model_output_predict):
-        reshaped = output.reshape(output.shape[0], -1)  # Flatten inner dims if needed
-        np.savetxt(f'keras_output_{i}.txt', reshaped)
+    #for i, output in enumerate(model_output_predict):
+    #    reshaped = output.reshape(output.shape[0], -1)  # Flatten inner dims if needed
+    #    np.savetxt(f'keras_output_{i}.txt', reshaped)
 
     # Get only the embedding output
     dummy_embedding = model.get_embedding(dummy_input)
