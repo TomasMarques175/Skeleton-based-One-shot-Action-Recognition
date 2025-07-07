@@ -527,9 +527,7 @@ def triplet_data_generator(pose_annotations_file,
                     print("depth_body1 first frame:", pose_raw['depth_body1'][0])
                 
                 print("number of frames:", len(pose_raw['nbodys']))
-                
-                exit(0)
-                
+                                
                 if classification:
                     label_cat = to_categorical(
                         labels_dict[int(label)], num_classes=num_classes)
