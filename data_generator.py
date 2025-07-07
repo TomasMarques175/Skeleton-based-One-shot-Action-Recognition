@@ -507,26 +507,26 @@ def triplet_data_generator(pose_annotations_file,
                 
                 pose_raw = np.load(filename, allow_pickle=True).item()
 
-                print(f"\n==> FILENAME: {filename}")
-                print(f"pose_raw keys: {pose_raw.keys()}")
-                print(f"  nbodys: {pose_raw['nbodys']}")
-                print(f"  njoints: {pose_raw['njoints']}")
+                #print(f"\n==> FILENAME: {filename}")
+                #print(f"pose_raw keys: {pose_raw.keys()}")
+                #print(f"  nbodys: {pose_raw['nbodys']}")
+                #print(f"  njoints: {pose_raw['njoints']}")
 
-                print("file_name:", pose_raw['file_name'])
-                print("nbodys (first 10 frames):", pose_raw['nbodys'][:10])
-                print("njoints:", pose_raw['njoints'])
-                print("skel_body0 shape:", pose_raw['skel_body0'].shape)
-                print("skel_body0 first frame:\n", pose_raw['skel_body0'][0])
-                print("rgb_body0 first frame:", pose_raw['rgb_body0'][0])
-                print("depth_body0 first frame:", pose_raw['depth_body0'][0])
+                #print("file_name:", pose_raw['file_name'])
+                #print("nbodys (first 10 frames):", pose_raw['nbodys'][:10])
+                #print("njoints:", pose_raw['njoints'])
+                #print("skel_body0 shape:", pose_raw['skel_body0'].shape)
+                #print("skel_body0 first frame:\n", pose_raw['skel_body0'][0])
+                #print("rgb_body0 first frame:", pose_raw['rgb_body0'][0])
+                #print("depth_body0 first frame:", pose_raw['depth_body0'][0])
 
-                if 'skel_body1' in pose_raw:
-                    print("skel_body1 shape:", pose_raw['skel_body1'].shape)
-                    print("skel_body1 first frame:\n", pose_raw['skel_body1'][0])
-                    print("rgb_body1 first frame:", pose_raw['rgb_body1'][0])
-                    print("depth_body1 first frame:", pose_raw['depth_body1'][0])
-                
-                print("number of frames:", len(pose_raw['nbodys']))
+                #if 'skel_body1' in pose_raw:
+                #    print("skel_body1 shape:", pose_raw['skel_body1'].shape)
+                #    print("skel_body1 first frame:\n", pose_raw['skel_body1'][0])
+                #    print("rgb_body1 first frame:", pose_raw['rgb_body1'][0])
+                #    print("depth_body1 first frame:", pose_raw['depth_body1'][0])
+                #
+                #print("number of frames:", len(pose_raw['nbodys']))
                                 
                 if classification:
                     label_cat = to_categorical(
