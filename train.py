@@ -316,7 +316,7 @@ if __name__ == "__main__":
         # "eval_therapies_triplets_bgnd_dataset": "./therapies_annotations/triplets/triplets_ther_pat_bgnd_dataset.pckl",
         # "eval_therapies_video_skels": "./therapies_annotations/video_skels.pckl",
         "h_flip": True,
-        # "skip_frames": [2, 3],
+        "skip_frames": [2, 3],
 
         # NTU-120 Data sets to optimize the NTU one-shot benchmark
         # "train_annotations": "./ntu_annotations/one_shot_aux_set.txt",
@@ -366,7 +366,6 @@ if __name__ == "__main__":
         "use_bone_angles": True,
         "use_bone_angles_cent": False,
         "average_wrong_skels": True,
-        "average_wrong_skels_method": 'mean',   
         }
     
     main(model_params)
