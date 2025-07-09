@@ -346,7 +346,7 @@ if __name__ == "__main__":
         "lstm_dropout": 0.2,
         "num_layers": 2,
         "num_neurons": 256,
-        "batch_size": 64,
+        "batch_size": 64,       
         "masking": True,
         "center_skels": True,
         "scale_by_torso": True,
