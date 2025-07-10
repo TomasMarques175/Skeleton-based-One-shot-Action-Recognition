@@ -343,20 +343,46 @@ def get_num_feats(joints_num,
 
     num_feats = 0
     if use_bone_angles:
+        print('Using bone angles')
         num_feats += (len(connecting_joint)-1)*2
+        print('Bone angles: {}'.format((len(connecting_joint)-1)*2))
     if use_bone_angles_cent:
+        num_feats_old = num_feats
         num_feats += (len(connecting_joint)-1)*2
+        print('Bone angles centered: {} ({} + {})'.format(
+            num_feats, num_feats_old, (len(connecting_joint)-1)*2))
     if use_jcd_features:
+        print('Using JCD features')
+        num_feats_old = num_feats
         num_feats += int(comb(joints_num, 2))
+        print('JCD features: {} ({} + {})'.format(
+            num_feats, num_feats_old, int(comb(joints_num, 2))))
     if use_speeds:
+        print('Using speeds')
+        num_feats_old = num_feats
         num_feats += joints_num * joints_dim
+        print('Speeds: {} ({} + {})'.format(
+            num_feats, num_feats_old, joints_num * joints_dim))
     if use_coords_raw:
+        print('Using raw coordinates')
+        num_feats_old = num_feats
         num_feats += joints_num * joints_dim
+        print('Raw coordinates: {} ({} + {})'.format(
+            num_feats, num_feats_old, joints_num * joints_dim))
     if use_coords:
+        print('Using coordinates')
+        num_feats_old = num_feats
         num_feats += joints_num * joints_dim
+        print('Coordinates: {} ({} + {})'.format(
+            num_feats, num_feats_old, joints_num * joints_dim))
     if use_jcd_diff:
+        print('Using JCD difference')
+        num_feats_old = num_feats
         num_feats += int(comb(joints_num, 2))
+        print('JCD difference: {} ({} + {})'.format(
+            num_feats, num_feats_old, int(comb(joints_num, 2))))
 
+    print('Number of features: {}'.format(num_feats))
     return num_feats
 
 
@@ -426,7 +452,7 @@ def triplet_data_generator(pose_annotations_file,
         for k in pose_files.keys():
             np.random.shuffle(pose_files[k])
         return pose_files
-
+    
     # Return a random sample with the given label or a random one if there is no
     # more samples with that label
     def get_random_sample(label):

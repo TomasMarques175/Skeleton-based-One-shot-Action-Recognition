@@ -307,7 +307,7 @@ def main(model_params):
     else:
         print("No validation annotations provided, val_loader will be None.")
 
-
+    
     # --- Training Loop ---
     print("\n--- Starting PyTorch Training ---")
     num_epochs = model_params.get('epochs', 1)
@@ -562,10 +562,12 @@ def main(model_params):
             current_metric_for_scheduler_es = val_metrics.get(monitor_metric_name, avg_epoch_val_loss)
 
             lr_scheduler.step(current_metric_for_scheduler_es) # Step LR scheduler
+            
+            min_delta = model_params.get('min_delta', 0.001)
 
             # ModelCheckpoint
-            if (monitor_mode == 'max' and current_metric_for_scheduler_es > best_monitor_metric_val) or \
-            (monitor_mode == 'min' and current_metric_for_scheduler_es < best_monitor_metric_val):
+            if (monitor_mode == 'max' and current_metric_for_scheduler_es > best_monitor_metric_val + min_delta) or \
+            (monitor_mode == 'min' and current_metric_for_scheduler_es < best_monitor_metric_val - min_delta):
                 best_monitor_metric_val = current_metric_for_scheduler_es
                 # Keras format: 'ep{epoch:03d}-loss{loss:.5f}-' + monitor + '{' + monitor + ':.5f}.ckpt'
                 # Using train loss for 'loss' part of filename for consistency with Keras.

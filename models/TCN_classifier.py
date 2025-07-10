@@ -37,7 +37,7 @@ class EncoderTCN(nn.Module):
             print("\t* MASKING — requires manual implementation or specific handling in PyTorch")
 
         print(f"\t* nb_stacks: {nb_stacks}, kernel_size: {kernel_size}, lstm_dropout: {lstm_dropout}")
-        self.tcn = TemporalConvNet(
+        tcn_layer = TemporalConvNet(
             input_dim=num_feats,
             nb_filters=nb_filters, # e.g., 256 if nb_filters=256
             kernel_size=kernel_size,
@@ -45,20 +45,17 @@ class EncoderTCN(nn.Module):
             nb_stacks=nb_stacks, # e.g., [256, 256] if nb_stacks=2
             dropout_rate=lstm_dropout
         )
-    
-        self.encoder = nn.Sequential(self.tcn)
+        layers.append(tcn_layer)
+
+        self.encoder = nn.Sequential(*layers)
+
 
     def forward(self, x):
         # Input x: (N, L, C_in)
-        t1 = time.time()
         # Permute to (N, C_in, L) for Conv1d compatibility
         x = x.permute(0, 2, 1)  # Permute to (N, C_in, L) for Conv1d
-        t2 = time.time()
-        # print(f"\t* Permutation time: {t2 - t1:.4f} sec")
         # Pass through the TCN encoder
-        y = self.tcn(x)  # Shape: (N, C, L)
-        t3 = time.time()
-        # print(f"\t* Encoder output shape: {y.shape} (Time: {t3 - t2:.4f} sec)")
+        y = self.encoder(x)  # Shape: (N, C, L)
         if not self.prediction_mode:
             return y[:, :, -1]  # Output shape: (N, C)
         return y  # Shape: (N, C, L)
