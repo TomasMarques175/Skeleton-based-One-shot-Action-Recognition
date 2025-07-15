@@ -14,11 +14,14 @@ from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint, ReduceLROnPlateau, EarlyStopping, LambdaCallback
 from tensorflow.keras.metrics import Precision, Recall
 from metrics_logger import MetricsLogger
+from tqdm import tqdm
 import os
+import pickle
+from demo_speed import ther_batch_iterator
 
 import json
 
-from data_generator import triplet_data_generator_deterministic, triplet_data_generator, get_scaler_filename, get_num_feats
+from data_generator import triplet_data_generator, get_scaler_filename, get_num_feats, ther_data_generator
 from train_callbacks import get_lr_metric  # eval_one_shot_callback, eval_one_shot_therapies_callback, 
 import train_utils
 from shutil import copyfile
@@ -74,7 +77,6 @@ def set_all_weights_to_value(model, value=0.01):
                 new_weights = [np.full_like(w, value) for w in weights]
                 layer.set_weights(new_weights)
 
-
 class BatchLossLogger(tf.keras.callbacks.Callback):
     def __init__(self, filename='batch_losses.json'):
         super().__init__()
@@ -90,6 +92,7 @@ class BatchLossLogger(tf.keras.callbacks.Callback):
     def on_train_end(self, logs=None):
         with open(self.filename, 'w') as f:
             json.dump(self.batch_losses, f)
+
 
 
 def main(model_params):
@@ -201,11 +204,11 @@ def main(model_params):
     #if model_params['eval_ntu']: 
     #    callbacks = [LambdaCallback(_supports_tf_logs = True, 
     #                                on_epoch_end=eval_ntu_one_shot_triplets_callback(model, model_params.copy(), file_writer))] + callbacks
-    #if model_params['eval_therapies']: 
-    #    callbacks = [LambdaCallback(_supports_tf_logs = True, 
-    #                                on_epoch_end=eval_therapies_triplet_callback(model, model_params.copy(), file_writer, 'full'))] + callbacks
-    #    callbacks = [LambdaCallback(_supports_tf_logs = True, 
-    #                                on_epoch_end=eval_therapies_triplet_callback(model, model_params.copy(), file_writer, 'sample'))] + callbacks
+    # if model_params['eval_therapies']: 
+    #     callbacks = [LambdaCallback(_supports_tf_logs = True, 
+    #                                 on_epoch_end=eval_therapies_triplet_callback(model, model_params.copy(), file_writer, 'full'))] + callbacks
+    #     callbacks = [LambdaCallback(_supports_tf_logs = True, 
+    #                                 on_epoch_end=eval_therapies_triplet_callback(model, model_params.copy(), file_writer, 'sample'))] + callbacks
     #print(callbacks)
     
     
@@ -234,19 +237,49 @@ def main(model_params):
     #                         **model_params)
     
     # Deterministic Batches
-    train_gen = triplet_data_generator(pose_annotations_file=model_params['train_annotations'], 
-                                validation=False, 
-                                in_memory_generator=model_params['in_memory_generator_train'],
-                                **model_params)
+    # train_gen = triplet_data_generator(pose_annotations_file=model_params['train_annotations'], 
+    #                             validation=False, 
+    #                             in_memory_generator=model_params['in_memory_generator_train'],
+    #                             **model_params)
 
-    if model_params['val_annotations'] == '': val_gen = None
-    else:
-        print(' * Creating validation data generator')
-        val_gen = triplet_data_generator(pose_annotations_file=model_params['val_annotations'], 
-                        validation=True, 
-                        in_memory_generator=model_params['in_memory_generator_val'],
-                        **model_params)
+    raw_data_path = './datasets/therapies_dataset/'
+    video_skels = pickle.load(open(os.path.join(raw_data_path, 'video_skels_v2.pckl'), 'rb'))
+    video_skels = { k:v[2] for k,v in video_skels.items() }
+    
+    train_gen = ther_data_generator(video_skels, model_params)
 
+
+    # if model_params['val_annotations'] == '': val_gen = None
+    # else:
+    # print(' * Creating validation data generator')
+    #     val_gen = triplet_data_generator(pose_annotations_file=model_params['val_annotations'], 
+    #                     validation=True, 
+    #                     in_memory_generator=model_params['in_memory_generator_val'],
+    #                     **model_params)
+    
+    
+    print("\n========== First 2 batches from train_gen ==========")
+    for i in range(2):
+        print(f"\n--- Train Batch {i+1} ---")
+        X_train, Y_train, sample_weights_train = next(train_gen)
+        print(f"Input shape: {X_train.shape}")
+        print(f"Labels shape: {Y_train.shape}")
+        
+        # # Print all feature values per sample
+        # for sample_idx in range(min(3, X_train.shape[0])):  # limit to 3 samples
+        #     print(f"\nSample {sample_idx} features:")
+        #     for t in range(X_train.shape[1]):
+        #         for f in range(X_train.shape[2]):
+        #             print(f"[{t},{f}]: {X_train[sample_idx, t, f]}")
+        #     print(f"Label: {Y_train[sample_idx]}")
+        # # Optional: show sample weights
+        # if sample_weights_train is not None:
+        #     print("Sample weights:")
+        #     for i in range(min(3, len(sample_weights_train))):
+        #         print(f"{i}: {sample_weights_train[i]}")
+
+    exit(0)  # Debugging exit
+    
     if val_gen is not None:
         validation_steps = None if num_val_files == 0 else num_val_files//model_params['batch_size']
         print(' * Validation steps:', validation_steps)

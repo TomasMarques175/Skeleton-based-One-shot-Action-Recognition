@@ -5,7 +5,7 @@ import tensorflow as tf
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import confusion_matrix
-from data_generator import triplet_data_generator_deterministic
+from data_generator import triplet_data_generator
 
 
 class MetricsLogger(tf.keras.callbacks.Callback):

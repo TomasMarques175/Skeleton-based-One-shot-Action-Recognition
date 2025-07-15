@@ -17,7 +17,10 @@ import numpy as np
 import sys
 import pickle
 from tensorflow.keras.utils import to_categorical
-
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+import numpy as np
+import time
 
 flip_correspondences_left = [4, 5, 6, 7,   12, 13, 14, 15, 21, 22]
 flip_correspondences_right = [8, 9, 10, 11, 16, 17, 18, 19, 23, 24]
@@ -318,7 +321,6 @@ def get_scaler_filename(joints_num, joints_dim,
 
 def load_scaler(joints_num, joints_dim,
                 center_skels, scale_by_torso,
-
                 use_jcd_features, use_speeds,
                 use_coords_raw, use_coords, use_jcd_diff,
                 use_bone_angles,
@@ -384,6 +386,51 @@ def get_body_skel(pose_raw, validation, mode='var'):
             p = pose_raw['skel_body{}'.format(p_ind)]
     return p
 
+
+def plot_skeleton_frame(body_pose, frame_idx=0, bones=None, title=None):
+    """
+    Plot 3D skeleton for a single frame with bone connections.
+
+    Args:
+        body_pose (np.ndarray): Array of shape (frames, joints, 3)
+        frame_idx (int): Index of the frame to plot
+        bones (list of tuples): List of (start_joint, end_joint) connections
+        title (str): Optional plot title
+    """
+    if bones is None:
+        # Default bone connections, use your own
+        bones = [
+            (2, 3), (20, 2), (1, 20), (0, 1),
+            (0, 16), (12, 0), (20, 8), (9, 8),
+            (10, 9), (4, 20), (5, 4), (6, 5),
+            (18, 17), (14, 13), (17, 16), (13, 12),
+            (18, 19), (14, 15)
+        ]
+    
+    print(f"Plotting frame {frame_idx} with shape {body_pose.shape}")
+    joints = body_pose[frame_idx]
+
+    fig = plt.figure(figsize=(8, 8))
+    ax = fig.add_subplot(111, projection='3d')
+
+    # Plot joints
+    ax.scatter(joints[:, 0], joints[:, 1], joints[:, 2], c='blue', s=30)
+
+    # Plot bones
+    for start, end in bones:
+        x = [joints[start][0], joints[end][0]]
+        y = [joints[start][1], joints[end][1]]
+        z = [joints[start][2], joints[end][2]]
+        ax.plot(x, y, z, c='red', linewidth=2)
+
+    ax.set_title(title or f"3D Skeleton Frame {frame_idx}")
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Z')
+    ax.view_init(elev=20, azim=-60)
+
+    plt.tight_layout()
+    plt.show()
 
 # Triplet data generator
 # Each batch is composed by K=4 samples of P=B/K different classes
@@ -485,7 +532,7 @@ def triplet_data_generator(pose_annotations_file,
     pose_files = read_annotations()
     print(f'K: {K}, P: {P}, Batch size: {batch_size} | Total poses: {sum([len(v) for v in pose_files.values()])}'
             , K, P, batch_size)
-        
+    
     if classification:
         total_labels = sorted(list(pose_files.keys()))
         labels_dict = {l: i for i, l in enumerate(total_labels)}
@@ -506,6 +553,9 @@ def triplet_data_generator(pose_annotations_file,
                 filename, label = get_random_sample(label_iter)
                 
                 pose_raw = np.load(filename, allow_pickle=True).item()
+                pose = get_body_skel(pose_raw, validation=True)
+                # print(f"Processing file: {filename}, label: {label}, pose shape: {pose.shape}")
+                # plot_skeleton_frame(pose, frame_idx=0, bones=None, title=f"Pose from {filename}")
 
                 #print(f"\n==> FILENAME: {filename}")
                 #print(f"pose_raw keys: {pose_raw.keys()}")
@@ -724,3 +774,24 @@ def triplet_data_generator(pose_annotations_file,
 #             yield X, Y, sample_weights
 
 # %%
+
+def ther_data_generator(video_skels, model_params):
+    scaler = None
+
+    print(' *** ', ther_data_generator)
+    for vid, skels in tqdm(video_skels.items()):
+        # Load skel
+        if model_params['average_wrong_skels']: skels = average_wrong_frame_skels(skels)
+        print('Processing video:', vid, 'with', len(skels), 'frames')
+        print('Skel shape:', skels.shape)
+        print('Skel first frame:', skels[0])
+        # Process skel data
+        t = time.time()
+        motion_data = get_pose_data_v2(body=skels, scaler=scaler, validation=True, **model_params)
+        motion_len = len(motion_data)
+        motion_data = np.expand_dims(motion_data, axis=0)
+        t = time.time() - t
+        print('Processed video:', vid, 'in', t, 'seconds')
+        print('Motion data shape:', motion_data.shape, 'Motion length:', motion_len)
+
+        yield t, motion_len, motion_data
