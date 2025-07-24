@@ -1558,21 +1558,6 @@ def main(model_params):
             
         fold_val_f1_scores.append(best_val_f1)
 
-    # --- Post-training actions ---
-    print("\n--- PyTorch Training Finished ---")
-    # Keep only the best checkpoint file
-    if 'best_checkpoint_filename' in locals():
-        print(f"\n🧹 Cleaning up checkpoint files... Keeping only: {best_checkpoint_filename}")
-        for fname in os.listdir(weights_save_path):
-            if fname.endswith(".pt") and fname != best_checkpoint_filename:
-                try:
-                    os.remove(os.path.join(weights_save_path, fname))
-                    print(f"  Removed: {fname}")
-                except Exception as e:
-                    print(f"  Failed to remove {fname}: {e}")
-    else:
-        print("⚠️ No best checkpoint filename found. Skipping cleanup.")
-
     # Determine folder one level up
     current_dir = os.path.dirname(os.path.abspath(__file__))
     parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
