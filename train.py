@@ -1255,7 +1255,7 @@ def main(model_params):
                         val_f1_scores.append(f1_macro)
 
                         status = (
-                            f"\r🔁 Fold {fold+1}/{k_folds} | "
+                            f"\r    Fold {fold+1}/{k_folds} | "
                             f"Epoch {epoch+1} | "
                             f"Loss: {avg_epoch_val_loss:.4f} | "
                             f"Acc: {val_accuracy:.4f} | "
