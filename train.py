@@ -11,6 +11,7 @@ import os
 import random
 import torch
 import torch.nn as nn
+import sys
 
 # import torch.nn.functional as F # TCN_classifier might use it
 import torch.optim as optim
@@ -1117,10 +1118,8 @@ def main(model_params):
         skf = StratifiedKFold(n_splits=k_folds, shuffle=True, random_state=42)
         
         # --- Training Loop ---
-        print("\n--- Starting PyTorch Training ---")
         fold_val_f1_scores = []
         for fold, (train_idx, val_idx) in enumerate(skf.split(actions_data, labels)):
-            print(f"\n🔁 Fold {fold+1}/{k_folds}")
 
             train_data = actions_data.iloc[train_idx].reset_index(drop=True)
             val_data = actions_data.iloc[val_idx].reset_index(drop=True)
@@ -1151,7 +1150,6 @@ def main(model_params):
 
             os.makedirs(tb_log_dir, exist_ok=True)
             tb_writer = SummaryWriter(log_dir=tb_log_dir)
-            print(f"TensorBoard: Logging to {tb_log_dir}")
 
             # --- PyTorch Training Setup ---
             # print("\n--- Starting PyTorch Training Loop ---")
@@ -1256,12 +1254,16 @@ def main(model_params):
                         tb_writer.add_scalar('F1Score/val_macro', f1_macro, epoch)
                         val_f1_scores.append(f1_macro)
 
-                        # print(f"Epoch {epoch+1} Val Summary:")
-                        # print(f"  - Total Loss       : {avg_epoch_val_loss:.4f}")
-                        # print(f"  - Accuracy         : {val_accuracy:.4f}")
-                        # print(f"  - F1 Score (macro) : {f1_macro:.4f}")
-                        # print(f"  - AUC-ROC          : {auc:.4f}")
-
+                        status = (
+                            f"\r🔁 Fold {fold+1}/{k_folds} | "
+                            f"Epoch {epoch+1} | "
+                            f"Loss: {avg_epoch_val_loss:.4f} | "
+                            f"Acc: {val_accuracy:.4f} | "
+                            f"F1: {f1_macro:.4f} | "
+                            f"AUC: {auc:.4f}"
+                        )
+                        sys.stdout.write(status)
+                        sys.stdout.flush()
                     #else:
                     #    print(
                     #        f"Epoch {epoch+1} Val Summary: Avg Total Loss: {avg_epoch_val_loss:.4f} (No classification preds for accuracy)")
@@ -1274,8 +1276,7 @@ def main(model_params):
                             'LossEpoch_Val/Triplet', avg_val_loss_triplet, epoch)
 
                     if 'classification' not in active_losses:
-                        print(
-                            f"Epoch {epoch+1} Val Summary: Avg Total Loss: {avg_epoch_val_loss:.4f}    ", end='')
+                        print(f"Epoch {epoch+1} Val Summary: Avg Total Loss: {avg_epoch_val_loss:.4f}")
 
                     # --- "Callbacks" logic for this epoch ---
                     current_metric_for_scheduler_es = val_metrics.get(
