@@ -179,21 +179,21 @@ class TemporalConvNet(nn.Module):
         if not use_skip_connections:
             total_num_blocks += 1
 
-        print(f"\t\t* TCN: padding: {self.padding}")
-        print(f"\t\t* TCN: Number of stacks: {self.nb_stacks}")
-        print(f"\t\t* TCN: Number of filters: {self.nb_filters}")
-        print(f"\t\t* TCN: Kernel size: {self.kernel_size}")
-        print(f"\t\t* TCN: Dilations: {self.dilations}")
-        print(f"\t\t* TCN: Dropout rate: {self.dropout_rate}")
-        print(f"\t\t* TCN: Activation function: {self.activation.__name__}")
-        print(f"\t\t* TCN: Use skip connections: {self.use_skip_connections}")
-        print(f"\t\t* TCN: Use batch normalization: {self.use_batch_norm}")
-        print(f"\t\t* TCN: Use layer normalization: {self.use_layer_norm}")
-        print(f"\t\t* TCN: Total number of blocks: {total_num_blocks}")
-        print("\n")
+        # print(f"\t\t* TCN: padding: {self.padding}")
+        # print(f"\t\t* TCN: Number of stacks: {self.nb_stacks}")
+        # print(f"\t\t* TCN: Number of filters: {self.nb_filters}")
+        # print(f"\t\t* TCN: Kernel size: {self.kernel_size}")
+        # print(f"\t\t* TCN: Dilations: {self.dilations}")
+        # print(f"\t\t* TCN: Dropout rate: {self.dropout_rate}")
+        # print(f"\t\t* TCN: Activation function: {self.activation.__name__}")
+        # print(f"\t\t* TCN: Use skip connections: {self.use_skip_connections}")
+        # print(f"\t\t* TCN: Use batch normalization: {self.use_batch_norm}")
+        # print(f"\t\t* TCN: Use layer normalization: {self.use_layer_norm}")
+        # print(f"\t\t* TCN: Total number of blocks: {total_num_blocks}")
+        # print("\n")
         for s in range(nb_stacks):
             for i, d in enumerate(self.dilations):
-                print(f"\t\t* [DEBUG] dilation at block {len(self.residual_blocks)}: {d} (type: {type(d)})")
+                # print(f"\t\t* [DEBUG] dilation at block {len(self.residual_blocks)}: {d} (type: {type(d)})")
                 res_block_filters = nb_filters[i] if isinstance(nb_filters, list) else nb_filters
                 in_channels = input_dim if len(self.residual_blocks) == 0 else res_block_filters
                 block = ResidualBlock(

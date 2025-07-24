@@ -167,9 +167,9 @@ def train_model(model_params, running_train_loss_clf, running_train_loss, pytorc
                 clf_logits_batch, labels_batch.to(device).long())
             current_batch_total_loss += loss_weights_pytorch_pt['classification'] * loss_c
             running_train_loss_clf += loss_c.item()
-            if batch_idx == 0 and epoch == 0:
-                print(
-                    f"  Classification loss component active. Example batch loss_c: {loss_c.item():.4f}")
+            # if batch_idx == 0 and epoch == 0:
+            #     print(
+            #         f"  Classification loss component active. Example batch loss_c: {loss_c.item():.4f}")
 
         # Calculate Triplet Loss (Requires Batch Mining)
         if 'triplet' in active_losses and embeddings_batch is not None:
@@ -194,9 +194,10 @@ def train_model(model_params, running_train_loss_clf, running_train_loss, pytorc
                     f"  Train Batch: {batch_idx+1}/{len(train_loader)} - No loss computed for this batch.")
             continue
 
-        if train_verbose > 0 and batch_idx % log_interval == 0 and isinstance(current_batch_total_loss, torch.Tensor):
-            print(
-                f"  Train Batch: {batch_idx+1}/{len(train_loader)} Loss: {current_batch_total_loss.item():.4f}")
+        return running_train_loss, running_train_loss_clf
+        # if train_verbose > 0 and batch_idx % log_interval == 0 and isinstance(current_batch_total_loss, torch.Tensor):
+        #     print(
+        #         f"  Train Batch: {batch_idx+1}/{len(train_loader)} Loss: {current_batch_total_loss.item():.4f}")
 
 def validate_model(model_params, pytorch_model, active_losses, device, val_loader, loss_weights_pytorch_pt):
     """
@@ -276,7 +277,7 @@ def Setup_optimizer_and_loss(pytorch_model, model_params, device, train_dataset=
         model_params (dict): Dictionary containing model configuration.
     """
     # --- PyTorch Optimizer and Loss (Mimicking Keras printouts) ---
-    print(' * Defining losses and loss_weights (PyTorch)')
+    # print(' * Defining losses and loss_weights (PyTorch)')
     active_losses = {}
     loss_weights_pytorch_pt = {}
     if model_params.get('classification', True):
@@ -305,18 +306,18 @@ def Setup_optimizer_and_loss(pytorch_model, model_params, device, train_dataset=
         print(' * loss_weights (PyTorch):', loss_weights_pytorch_pt)
         # sample_weights_mode is not a direct PyTorch concept, handled manually if needed
 
-    print('\n * Setting optimizer (PyTorch)')
+    # print('\n * Setting optimizer (PyTorch)')
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, pytorch_model.parameters()),
                     lr=model_params['init_lr'])
     # Note: clipnorm is applied manually in PyTorch training loop (torch.nn.utils.clip_grad_norm_)
-    print(f"   Optimizer: {type(optimizer)}, LR: {model_params['init_lr']}")
+    # print(f"   Optimizer: {type(optimizer)}, LR: {model_params['init_lr']}")
 
 
     return active_losses, loss_weights_pytorch_pt, optimizer
 
 def create_pytorch_model(model_params):
     # --- PyTorch Model Instantiation ---
-    print('\n* Setting model parameters (PyTorch)')  # Mimicking Keras log
+    # print('\n* Setting model parameters (PyTorch)')  # Mimicking Keras log
     # Ensure num_classes is correctly derived if dataset re-indexing happened,
     # though for this debug block, it might not matter if we don't train.
     num_classes_for_model = model_params.get(
@@ -362,24 +363,24 @@ def create_pytorch_model(model_params):
             clf_neurons=model_params['clf_neurons'], num_classes=num_classes_for_model
         )
         
-        print("\n=== PyTorch state_dict keys ===")
-        for k, v in pytorch_model.state_dict().items():
-            print(f"{k} {tuple(v.shape)}")
+        #print("\n=== PyTorch state_dict keys ===")
+        #for k, v in pytorch_model.state_dict().items():
+        #    print(f"{k} {tuple(v.shape)}")
 
         # ------------------------------
         # 2. Load the TensorFlow SavedModel
         tf_model = tf.saved_model.load(model_params["pretrained_model_path"])
-        print("\n=== TensorFlow variables ===")
+        #print("\n=== TensorFlow variables ===")
         
-        for var in tf_model.variables:
-            print(f"{var.name} {tuple(var.shape)}")
+        #for var in tf_model.variables:
+        #    print(f"{var.name} {tuple(var.shape)}")
             
         # --- 3. Extract TensorFlow weights to numpy dict ---
         tf_weights = {}
         for var in tf_model.variables:
             # Convert tensor to numpy
             tf_weights[var.name] = var.numpy()
-            print(var.name, var.shape)
+        #    print(var.name, var.shape)
 
         excluded_pt_keys = [
             'clf_out.weight', 
@@ -403,10 +404,10 @@ def create_pytorch_model(model_params):
         included_pt_params = [(name, p.shape) for name, p in pytorch_model.named_parameters() if name not in excluded_pt_keys]
         total_pt_params = sum(p.numel() for name, p in pytorch_model.named_parameters() if name not in excluded_pt_keys)
 
-        print(f"\nTotal PyTorch parameters (excluding excluded layers): {total_pt_params}")
-        print("[Included PyTorch parameter keys with shapes:]")
-        for name, shape in included_pt_params:
-            print(f"  {name}: {tuple(shape)}")
+        #print(f"\nTotal PyTorch parameters (excluding excluded layers): {total_pt_params}")
+        #print("[Included PyTorch parameter keys with shapes:]")
+        #for name, shape in included_pt_params:
+        #    print(f"  {name}: {tuple(shape)}")
 
         # Filter and display TensorFlow weights
         tf_weights_filtered = {
@@ -415,10 +416,10 @@ def create_pytorch_model(model_params):
         }
         total_tf_params = sum(np.prod(v.shape) for v in tf_weights_filtered.values())
 
-        print(f"\nTotal TF parameters from checkpoint (excluding excluded layers): {total_tf_params}")
-        print("[Included TensorFlow keys with shapes:]")
-        for k, v in tf_weights_filtered.items():
-            print(f"  {k}: {v.shape}")
+        #print(f"\nTotal TF parameters from checkpoint (excluding excluded layers): {total_tf_params}")
+        #print("[Included TensorFlow keys with shapes:]")
+        #for k, v in tf_weights_filtered.items():
+        #    print(f"  {k}: {v.shape}")
         
         # --- 4. Get PyTorch state dict ---
         pt_state_dict = pytorch_model.state_dict()
@@ -439,18 +440,18 @@ def create_pytorch_model(model_params):
                         print(f"[MISMATCH] {name}: shape mismatch {pt_w.shape} vs {tf_w.shape}")
                         continue
                     diff = torch.abs(pt_w - tf_w).mean().item()
-                    print(f"{name}: mean abs diff = {diff:.6f}")
-                else:
-                    print(f"[SKIP] {name}: not found in converted weights")
+                    #print(f"{name}: mean abs diff = {diff:.6f}")
+                # else:
+                #     print(f"[SKIP] {name}: not found in converted weights")
 
         converted_param_count = sum(
             v.numel() for k, v in converted_weights.items() if k not in excluded_pt_keys
         )
-        print(f"Total converted parameters (excluding excluded layers): {converted_param_count}")
-        print(f"Coverage: {converted_param_count} / {total_pt_params} = {converted_param_count / total_pt_params:.2%}")
+        #print(f"Total converted parameters (excluding excluded layers): {converted_param_count}")
+        #print(f"Coverage: {converted_param_count} / {total_pt_params} = {converted_param_count / total_pt_params:.2%}")
 
         # --- 7. Freeze unconverted parameters ---
-        print("\n=== Freezing unconverted parameters ===")
+        #print("\n=== Freezing unconverted parameters ===")
         # Freeze all parameters that are NOT in the excluded list
         for name, param in pytorch_model.named_parameters():
             if name not in excluded_pt_keys:
@@ -473,7 +474,7 @@ def create_pytorch_model(model_params):
 
 def Setup_training(model_params, pytorch_model, device, optimizer):
 
-    print("\n--- Setting up PyTorch Training ---")
+    # print("\n--- Setting up PyTorch Training ---")
     monitor_metric_name = model_params.get('monitor', 'val_loss')
     monitor_is_loss = 'loss' in monitor_metric_name.lower()
     # Keras min_monitor=False means maximize. PyTorch mode='max'.
@@ -541,14 +542,14 @@ def convert_tf_to_torch(tf_weights, pt_state_dict):
                         if param_type == "weight":
                             tf_key = tf_prefix + "/conv1D_0/kernel:0"
                             if tf_key not in available_tf_keys:
-                                print(f"{YELLOW}[SKIP]{RESET} Skipping {k} — TF key not in filtered weights ({tf_key})")
+                                # print(f"{YELLOW}[SKIP]{RESET} Skipping {k} — TF key not in filtered weights ({tf_key})")
                                 continue
                             converted[k] = torch.from_numpy(tf_weights[tf_key]).permute(2, 1, 0)
 
                         elif param_type == "bias":
                             tf_key = tf_prefix + "/conv1D_0/bias:0"
                             if tf_key not in available_tf_keys:
-                                print(f"{YELLOW}[SKIP]{RESET} Skipping {k} — TF key not in filtered weights ({tf_key})")
+                                # print(f"{YELLOW}[SKIP]{RESET} Skipping {k} — TF key not in filtered weights ({tf_key})")
                                 continue
                             converted[k] = torch.from_numpy(tf_weights[tf_key])
 
@@ -556,14 +557,14 @@ def convert_tf_to_torch(tf_weights, pt_state_dict):
                         if param_type == "weight":
                             tf_key = tf_prefix + "/conv1D_1/kernel:0"
                             if tf_key not in available_tf_keys:
-                                print(f"{YELLOW}[SKIP]{RESET} Skipping {k} — TF key not in filtered weights ({tf_key})")
+                                # print(f"{YELLOW}[SKIP]{RESET} Skipping {k} — TF key not in filtered weights ({tf_key})")
                                 continue
                             converted[k] = torch.from_numpy(tf_weights[tf_key]).permute(2, 1, 0)
 
                         elif param_type == "bias":
                             tf_key = tf_prefix + "/conv1D_1/bias:0"
                             if tf_key not in available_tf_keys:
-                                print(f"{YELLOW}[SKIP]{RESET} Skipping {k} — TF key not in filtered weights ({tf_key})")
+                                # print(f"{YELLOW}[SKIP]{RESET} Skipping {k} — TF key not in filtered weights ({tf_key})")
                                 continue
                             converted[k] = torch.from_numpy(tf_weights[tf_key])
 
@@ -571,14 +572,14 @@ def convert_tf_to_torch(tf_weights, pt_state_dict):
                         if param_type == "weight":
                             tf_key = tf_prefix + "/matching_conv1D/kernel:0"
                             if tf_key not in available_tf_keys:
-                                print(f"{YELLOW}[SKIP]{RESET} Skipping {k} — TF key not in filtered weights ({tf_key})")
+                                # print(f"{YELLOW}[SKIP]{RESET} Skipping {k} — TF key not in filtered weights ({tf_key})")
                                 continue
                             converted[k] = torch.from_numpy(tf_weights[tf_key]).permute(2, 1, 0)
 
                         elif param_type == "bias":
                             tf_key = tf_prefix + "/matching_conv1D/bias:0"
                             if tf_key not in available_tf_keys:
-                                print(f"{YELLOW}[SKIP]{RESET} Skipping {k} — TF key not in filtered weights ({tf_key})")
+                                # print(f"{YELLOW}[SKIP]{RESET} Skipping {k} — TF key not in filtered weights ({tf_key})")
                                 continue
                             converted[k] = torch.from_numpy(tf_weights[tf_key])
 
@@ -587,14 +588,14 @@ def convert_tf_to_torch(tf_weights, pt_state_dict):
                         if param_type == "weight":
                             tf_key = tf_prefix + "/conv1D_0/kernel:0"
                             if tf_key not in available_tf_keys:
-                                print(f"{YELLOW}[SKIP]{RESET} Skipping {k} — TF key not in filtered weights ({tf_key})")
+                                # print(f"{YELLOW}[SKIP]{RESET} Skipping {k} — TF key not in filtered weights ({tf_key})")
                                 continue
                             converted[k] = torch.from_numpy(tf_weights[tf_key]).permute(2, 1, 0)
 
                         elif param_type == "bias":
                             tf_key = tf_prefix + "/conv1D_0/bias:0"
                             if tf_key not in available_tf_keys:
-                                print(f"{YELLOW}[SKIP]{RESET} Skipping {k} — TF key not in filtered weights ({tf_key})")
+                                # print(f"{YELLOW}[SKIP]{RESET} Skipping {k} — TF key not in filtered weights ({tf_key})")
                                 continue
                             converted[k] = torch.from_numpy(tf_weights[tf_key])
 
@@ -602,34 +603,34 @@ def convert_tf_to_torch(tf_weights, pt_state_dict):
                         if param_type == "weight":
                             tf_key = tf_prefix + "/conv1D_1/kernel:0"
                             if tf_key not in available_tf_keys:
-                                print(f"{YELLOW}[SKIP]{RESET} Skipping {k} — TF key not in filtered weights ({tf_key})")
+                                # print(f"{YELLOW}[SKIP]{RESET} Skipping {k} — TF key not in filtered weights ({tf_key})")
                                 continue
                             converted[k] = torch.from_numpy(tf_weights[tf_key]).permute(2, 1, 0)
 
                         elif param_type == "bias":
                             tf_key = tf_prefix + "/conv1D_1/bias:0"
                             if tf_key not in available_tf_keys:
-                                print(f"{YELLOW}[SKIP]{RESET} Skipping {k} — TF key not in filtered weights ({tf_key})")
+                                # print(f"{YELLOW}[SKIP]{RESET} Skipping {k} — TF key not in filtered weights ({tf_key})")
                                 continue
                             converted[k] = torch.from_numpy(tf_weights[tf_key])
 
                 if tf_key is not None:
                     matched_keys.add(k)
-                    print(f"{GREEN}[OK]{RESET} Converted {k} from {tf_key}")
+                    # print(f"{GREEN}[OK]{RESET} Converted {k} from {tf_key}")
 
             except KeyError:
-                print(f"{RED}[ERROR]{RESET} Missing TF key: {tf_key}")
+                # print(f"{RED}[ERROR]{RESET} Missing TF key: {tf_key}")
                 unmatched_keys.append(k)
 
     all_keys = set(pt_state_dict.keys())
     unmatched_keys = sorted(all_keys - matched_keys)
 
-    for k in unmatched_keys:
-        print(f"{YELLOW}[UNMATCHED]{RESET} Did not match {k}")
+    # for k in unmatched_keys:
+    #     print(f"{YELLOW}[UNMATCHED]{RESET} Did not match {k}")
 
-    print(f"\n[SUMMARY]")
-    print(f"{GREEN}Matched keys: {len(matched_keys)}{RESET}")
-    print(f"{RED if unmatched_keys else GREEN}Unmatched keys: {len(unmatched_keys)}{RESET}")
+    # print(f"\n[SUMMARY]")
+    # print(f"{GREEN}Matched keys: {len(matched_keys)}{RESET}")
+    # print(f"{RED if unmatched_keys else GREEN}Unmatched keys: {len(unmatched_keys)}{RESET}")
 
     return converted
 
@@ -930,8 +931,8 @@ def objective(trial):
 
     # Correct max_seq_len if negative for use in summary/testing
     if model_params['max_seq_len'] <= 0:
-        print(
-            f"Warning: model_params['max_seq_len'] is {model_params['max_seq_len']}. Using 32 as effective_seq_len for non-dataset parts.")
+        # print(
+        #     f"Warning: model_params['max_seq_len'] is {model_params['max_seq_len']}. Using 32 as effective_seq_len for non-dataset parts.")
         model_params['effective_seq_len'] = 32
     else:
         model_params['effective_seq_len'] = model_params['max_seq_len']
@@ -947,7 +948,7 @@ def main(model_params):
     log_interval = model_params.get('log_interval', 10)
 
     # --- Path and Feature Calculation (Cleaned Up) ---
-    print("--- Initializing Parameters and Paths ---")
+    # print("--- Initializing Parameters and Paths ---")
     model_params['path_model'] = train_utils.create_model_folder(
         model_params['path_results'], model_params['model_name']
     )
@@ -990,8 +991,8 @@ def main(model_params):
     except Exception as e:
         print(f"Error saving model_params.json: {e}")
 
-    print(' * Final Model params for this run:',
-          json.dumps(model_params, indent=2))
+    # print(' * Final Model params for this run:',
+    #       json.dumps(model_params, indent=2))
 
     copy_scaler_if_needed(model_params)
 
@@ -1078,38 +1079,39 @@ def main(model_params):
     
     actions_data = actions_data.sort_values(by=['patient', 'session', 'video', 'ex_num'])
     
-    actions_data, actions_data_final_val = train_test_split(
+    """ actions_data, actions_data_final_val = train_test_split(
         actions_data,
         test_size=0.15,  # 15% = ~24 samples
         stratify=actions_data['action'],
         random_state=42
     )
 
-    # Print first few rows of actions_data for debugging
-    print("First few rows of actions_data:")
-    all_actions = actions_data['action'].unique()
-    print(f"Unique actions found: {all_actions}")
-
-    # How many lines have the same action?
-    action_counts = actions_data['action'].value_counts()
-    print(f"Action counts:\n{action_counts}")
-    
     # Debug print for actions_data_final_val
     print("First few rows of actions_data_final_val:")
     print(actions_data_final_val.head())
     
     # How many lines have the same action in actions_data_final_val?
     action_counts_final_val = actions_data_final_val['action'].value_counts()
-    print(f"Action counts in final validation set:\n{action_counts_final_val}")
+    print(f"Action counts in final validation set:\n{action_counts_final_val}") """
     
+    # Print first few rows of actions_data for debugging
+    #print("First few rows of actions_data:")
+    all_actions = actions_data['action'].unique()
+    #print(f"Unique actions found: {all_actions}")
+    #
+    ## How many lines have the same action?
+    #action_counts = actions_data['action'].value_counts()
+    #print(f"Action counts:\n{action_counts}")
+    #
     all_actions = actions_data['action'].unique()
     action_to_idx = {action: idx for idx, action in enumerate(sorted(all_actions))}
     labels = actions_data['action'].map(action_to_idx).values
-    
-    print(f"Action to index mapping: {action_to_idx}")
-    print(f"Total unique actions: {len(all_actions)}")
-    print(f"Loaded actions_data with {len(actions_data)} entries and actions_data_final_val with {len(actions_data_final_val)} entries.")
-    
+    #
+    #print(f"Action to index mapping: {action_to_idx}")
+    #print(f"Total unique actions: {len(all_actions)}")
+    #print(f"Loaded actions_data with {len(actions_data)} entries and actions_data_final_val with {len(actions_data_final_val)} entries.")
+        
+    # --- Cross-Validation Setup ---
     if model_params.get("K", None) is not None:
         k_folds = model_params.get("K", 5)
         skf = StratifiedKFold(n_splits=k_folds, shuffle=True, random_state=42)
@@ -1142,24 +1144,25 @@ def main(model_params):
             match = re.search(r'_model_(\d+)', model_folder)
             if match:
                 model_number = match.group(1)
-                print(f"Extracted model number: {model_number}")
+                # print(f"Extracted model number: {model_number}")
             else:
-                print("No model number found.")
+                # print("No model number found.")
+                pass
 
             os.makedirs(tb_log_dir, exist_ok=True)
             tb_writer = SummaryWriter(log_dir=tb_log_dir)
             print(f"TensorBoard: Logging to {tb_log_dir}")
 
             # --- PyTorch Training Setup ---
-            print("\n--- Starting PyTorch Training Loop ---")
+            # print("\n--- Starting PyTorch Training Loop ---")
 
             monitor_metric_name, monitor_mode, best_monitor_metric_val, weights_save_path, \
                 lr_scheduler, early_stopping_patience, min_delta, early_stopping_counter = \
                     Setup_training(model_params, pytorch_model, device, optimizer)
 
             num_epochs = model_params.get('epochs', 1)
-            print(
-                f"Training for {num_epochs} epochs with batch size {model_params['batch_size']}")
+            # print(
+            #     f"Training for {num_epochs} epochs with batch size {model_params['batch_size']}")
             # time.sleep(5)  # Small delay for readability in logs
             softmax_outputs = []  # To store softmax outputs if needed
             train_losses = []
@@ -1169,7 +1172,7 @@ def main(model_params):
 
             for epoch in range(num_epochs):
                 epoch_start_time = time.time()
-                print(f"\nEpoch {epoch+1}/{num_epochs}")
+                # print(f"\nEpoch {epoch+1}/{num_epochs}")
                 
                 pytorch_model.train()
                 running_train_loss = 0.0
@@ -1178,7 +1181,7 @@ def main(model_params):
                 running_train_loss_triplet = 0.0
 
                 # --- Training Phase ---
-                train_model(model_params, running_train_loss_clf, running_train_loss, pytorch_model, softmax_outputs, \
+                running_train_loss, running_train_loss_clf = train_model(model_params, running_train_loss_clf, running_train_loss, pytorch_model, softmax_outputs, \
                     device, train_loader, optimizer, active_losses, loss_weights_pytorch_pt, epoch, train_verbose, log_interval)
                 
                 avg_epoch_train_loss = running_train_loss / \
@@ -1195,8 +1198,10 @@ def main(model_params):
 
                 current_lr = optimizer.param_groups[0]['lr']
                 tb_writer.add_scalar('LearningRate', current_lr, epoch)
-                print(
-                    f"Epoch {epoch+1} Train Summary: Avg Total Loss: {avg_epoch_train_loss:.4f}, LR: {current_lr}")
+                # print(
+                #     f"Epoch {epoch+1} Train Summary: \
+                #         Avg Total Loss: {avg_epoch_train_loss:.4f}, \
+                #             LR: {current_lr}    ", end='')
 
                 # --- Validation Phase ---
                 if val_loader is not None:
@@ -1257,9 +1262,9 @@ def main(model_params):
                         # print(f"  - F1 Score (macro) : {f1_macro:.4f}")
                         # print(f"  - AUC-ROC          : {auc:.4f}")
 
-                    else:
-                        print(
-                            f"Epoch {epoch+1} Val Summary: Avg Total Loss: {avg_epoch_val_loss:.4f} (No classification preds for accuracy)")
+                    #else:
+                    #    print(
+                    #        f"Epoch {epoch+1} Val Summary: Avg Total Loss: {avg_epoch_val_loss:.4f} (No classification preds for accuracy)")
 
                     if 'triplet' in active_losses:
                         avg_val_loss_triplet = running_val_loss_triplet / \
@@ -1270,7 +1275,7 @@ def main(model_params):
 
                     if 'classification' not in active_losses:
                         print(
-                            f"Epoch {epoch+1} Val Summary: Avg Total Loss: {avg_epoch_val_loss:.4f}")
+                            f"Epoch {epoch+1} Val Summary: Avg Total Loss: {avg_epoch_val_loss:.4f}    ", end='')
 
                     # --- "Callbacks" logic for this epoch ---
                     current_metric_for_scheduler_es = val_metrics.get(
@@ -1294,9 +1299,16 @@ def main(model_params):
                         full_checkpoint_path = os.path.join(weights_save_path, checkpoint_filename)
                         torch.save(pytorch_model.state_dict(), full_checkpoint_path)
                         best_checkpoint_filename = checkpoint_filename
+                        # Delete all other checkpoints except the best
+                        for fname in os.listdir(weights_save_path):
+                            if fname.endswith('.pt') and fname != best_checkpoint_filename:
+                                try:
+                                    os.remove(os.path.join(weights_save_path, fname))
+                                except Exception as e:
+                                    print(f"Could not delete {fname}: {e}")
 
-                        print(
-                            f"  Saved checkpoint: {checkpoint_filename} (Monitored '{monitor_metric_name}': {current_metric_for_scheduler_es:.5f})")
+                        # print(
+                        #     f"  Saved checkpoint: {checkpoint_filename} (Monitored '{monitor_metric_name}': {current_metric_for_scheduler_es:.5f})")
                         # Update best_val_for_early_stop if this is the metric early stopping also monitors
                         # Check if it's the same metric
                         if monitor_metric_name == model_params.get('monitor', 'val_loss'):
@@ -1312,8 +1324,8 @@ def main(model_params):
                         Get_Confusion_Matrix(epoch, all_clf_preds_val, all_clf_labels_val)
                     # EarlyStopping (check against its own best metric, which might be same as checkpointing or different)
                     if early_stopping_counter >= early_stopping_patience:
-                        print(
-                            f"  Early stopping triggered after {early_stopping_patience} epochs without improvement on '{monitor_metric_name}'.")
+                        # print(
+                        #     f"  Early stopping triggered after {early_stopping_patience} epochs without improvement on '{monitor_metric_name}'.")
                         break  # Break from epoch loop
                 else:  # No val_loader
                     print("  No validation loader. Skipping validation phase, LR scheduling based on val_metrics, and early stopping.")
@@ -1338,7 +1350,7 @@ def main(model_params):
         
         # --- Create DataLoaders for this fold ---
         # train_loader, val_loader, train_dataset, val_dataset = Create_Therapy_Dataloader(model_params, train_data, video_skels, val_data)
-        train_loader, _, train_dataset, _ = Create_Therapy_Dataloader(model_params, actions_data, video_skels, actions_data_final_val)
+        train_loader, _, train_dataset, _ = Create_Therapy_Dataloader(model_params, actions_data, video_skels, None)
 
         # --- PyTorch Model Instantiation ---
         pytorch_model, initial_state_dict = create_pytorch_model(model_params)
@@ -1365,15 +1377,15 @@ def main(model_params):
         print(f"TensorBoard: Logging to {tb_log_dir}")
 
         # --- PyTorch Training Setup ---
-        print("\n--- Starting PyTorch Training Loop ---")
+        # print("\n--- Starting PyTorch Training Loop ---")
 
         monitor_metric_name, monitor_mode, best_monitor_metric_val, weights_save_path, \
             lr_scheduler, early_stopping_patience, min_delta, early_stopping_counter = \
                 Setup_training(model_params, pytorch_model, device, optimizer)
         
         num_epochs = model_params.get('epochs', 1)
-        print(
-            f"Training for {num_epochs} epochs with batch size {model_params['batch_size']}")
+        # print(
+        #     f"Training for {num_epochs} epochs with batch size {model_params['batch_size']}")
         # time.sleep(5)  # Small delay for readability in logs
         softmax_outputs = []  # To store softmax outputs if needed
         train_losses = []
@@ -1392,7 +1404,7 @@ def main(model_params):
             running_train_loss_triplet = 0.0
 
             # --- Training Phase ---
-            train_model(model_params, running_train_loss_clf, running_train_loss, pytorch_model, softmax_outputs, \
+            running_train_loss, running_train_loss_clf = train_model(model_params, running_train_loss_clf, running_train_loss, pytorch_model, softmax_outputs, \
                 device, train_loader, optimizer, active_losses, loss_weights_pytorch_pt, epoch, train_verbose, log_interval)
             
             avg_epoch_train_loss = running_train_loss / \
@@ -1526,8 +1538,8 @@ def main(model_params):
                     Get_Confusion_Matrix(epoch, all_clf_preds_val, all_clf_labels_val)
                 # EarlyStopping (check against its own best metric, which might be same as checkpointing or different)
                 if early_stopping_counter >= early_stopping_patience:
-                    print(
-                        f"  Early stopping triggered after {early_stopping_patience} epochs without improvement on '{monitor_metric_name}'.")
+                    # print(
+                    #     f"  Early stopping triggered after {early_stopping_patience} epochs without improvement on '{monitor_metric_name}'.")
                     break  # Break from epoch loop
             else:  # No val_loader
                 print("  No validation loader. Skipping validation phase, LR scheduling based on val_metrics, and early stopping.")

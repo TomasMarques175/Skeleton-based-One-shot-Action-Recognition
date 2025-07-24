@@ -98,12 +98,12 @@ def get_num_feats(joints_num, joints_dim,
     if use_jcd_diff:
         num_feats += int(comb(joints_num, 2))
 
-    print(f"Calculated number of features: {num_feats} based on parameters: "
-            f"joints_num={joints_num}, joints_dim={joints_dim}, "
-            f"use_jcd_features={use_jcd_features}, use_speeds={use_speeds}, "
-            f"use_coords_raw={use_coords_raw}, use_coords={use_coords}, "
-            f"use_jcd_diff={use_jcd_diff}, use_bone_angles={use_bone_angles}, "
-            f"use_bone_angles_cent={use_bone_angles_cent}")
+    # print(f"Calculated number of features: {num_feats} based on parameters: "
+    #         f"joints_num={joints_num}, joints_dim={joints_dim}, "
+    #         f"use_jcd_features={use_jcd_features}, use_speeds={use_speeds}, "
+    #         f"use_coords_raw={use_coords_raw}, use_coords={use_coords}, "
+    #         f"use_jcd_diff={use_jcd_diff}, use_bone_angles={use_bone_angles}, "
+    #         f"use_bone_angles_cent={use_bone_angles_cent}")
     return num_feats
 
 def load_skeleton_data(file_path):

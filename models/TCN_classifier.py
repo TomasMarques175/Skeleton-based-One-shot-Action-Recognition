@@ -29,14 +29,11 @@ class EncoderTCN(nn.Module):
         layers = []
 
         if masking:
-            # Masking in PyTorch usually requires handling padding explicitly
-            # or using PackedSequences if dealing with variable lengths.
-            # nn.Conv1d doesn't have a built-in masking argument like Keras.
-            # You might need to handle padding/masking *before* the TCN or
-            # use libraries that support masked convolutions if needed.
-            print("\t* MASKING — requires manual implementation or specific handling in PyTorch")
-
-        print(f"\t* nb_stacks: {nb_stacks}, kernel_size: {kernel_size}, lstm_dropout: {lstm_dropout}")
+            # Handling masking is not directly implemented in pytorch_tcn,
+            # but It's implemented in the creation of the training dataset.
+            pass
+        
+        # print(f"\t* nb_stacks: {nb_stacks}, kernel_size: {kernel_size}, lstm_dropout: {lstm_dropout}")
         tcn_layer = TemporalConvNet(
             input_dim=num_feats,
             nb_filters=nb_filters, # e.g., 256 if nb_filters=256
@@ -111,12 +108,12 @@ class TCN_clf(nn.Module):
                 # This structure implies multiple sequential TCNs like in TF EncoderTCN1
                 # The current pytorch_tcn.TemporalConvNet doesn't support this directly
                 dilations_structure = [[i for i in [1, 2, 4, 8, 16, 32] if i <= d] for d in dilations_param]
-                print("\t* Complex dilations structure:", dilations_structure, "- Not directly used by provided pytorch_tcn.py")
+                # print("\t* Complex dilations structure:", dilations_structure, "- Not directly used by provided pytorch_tcn.py")
                 dilations = dilations_structure # Store it, but may not be used by EncoderTCN as written
         else:
             raise ValueError('conv_params length not recognised', len(conv_params))
 
-        print("\t* Initializing PyTorch EncoderTCN...")
+        # print("\t* Initializing PyTorch EncoderTCN...")
         # Encoder - Pass relevant interpreted parameters
         self.encoder_net = EncoderTCN(num_feats=num_feats,
                                       nb_filters=nb_filters,
@@ -132,7 +129,7 @@ class TCN_clf(nn.Module):
         self.triplet = triplet
         self.classification = classification
 
-        print(f"\t* nb_filters: {nb_filters}")
+        # print(f"\t* nb_filters: {nb_filters}")
         # Determine the input size for the classifier head
         # EncoderTCN outputs (N, nb_filters) when prediction_mode=False
         encoder_output_features = nb_filters
