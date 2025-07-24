@@ -36,6 +36,8 @@ dmypy.json
 *.png
 *.pdf
 *.pckl
+__pycache__
+
 datasets/NTU-120
 datasets/therapies_dataset
 ntu_annotations
@@ -43,5 +45,8 @@ pretrained_models
 pretrained_models_Pytorch
 therapies_model_7
 datasets/ntu_rgb120_missings.txt
+ntu_benchmark_model
+datasets_annotations
+datasets
 
 torch_training_data.npzs
