@@ -1771,7 +1771,7 @@ if __name__ == "__main__":
         # Set to 0 for no training logs, 1 for basic logs, >1 for more detailed logs
         "train_verbose": 1,
         "num_workers": 0,  # Number of workers for DataLoader, adjust based on your system
-        "K": 0,  # Number of folds for cross-validation
+        "K": None,  # Number of folds for cross-validation
         "path_results": "./pretrained_models_Pytorch/",
         "model_name": "Models_Therapist_Classifier",
         # "model_name": "Models_Therapist_Classifier_Block_5_4_3_2_1_0_From_Zero",
