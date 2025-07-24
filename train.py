@@ -820,7 +820,7 @@ def objective(trial):
     
     # Fixed params — the rest of what your model expects
     static_params = {
-        "epochs": 300, # Number of training epochs
+        "epochs": 5, # Number of training epochs
         
         # Set to 0 for no training logs, 1 for basic logs, >1 for more detailed logs
         "train_verbose": 1,
@@ -1766,7 +1766,7 @@ if __name__ == "__main__":
     # TODO: Change this after each run to avoid overwriting
     # Fixed params — the rest of what your model expects
     static_params = {
-        "epochs": 300, # Number of training epochs
+        "epochs": 5, # Number of training epochs
         
         # Set to 0 for no training logs, 1 for basic logs, >1 for more detailed logs
         "train_verbose": 1,
