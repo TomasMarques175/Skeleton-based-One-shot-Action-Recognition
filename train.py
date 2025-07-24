@@ -1742,7 +1742,7 @@ if __name__ == "__main__":
     
     
     study = optuna.create_study(direction="maximize")  # Or "minimize" for loss
-    study.optimize(objective, n_trials=30)  # Try 30 different combinations
+    study.optimize(objective, n_trials=4)  # Try 30 different combinations
 
     print("Best hyperparameters:")
     print(study.best_params)
