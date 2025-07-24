@@ -1337,11 +1337,10 @@ def main(model_params):
                         f"  Saved model checkpoint (no validation): {checkpoint_filename}")
 
             epoch_duration = time.time() - epoch_start_time
-            print(f"Epoch {epoch+1} duration: {epoch_duration:.2f} seconds")
+            # print(f"Epoch {epoch+1} duration: {epoch_duration:.2f} seconds")
             if epoch_duration > 0:
                 tb_writer.add_scalar(
                     'Performance/epoch_duration_sec', epoch_duration, epoch)
-                
             fold_val_f1_scores.append(best_val_f1)
 
     else:
@@ -1544,14 +1543,17 @@ def main(model_params):
             else:  # No val_loader
                 print("  No validation loader. Skipping validation phase, LR scheduling based on val_metrics, and early stopping.")
                 # Optionally, save model at end of epoch if no validation
-                checkpoint_filename = f"ep{epoch+1:03d}-trainloss{avg_epoch_train_loss:.5f}-no_val.pt"
+                checkpoint_filename = (
+                    f"Best_Model-ep{epoch+1:03d}-trainloss{avg_epoch_train_loss:.5f}-"
+                    f"f1{model_params.get('best_val_f1', 0):.5f}.pt"
+                )
                 torch.save(pytorch_model.state_dict(), os.path.join(
                     weights_save_path, checkpoint_filename))
                 print(
                     f"  Saved model checkpoint (no validation): {checkpoint_filename}")
 
         epoch_duration = time.time() - epoch_start_time
-        print(f"Epoch {epoch+1} duration: {epoch_duration:.2f} seconds")
+        # print(f"Epoch {epoch+1} duration: {epoch_duration:.2f} seconds")
         if epoch_duration > 0:
             tb_writer.add_scalar(
                 'Performance/epoch_duration_sec', epoch_duration, epoch)
@@ -1763,6 +1765,8 @@ if __name__ == "__main__":
     # TODO: Change this after each run to avoid overwriting
     # Fixed params — the rest of what your model expects
     static_params = {
+        "best_val_f1": study.best_value,
+        
         "epochs": 300, # Number of training epochs
         
         # Set to 0 for no training logs, 1 for basic logs, >1 for more detailed logs
