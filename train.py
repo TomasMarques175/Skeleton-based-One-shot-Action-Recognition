@@ -711,12 +711,19 @@ def Data_Loader_Classification(model_params, train_data, val_data, test_data, ba
 
 def Create_Therapy_Dataloader(model_params, train_data, video_skels, val_data):
     # Create datasets
-    train_dataset = TherapyDataset(train_data, video_skels,
-                                in_memory=model_params['in_memory_generator_train'],
-                                validation=False, **model_params)
-    val_dataset = TherapyDataset(val_data, video_skels,
-                                in_memory=model_params['in_memory_generator_val'],
-                                validation=True, **model_params)
+    if train_data is None:
+        train_dataset = None
+    else:
+        train_dataset = TherapyDataset(train_data, video_skels,
+                                        in_memory=model_params['in_memory_generator_train'],
+                                        validation=False, **model_params)
+    
+    if val_data is None:
+        val_dataset = None
+    else:
+        val_dataset = TherapyDataset(val_data, video_skels,
+                                    in_memory=model_params['in_memory_generator_val'],
+                                    validation=True, **model_params)
 
     # Create sampler
     class_counts = train_data['action'].value_counts()
@@ -725,21 +732,30 @@ def Create_Therapy_Dataloader(model_params, train_data, video_skels, val_data):
     sampler = WeightedRandomSampler(sample_weights, len(sample_weights), replacement=True)
 
     # Create dataloaders
-    train_loader = DataLoader(train_dataset, 
-                            batch_size=model_params['batch_size'],
-                            sampler=sampler, 
-                            num_workers=model_params['num_workers'],
-                            drop_last=True, 
-                            collate_fn=collate_fn_classification_pre_pad)
+    if train_dataset is not None :
+        train_loader = DataLoader(train_dataset, 
+                                batch_size=model_params['batch_size'],
+                                sampler=sampler, 
+                                num_workers=model_params['num_workers'],
+                                drop_last=True, 
+                                collate_fn=collate_fn_classification_pre_pad)
 
-    val_loader = DataLoader(val_dataset, 
-                            batch_size=model_params['batch_size'],
-                            shuffle=False, 
-                            num_workers=model_params['num_workers'],
-                            drop_last=False, 
-                            collate_fn=collate_fn_classification_pre_pad)
+    if val_dataset is not None:
+        val_loader = DataLoader(val_dataset, 
+                                batch_size=model_params['batch_size'],
+                                shuffle=False, 
+                                num_workers=model_params['num_workers'],
+                                drop_last=False, 
+                                collate_fn=collate_fn_classification_pre_pad)
 
-    return train_loader, val_loader, train_dataset, val_dataset
+    if train_data is None and val_data is None:
+        return None, None, None, None
+    elif train_data is not None and val_data is None:
+        return train_loader, None, train_dataset, None
+    elif train_data is None and val_data is not None:
+        return None, val_loader, None, val_dataset
+    else:
+        return train_loader, val_loader, train_dataset, val_dataset
 
 def Get_Confusion_Matrix(epoch, all_clf_preds_val, all_clf_labels_val):
     """
@@ -820,7 +836,7 @@ def objective(trial):
     
     # Fixed params — the rest of what your model expects
     static_params = {
-        "epochs": 5, # Number of training epochs
+        "epochs": 300, # Number of training epochs
         
         # Set to 0 for no training logs, 1 for basic logs, >1 for more detailed logs
         "train_verbose": 1,
@@ -1343,6 +1359,34 @@ def main(model_params):
                 tb_writer.add_scalar(
                     'Performance/epoch_duration_sec', epoch_duration, epoch)
             fold_val_f1_scores.append(best_val_f1)
+        # Determine folder one level up
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
+        metrics_save_dir = os.path.join(parent_dir, 'Conversion comparison')
+        os.makedirs(metrics_save_dir, exist_ok=True)
+
+        # 1. Find the best values (assuming best means minimum loss, maximum score)
+        best_train_loss = np.min(train_losses)
+        best_val_loss = np.min(val_losses)
+        best_val_f1 = np.max(val_f1_scores)
+        best_val_auc = np.max(val_auc_scores)
+
+        # 2. Create filename with best values embedded (rounded for readability)
+        filename = (
+            f"pytorch_therapy_classifier_train_loss-{best_train_loss:.4f}_"
+            f"val_loss-{best_val_loss:.4f}_"
+            f"val_f1-{best_val_f1:.4f}_"
+            f"val_auc-{best_val_auc:.4f}_"
+            f"model_{model_number}.npz"
+        )
+        
+        # 3. Save arrays with this filename
+        np.savez(os.path.join(metrics_save_dir, filename),
+                train_losses=np.array(train_losses),
+                val_losses=np.array(val_losses),
+                val_f1_scores=np.array(val_f1_scores),
+                val_auc_scores=np.array(val_auc_scores),
+                )
 
     else:
         # --- Only Training for the best Hyperparameters using all the data ---
@@ -1350,7 +1394,7 @@ def main(model_params):
         
         # --- Create DataLoaders for this fold ---
         # train_loader, val_loader, train_dataset, val_dataset = Create_Therapy_Dataloader(model_params, train_data, video_skels, val_data)
-        train_loader, _, train_dataset, _ = Create_Therapy_Dataloader(model_params, actions_data, video_skels, None)
+        train_loader, val_loader, train_dataset, val_dataset = Create_Therapy_Dataloader(model_params, actions_data, video_skels, None)
 
         # --- PyTorch Model Instantiation ---
         pytorch_model, initial_state_dict = create_pytorch_model(model_params)
@@ -1559,36 +1603,27 @@ def main(model_params):
             tb_writer.add_scalar(
                 'Performance/epoch_duration_sec', epoch_duration, epoch)
             
-        fold_val_f1_scores.append(best_val_f1)
+        # Determine folder one level up
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
+        metrics_save_dir = os.path.join(parent_dir, 'Conversion comparison')
+        os.makedirs(metrics_save_dir, exist_ok=True)
 
-    # Determine folder one level up
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
-    metrics_save_dir = os.path.join(parent_dir, 'Conversion comparison')
-    os.makedirs(metrics_save_dir, exist_ok=True)
+        # 1. Find the best values (assuming best means minimum loss, maximum score)
+        best_train_loss = np.min(train_losses)
+        best_val_f1 = model_params.get('best_val_f1', 0)
 
-    # 1. Find the best values (assuming best means minimum loss, maximum score)
-    best_train_loss = np.min(train_losses)
-    best_val_loss = np.min(val_losses)
-    best_val_f1 = np.max(val_f1_scores)
-    best_val_auc = np.max(val_auc_scores)
-
-    # 2. Create filename with best values embedded (rounded for readability)
-    filename = (
-        f"pytorch_therapy_classifier_train_loss-{best_train_loss:.4f}_"
-        f"val_loss-{best_val_loss:.4f}_"
-        f"val_f1-{best_val_f1:.4f}_"
-        f"val_auc-{best_val_auc:.4f}_"
-        f"model_{model_number}.npz"
-    )
-    
-    # 3. Save arrays with this filename
-    np.savez(os.path.join(metrics_save_dir, filename),
-            train_losses=np.array(train_losses),
-            val_losses=np.array(val_losses),
-            val_f1_scores=np.array(val_f1_scores),
-            val_auc_scores=np.array(val_auc_scores),
-            )
+        # 2. Create filename with best values embedded (rounded for readability)
+        filename = (
+            f"pytorch_therapy_classifier_train_loss-{best_train_loss:.4f}_"
+            f"val_f1-{best_val_f1:.4f}_"
+            f"model_{model_number}.npz"
+        )
+        
+        # 3. Save arrays with this filename
+        np.savez(os.path.join(metrics_save_dir, filename),
+                train_losses=np.array(train_losses),
+                )
 
     # tb_writer.close()
 
@@ -1743,7 +1778,7 @@ if __name__ == "__main__":
     
     
     study = optuna.create_study(direction="maximize")  # Or "minimize" for loss
-    study.optimize(objective, n_trials=1)  # Try 30 different combinations
+    study.optimize(objective, n_trials=30)  # Try 30 different combinations
 
     print("Best hyperparameters:")
     print(study.best_params)
@@ -1766,7 +1801,7 @@ if __name__ == "__main__":
     # TODO: Change this after each run to avoid overwriting
     # Fixed params — the rest of what your model expects
     static_params = {
-        "epochs": 5, # Number of training epochs
+        "epochs": 300, # Number of training epochs
         
         # Set to 0 for no training logs, 1 for basic logs, >1 for more detailed logs
         "train_verbose": 1,
