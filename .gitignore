@@ -1,0 +1,47 @@
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Ignore common virtual environment folders
+.venv/
+env/
+.old_env/
+*/.venv/
+*/.env/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+*.pyc
+*.mat
+*.png
+*.pdf
+*.pckl
+datasets/NTU-120
+datasets/therapies_dataset
+ntu_annotations
+pretrained_models
+pretrained_models_Pytorch
+therapies_model_7
+datasets/ntu_rgb120_missings.txt
+
+torch_training_data.npzs
