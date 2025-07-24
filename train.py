@@ -1766,8 +1766,6 @@ if __name__ == "__main__":
     # TODO: Change this after each run to avoid overwriting
     # Fixed params — the rest of what your model expects
     static_params = {
-        "best_val_f1": study.best_value,
-        
         "epochs": 300, # Number of training epochs
         
         # Set to 0 for no training logs, 1 for basic logs, >1 for more detailed logs
@@ -1786,9 +1784,10 @@ if __name__ == "__main__":
         
         # Path to the pre-trained model in Pytorch format
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier_Block_5_4_3_2_1/0720_0313_model_12\weights\ep002-trainloss20.46306-loss0.81176-f10.54457.pt",
+        "pretrained_model_path": "./ntu_benchmark_model/model",
         
         # Path to the pre-trained model
-        "pre-trained_model": "./ntu_benchmark_model/model",  # Path to the pre-trained model for NTU-120 one-shot benchmark
+        # "pre-trained_model": "./ntu_benchmark_model/model",  # Path to the pre-trained model for NTU-120 one-shot benchmark
         # "pre-trained_model": "./therapies_model_7/model",   # Path to the pre-trained model for the therapies dataset
 
 
@@ -1833,10 +1832,9 @@ if __name__ == "__main__":
             # "encoder_net.encoder.0.residual_blocks.5.conv1.bias",
             # "encoder_net.encoder.0.residual_blocks.5.conv2.weight",
             # "encoder_net.encoder.0.residual_blocks.5.conv2.bias",
-            # "clf_out.weight",
-            # "clf_out.bias",
+            "clf_out.weight",
+            "clf_out.bias",
         ],
-
 
         "in_memory_generator_train": False,
         "in_memory_generator_val": False,
