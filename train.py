@@ -12,6 +12,7 @@ import random
 import torch
 import torch.nn as nn
 import sys
+import json
 
 # import torch.nn.functional as F # TCN_classifier might use it
 import torch.optim as optim
@@ -124,7 +125,8 @@ def copy_scaler_if_needed(model_params):
         except Exception as e:
             print(f"Warning: Error handling scaler file: {e}. Skipping scaler copy.")
 
-def train_model(model_params, running_train_loss_clf, running_train_loss, pytorch_model, softmax_outputs, device, train_loader, optimizer, active_losses, loss_weights_pytorch_pt, epoch=0, train_verbose=1, log_interval=100):
+def train_model(model_params, running_train_loss_clf, running_train_loss, pytorch_model, softmax_outputs, \
+    device, train_loader, optimizer, active_losses, loss_weights_pytorch_pt, epoch=0, train_verbose=1, log_interval=100):
     
     for batch_idx, (features_batch, labels_batch) in enumerate(train_loader):
         features_batch = features_batch.to(device, non_blocking=True)
@@ -195,10 +197,10 @@ def train_model(model_params, running_train_loss_clf, running_train_loss, pytorc
                     f"  Train Batch: {batch_idx+1}/{len(train_loader)} - No loss computed for this batch.")
             continue
 
-        return running_train_loss, running_train_loss_clf
         # if train_verbose > 0 and batch_idx % log_interval == 0 and isinstance(current_batch_total_loss, torch.Tensor):
         #     print(
         #         f"  Train Batch: {batch_idx+1}/{len(train_loader)} Loss: {current_batch_total_loss.item():.4f}")
+    return running_train_loss, running_train_loss_clf
 
 def validate_model(model_params, pytorch_model, active_losses, device, val_loader, loss_weights_pytorch_pt):
     """
@@ -757,7 +759,7 @@ def Create_Therapy_Dataloader(model_params, train_data, video_skels, val_data):
     else:
         return train_loader, val_loader, train_dataset, val_dataset
 
-def Get_Confusion_Matrix(epoch, all_clf_preds_val, all_clf_labels_val):
+def Get_Confusion_Matrix(epoch, all_clf_preds_val, all_clf_labels_val, model_number, fold):
     """
     Compute and save confusion matrix for the validation set.
     Args:
@@ -772,43 +774,48 @@ def Get_Confusion_Matrix(epoch, all_clf_preds_val, all_clf_labels_val):
 
     # Navigate one level up and into "Conversion comparison"
     parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
-    confusion_matrix_dir = os.path.join(
-        parent_dir, 'Conversion comparison')
+    confusion_matrix_dir = os.path.join(parent_dir, 'Conversion comparison')
     os.makedirs(confusion_matrix_dir, exist_ok=True)
 
-    # Compute confusion matrix (example)
-    conf_mat = confusion_matrix(
-        all_clf_labels_val, all_clf_preds_val)
+    # Compute confusion matrix
+    conf_mat = confusion_matrix(all_clf_labels_val, all_clf_preds_val)
 
-    # Save the raw matrix as .npy
-    npy_path = os.path.join(
-        confusion_matrix_dir, f'conf_matrix_epoch_{epoch+1:03d}.npy')
+    # File name using model number and fold only
+    base_filename = f'conf_matrix_model_{model_number}_fold_{fold}'
+    
+    # Save raw matrix (.npy)
+    npy_path = os.path.join(confusion_matrix_dir, base_filename + '.npy')
     np.save(npy_path, conf_mat)
 
-    # Optionally save a visualisation as PNG
+    # Save heatmap (.png)
     num_classes = conf_mat.shape[0]
-    # Dynamic sizing
-    scale = min(max(num_classes / 5, 5), 40)  # Clamp scale between 5 and 40
-    fontsize = min(max(300 // num_classes, 5), 20)  # Clamp font size between 5 and 20
+    scale = min(max(num_classes / 5, 5), 40)
+    fontsize = min(max(300 // num_classes, 5), 20)
 
-    plt.figure(figsize=(scale, scale * 0.75))  # width x height
-    ax = sns.heatmap(
+    plt.figure(figsize=(scale, scale * 0.75))
+    plt.figure(figsize=(scale + 5, (scale + 5) * 0.9))  # More space
+    sns.heatmap(
         conf_mat,
         annot=True,
         fmt='d',
         cmap='Blues',
-        annot_kws={"size": fontsize},
-        cbar=True
+        annot_kws={"size": fontsize + 6, "color": "black", "weight": "bold"},
+        linewidths=1,
+        linecolor='gray',
+        square=False,  # Allow cells to stretch
+        cbar=True,
     )
-    plt.xlabel("Predicted", fontsize=fontsize)
-    plt.ylabel("Actual", fontsize=fontsize)
-    plt.title(f"Confusion Matrix - Epoch {epoch+1}", fontsize=fontsize + 2)
-    plt.xticks(rotation=90, fontsize=fontsize)
-    plt.yticks(fontsize=fontsize)
-    plt.tight_layout()
 
-    png_path = os.path.join(
-        confusion_matrix_dir, f'conf_matrix_epoch_{epoch+1:03d}.png')
+    # Set labels and title
+    plt.xlabel("Predicted", fontsize=fontsize + 4, labelpad=20)
+    plt.ylabel("Actual", fontsize=fontsize + 4, labelpad=20)
+    plt.title(f"Confusion Matrix - Fold {fold}", fontsize=fontsize + 6, pad=20)
+    plt.xticks(rotation=45, ha='right', fontsize=fontsize + 2)
+    plt.yticks(rotation=0, fontsize=fontsize + 2)
+    plt.tight_layout(pad=3.0)
+
+    # Save the figure
+    png_path = os.path.join(confusion_matrix_dir, base_filename + '.png')
     plt.savefig(png_path)
     plt.close()
 
@@ -1096,6 +1103,8 @@ def main(model_params):
     
     actions_data = actions_data.sort_values(by=['patient', 'session', 'video', 'ex_num'])
     
+    print(actions_data.head())
+
     """ actions_data, actions_data_final_val = train_test_split(
         actions_data,
         test_size=0.15,  # 15% = ~24 samples
@@ -1113,21 +1122,18 @@ def main(model_params):
     
     # Print first few rows of actions_data for debugging
     #print("First few rows of actions_data:")
-    all_actions = actions_data['action'].unique()
+    # all_actions = actions_data['action'].unique()
     #print(f"Unique actions found: {all_actions}")
     #
     ## How many lines have the same action?
-    #action_counts = actions_data['action'].value_counts()
-    #print(f"Action counts:\n{action_counts}")
+    # action_counts = actions_data['action'].value_counts()
+    # print(f"Action counts:\n{action_counts}")
     #
     all_actions = actions_data['action'].unique()
     action_to_idx = {action: idx for idx, action in enumerate(sorted(all_actions))}
     labels = actions_data['action'].map(action_to_idx).values
     #
-    #print(f"Action to index mapping: {action_to_idx}")
-    #print(f"Total unique actions: {len(all_actions)}")
-    #print(f"Loaded actions_data with {len(actions_data)} entries and actions_data_final_val with {len(actions_data_final_val)} entries.")
-        
+    
     # --- Cross-Validation Setup ---
     if model_params.get("K", None) is not None:
         k_folds = model_params.get("K", 5)
@@ -1180,6 +1186,7 @@ def main(model_params):
             # time.sleep(5)  # Small delay for readability in logs
             softmax_outputs = []  # To store softmax outputs if needed
             train_losses = []
+            
             val_losses = []
             val_f1_scores = []
             val_auc_scores = []  # Move this to the top, before the epoch loop
@@ -1316,6 +1323,7 @@ def main(model_params):
                         full_checkpoint_path = os.path.join(weights_save_path, checkpoint_filename)
                         torch.save(pytorch_model.state_dict(), full_checkpoint_path)
                         best_checkpoint_filename = checkpoint_filename
+                        Get_Confusion_Matrix(epoch, all_clf_preds_val, all_clf_labels_val, model_number, fold)
                         # Delete all other checkpoints except the best
                         for fname in os.listdir(weights_save_path):
                             if fname.endswith('.pt') and fname != best_checkpoint_filename:
@@ -1335,10 +1343,6 @@ def main(model_params):
                         if monitor_metric_name == model_params.get('monitor', 'val_loss'):
                             early_stopping_counter += 1
 
-                    # Confusion Matrix (Every 10 epochs)
-                    # Every 10 epochs, save confusion matrix (starting from epoch 0)
-                    if epoch == 0 or (epoch + 1) % 5 == 0:
-                        Get_Confusion_Matrix(epoch, all_clf_preds_val, all_clf_labels_val)
                     # EarlyStopping (check against its own best metric, which might be same as checkpointing or different)
                     if early_stopping_counter >= early_stopping_patience:
                         # print(
@@ -1521,11 +1525,16 @@ def main(model_params):
                     tb_writer.add_scalar('F1Score/val_macro', f1_macro, epoch)
                     val_f1_scores.append(f1_macro)
 
-                    print(f"Epoch {epoch+1} Val Summary:")
-                    print(f"  - Total Loss       : {avg_epoch_val_loss:.4f}")
-                    print(f"  - Accuracy         : {val_accuracy:.4f}")
-                    print(f"  - F1 Score (macro) : {f1_macro:.4f}")
-                    print(f"  - AUC-ROC          : {auc:.4f}")
+                    status = (
+                        f"\r    Fold {fold+1}/{k_folds} | "
+                        f"Epoch {epoch+1} | "
+                        f"Loss: {avg_epoch_val_loss:.4f} | "
+                        f"Acc: {val_accuracy:.4f} | "
+                        f"F1: {f1_macro:.4f} | "
+                        f"AUC: {auc:.4f}"
+                    )
+                    sys.stdout.write(status)
+                    sys.stdout.flush()
 
                 else:
                     print(
@@ -1688,100 +1697,96 @@ if __name__ == "__main__":
     #
     # args = parser.parse_args()
 
-    #model_params = {
-    #    # Set to 0 for no training logs, 1 for basic logs, >1 for more detailed logs
-    #    "train_verbose": 1,
-    #    "num_workers": 0,  # Number of workers for DataLoader, adjust based on your system
-    #    "path_results": "./pretrained_models_Pytorch/",
-    #    "epochs": 300, # Number of training epochs
-#
-    #    # Convert Keras parameters to PyTorch equivalents (Set True if The model you want to fine tune is in TensorFlow/Keras format)
-    #    "model_converter": True,
-#
-    #    # Path to the pre-trained model in Pytorch format
-    #    "pretrained_model_path": "./pretrained_models_Pytorch/TCN_Models_Therapist_Only_First_Layer_new_classifier/0718_2035_model_52",  
-    #    
-    #    # Path to the pre-trained model
-    #    # "pre-trained_model": "./ntu_benchmark_model/model",  # Path to the pre-trained model for NTU-120 one-shot benchmark
-    #    # "pre-trained_model": "./therapies_model_7/model",   # Path to the pre-trained model for the therapies dataset
-#
-    #    # Path to save the model and results
-    #    "path_model": "./TCN_Models_Therapist_Only_First_Layer/",
-#
-    #    # # NTU-120 Data sets to optimize the therapy data
-    #    # "train_annotations": "./datasets_annotations/mp_train.txt",
-    #    # "val_annotations": "./datasets_annotations/mp_val.txt",
-    #    "eval_therapies": True,  # Therapy data needed for its evaluation
-    #    # "h_flip": True,
-    #    # "skip_frames": [2, 3],
-#
-    #    # NTU-120 Data sets to optimize the NTU one-shot benchmark
-    #    # "train_annotations": "./ntu_annotations/one_shot_aux_set.txt",
-    #    # "val_annotations": "",
-    #    # "eval_therapies": False,
-    #    # "h_flip": False,
-    #    # "monitor": "ntu_one_shot_acc_euc",
-#
-    #    "in_memory_generator_train": False,
-    #    "in_memory_generator_val": False,
-    #    # "in_memory_callback": True,
-#
-    #    
-    #    "joints_num": 25, # 24 for MP
-    #    "joints_dim": 3,
-    #    "num_classes": 14, # Number of classes for classification (NTU-120 has 120, MP has 12 and Therapies has 14)
-#
-    #    "batch_size": 8,
-    #    "init_lr": 0.001,
-    #    "lstm_recurrent_dropout": 0.0,
-    #    "lstm_dropout": 0.2,
-#
-    #    # Set True to use a fitted data scaler. The one from the pre-trained models can also be used
-    #    "scale_data": False,
-    #    "max_seq_len": -32,
-    #    "num_layers": 2,
-    #    "num_neurons": 256,
-    #    "masking": True,
-    #    "center_skels": True,
-    #    "scale_by_torso": True,
-    #    "temporal_scale": [0.8, 1.2],
-    #    "classification": True,
-    #    "triplet": False,
-    #    "decoder": False,
-    #    "reverse_decoder": False,
-    #    "clf_neurons": 0,
-#
-    #    "model_name": "TCN_Models_Therapist_Only_First_Layer_new_classifier",
-    #    "conv_params": [256, 4, 2, True, "causal", [4]],
-    #    "is_tcn": False,
-    #    "use_jcd_features": True,
-    #    "use_speeds": False,
-    #    "use_coords_raw": False,
-    #    "use_coords": True,
-    #    "use_jcd_diff": False,
-    #    "use_bone_angles": True,
-    #    "use_bone_angles_cent": False,
-    #    "average_wrong_skels": True,
-    #    "average_wrong_skels_method": 'mean',
-    #}
+    """ model_params = {
+        # Set to 0 for no training logs, 1 for basic logs, >1 for more detailed logs
+        "train_verbose": 1,
+        "num_workers": 0,  # Number of workers for DataLoader, adjust based on your system
+        "path_results": "./pretrained_models_Pytorch/",
+        "epochs": 300, # Number of training epochs
 
-    ## Correct max_seq_len if negative for use in summary/testing
-    #if model_params['max_seq_len'] <= 0:
-    #    print(
-    #        f"Warning: model_params['max_seq_len'] is {model_params['max_seq_len']}. Using 32 as effective_seq_len for non-dataset parts.")
-    #    model_params['effective_seq_len'] = 32
-    #else:
-    #    model_params['effective_seq_len'] = model_params['max_seq_len']
+        # Convert Keras parameters to PyTorch equivalents (Set True if The model you want to fine tune is in TensorFlow/Keras format)
+        "model_converter": True,
 
-    #--- Call the main function ---
-    #main(model_params)
+        # Path to the pre-trained model in Pytorch format
+        "pretrained_model_path": "./pretrained_models_Pytorch/TCN_Models_Therapist_Only_First_Layer_new_classifier/0718_2035_model_52",  
+        
+        # Path to the pre-trained model
+        # "pre-trained_model": "./ntu_benchmark_model/model",  # Path to the pre-trained model for NTU-120 one-shot benchmark
+        # "pre-trained_model": "./therapies_model_7/model",   # Path to the pre-trained model for the therapies dataset
+
+        # Path to save the model and results
+        "path_model": "./TCN_Models_Therapist_Only_First_Layer/",
+
+        # # NTU-120 Data sets to optimize the therapy data
+        # "train_annotations": "./datasets_annotations/mp_train.txt",
+        # "val_annotations": "./datasets_annotations/mp_val.txt",
+        "eval_therapies": True,  # Therapy data needed for its evaluation
+        # "h_flip": True,
+        # "skip_frames": [2, 3],
+
+        # NTU-120 Data sets to optimize the NTU one-shot benchmark
+        # "train_annotations": "./ntu_annotations/one_shot_aux_set.txt",
+        # "val_annotations": "",
+        # "eval_therapies": False,
+        # "h_flip": False,
+        # "monitor": "ntu_one_shot_acc_euc",
+
+        "in_memory_generator_train": False,
+        "in_memory_generator_val": False,
+        # "in_memory_callback": True,
+
+        
+        "joints_num": 25, # 24 for MP
+        "joints_dim": 3,
+        "num_classes": 14, # Number of classes for classification (NTU-120 has 120, MP has 12 and Therapies has 14)
+
+        "batch_size": 8,
+        "init_lr": 0.001,
+        "lstm_recurrent_dropout": 0.0,
+        "lstm_dropout": 0.2,
+
+        # Set True to use a fitted data scaler. The one from the pre-trained models can also be used
+        "scale_data": False,
+        "max_seq_len": -32,
+        "num_layers": 2,
+        "num_neurons": 256,
+        "masking": True,
+        "center_skels": True,
+        "scale_by_torso": True,
+        "temporal_scale": [0.8, 1.2],
+        "classification": True,
+        "triplet": False,
+        "decoder": False,
+        "reverse_decoder": False,
+        "clf_neurons": 0,
+
+        "model_name": "TCN_Models_Therapist_Only_First_Layer_new_classifier",
+        "conv_params": [256, 4, 2, True, "causal", [4]],
+        "is_tcn": False,
+        "use_jcd_features": True,
+        "use_speeds": False,
+        "use_coords_raw": False,
+        "use_coords": True,
+        "use_jcd_diff": False,
+        "use_bone_angles": True,
+        "use_bone_angles_cent": False,
+        "average_wrong_skels": True,
+        "average_wrong_skels_method": 'mean',
+    }
+    # Correct max_seq_len if negative for use in summary/testing
+    if model_params['max_seq_len'] <= 0:
+        print(
+            f"Warning: model_params['max_seq_len'] is {model_params['max_seq_len']}. Using 32 as effective_seq_len for non-dataset parts.")
+        model_params['effective_seq_len'] = 32
+    else:
+        model_params['effective_seq_len'] = model_params['max_seq_len']
+    # --- Call the main function ---
+    main(model_params) """
     
     
     study = optuna.create_study(direction="maximize")  # Or "minimize" for loss
     study.optimize(objective, n_trials=30)  # Try 30 different combinations
 
-    print("Best hyperparameters:")
-    print(study.best_params)
     
     # Determine folder one level up
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -1789,18 +1794,18 @@ if __name__ == "__main__":
     metrics_save_dir = os.path.join(parent_dir, 'Conversion comparison')
     os.makedirs(metrics_save_dir, exist_ok=True)
     
+    print("\n--- Hyperparameter Optimization Finished ---")
     best_params = study.best_trial.params
-    
     print(f"Best parameters found: {best_params}")
-    
+    print(f"\nBest F1 score: {study.best_value}")
     # Save best parameters to a JSON file
-    import json
     with open(os.path.join(metrics_save_dir, 'best_hyperparams.json'), 'w') as f:
         json.dump(best_params, f, indent=4)
     
     # TODO: Change this after each run to avoid overwriting
     # Fixed params — the rest of what your model expects
     static_params = {
+        "best_val_f1": study.best_value,  # Best F1 score from the study
         "epochs": 300, # Number of training epochs
         
         # Set to 0 for no training logs, 1 for basic logs, >1 for more detailed logs
