@@ -792,8 +792,7 @@ def Get_Confusion_Matrix(epoch, all_clf_preds_val, all_clf_labels_val, model_num
     scale = min(max(num_classes / 5, 5), 40)
     fontsize = min(max(300 // num_classes, 5), 20)
 
-    plt.figure(figsize=(scale, scale * 0.75))
-    plt.figure(figsize=(scale + 5, (scale + 5) * 0.9))  # More space
+    plt.figure(figsize=(scale + 5, (scale + 5) * 0.9))
     sns.heatmap(
         conf_mat,
         annot=True,
