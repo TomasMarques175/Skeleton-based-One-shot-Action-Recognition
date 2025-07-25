@@ -1140,11 +1140,12 @@ def main(model_params):
         
         # --- Training Loop ---
         fold_val_f1_scores = []
+        fold_val_auc_scores = []
         for fold, (train_idx, val_idx) in enumerate(skf.split(actions_data, labels)):
 
             train_data = actions_data.iloc[train_idx].reset_index(drop=True)
             val_data = actions_data.iloc[val_idx].reset_index(drop=True)
-
+            
             # --- Create DataLoaders for this fold ---
             train_loader, val_loader, train_dataset, val_dataset = Create_Therapy_Dataloader(model_params, train_data, video_skels, val_data)
             
@@ -1361,35 +1362,39 @@ def main(model_params):
             if epoch_duration > 0:
                 tb_writer.add_scalar(
                     'Performance/epoch_duration_sec', epoch_duration, epoch)
+            
             fold_val_f1_scores.append(best_val_f1)
-        # Determine folder one level up
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
-        metrics_save_dir = os.path.join(parent_dir, 'Conversion comparison')
-        os.makedirs(metrics_save_dir, exist_ok=True)
+            fold_val_auc_scores.append(best_val_auc)
+            
+            # Determine folder one level up
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
+            metrics_save_dir = os.path.join(parent_dir, 'Conversion comparison')
+            os.makedirs(metrics_save_dir, exist_ok=True)
 
-        # 1. Find the best values (assuming best means minimum loss, maximum score)
-        best_train_loss = np.min(train_losses)
-        best_val_loss = np.min(val_losses)
-        best_val_f1 = np.max(val_f1_scores)
-        best_val_auc = np.max(val_auc_scores)
+            # 1. Find the best values (assuming best means minimum loss, maximum score)
+            best_train_loss = np.min(train_losses)
+            best_val_loss = np.min(val_losses)
+            best_val_f1 = np.max(val_f1_scores)
+            best_val_auc = np.max(val_auc_scores)
 
-        # 2. Create filename with best values embedded (rounded for readability)
-        filename = (
-            f"pytorch_therapy_classifier_train_loss-{best_train_loss:.4f}_"
-            f"val_loss-{best_val_loss:.4f}_"
-            f"val_f1-{best_val_f1:.4f}_"
-            f"val_auc-{best_val_auc:.4f}_"
-            f"model_{model_number}.npz"
-        )
-        
-        # 3. Save arrays with this filename
-        np.savez(os.path.join(metrics_save_dir, filename),
-                train_losses=np.array(train_losses),
-                val_losses=np.array(val_losses),
-                val_f1_scores=np.array(val_f1_scores),
-                val_auc_scores=np.array(val_auc_scores),
-                )
+            # 2. Create filename with best values embedded (rounded for readability)
+            filename = (
+                f"pytorch_therapy_classifier_train_loss-{best_train_loss:.4f}_"
+                f"val_loss-{best_val_loss:.4f}_"
+                f"val_f1-{best_val_f1:.4f}_"
+                f"val_auc-{best_val_auc:.4f}_"
+                f"model_{model_number}_"
+                f"fold_{fold}.npz"
+            )
+            
+            # 3. Save arrays with this filename
+            np.savez(os.path.join(metrics_save_dir, filename),
+                    train_losses=np.array(train_losses),
+                    val_losses=np.array(val_losses),
+                    val_f1_scores=np.array(val_f1_scores),
+                    val_auc_scores=np.array(val_auc_scores),
+                    )
 
     else:
         # --- Only Training for the best Hyperparameters using all the data ---
@@ -1782,11 +1787,9 @@ if __name__ == "__main__":
     # --- Call the main function ---
     main(model_params) """
     
-    
     study = optuna.create_study(direction="maximize")  # Or "minimize" for loss
-    study.optimize(objective, n_trials=30)  # Try 30 different combinations
+    study.optimize(objective, n_trials=40)  # Try 40 different combinations
 
-    
     # Determine folder one level up
     current_dir = os.path.dirname(os.path.abspath(__file__))
     parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
