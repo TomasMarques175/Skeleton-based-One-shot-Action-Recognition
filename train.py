@@ -1315,6 +1315,7 @@ def main(model_params):
                         # Keras format: 'ep{epoch:03d}-loss{loss:.5f}-' + monitor + '{' + monitor + ':.5f}.ckpt'
                         # Using train loss for 'loss' part of filename for consistency with Keras.
                         best_val_f1 = np.max(val_f1_scores)
+                        best_val_auc = np.max(val_auc_scores)
                         checkpoint_filename = (
                             f"ep{epoch+1:03d}-trainloss{avg_epoch_train_loss:.5f}-"
                             f"{monitor_metric_name.replace('val_', '')}{current_metric_for_scheduler_es:.5f}-"
