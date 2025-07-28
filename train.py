@@ -126,6 +126,20 @@ def copy_scaler_if_needed(model_params):
         except Exception as e:
             print(f"Warning: Error handling scaler file: {e}. Skipping scaler copy.")
 
+def get_final_model_path(path_results, model_name, model_number):
+    model_dir = os.path.join(path_results, model_name)
+    
+    # Look for subfolders that contain the model number
+    for subfolder in os.listdir(model_dir):
+        if f"_model_{model_number}" in subfolder:
+            weights_dir = os.path.join(model_dir, subfolder, "weights")
+            
+            for file in os.listdir(weights_dir):
+                if file.endswith(".pt"):
+                    return os.path.join(weights_dir, file)
+
+    raise FileNotFoundError(f"No .pt file found for model {model_number} in {model_dir}")
+
 def train_model(model_params, running_train_loss_clf, running_train_loss, pytorch_model, softmax_outputs, \
     device, train_loader, optimizer, active_losses, loss_weights_pytorch_pt, epoch=0, train_verbose=1, log_interval=100):
     
@@ -1637,29 +1651,34 @@ if __name__ == "__main__":
         "num_classes": 14, # Number of classes for classification (NTU-120 has 120, MP has 12 and Therapies has 14)
 
         "epochs": 300, # Number of training epochs
-        
+        "n_trials": 40,  # Number of trials for Optuna
+
         # Set to 0 for no training logs, 1 for basic logs, >1 for more detailed logs
         "train_verbose": 1,
         "num_workers": 0,  # Number of workers for DataLoader, adjust based on your system
         "path_results": "./pretrained_models_Pytorch/",
-        "model_name": "Models_Therapist_Classifier_Block_5",
+        
+        # TODO: Change every time you switch to the next model
+        "model_name": "Models_Therapist_Classifier",
         # "model_name": "Models_Therapist_Classifier_Block_5_4_3_2_1_0_From_Zero",
 
+        # TODO: Change every time you switch to the next model
         # Use a pre-trained model (Set True if you want to use a pre-trained model)
         "use_pretrained_model": True,  # Set to True if you want to use a pre-trained model
         
+        # TODO: Change every time you switch to the next model
         # Convert Keras parameters to PyTorch equivalents (Set True if The model you want to fine tune is in TensorFlow/Keras format)
-        "model_converter": False,
+        "model_converter": True, # Set to True if you want to convert a Keras model to PyTorch
         
+        # TODO: Change every time you switch to the next model
         # Path to the pre-trained model in Pytorch format
-        "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier/0728_1935_model_41/weights/Best_Model-ep300-trainloss0.38170-f10.00000.pt",
-        # "pretrained_model_path": "./ntu_benchmark_model/model",
+        # "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier/0728_1935_model_41/weights/Best_Model-ep300-trainloss0.38170-f10.00000.pt",
         
         # Path to the pre-trained model in TensorFlow/Keras format
         # "pretrained_model_path": "./ntu_benchmark_model/model",  # Path to the pre-trained model for NTU-120 one-shot benchmark
-        # "pretrained_model_path": "./therapies_model_7/model",   # Path to the pre-trained model for the therapies dataset
+        "pretrained_model_path": "./therapies_model_7/model",   # Path to the pre-trained model for the therapies dataset
 
-
+        # TODO: Change every time you switch to the next model
         # # NTU-120 Data sets to optimize the therapy data
         # "train_annotations": "./datasets_annotations/mp_train.txt",
         # "val_annotations": "./datasets_annotations/mp_val.txt",
@@ -1673,6 +1692,7 @@ if __name__ == "__main__":
         # "eval_therapies": False,
         # "h_flip": False,
 
+        # TODO: Change every time you switch to the next model
         "excluded_pt_keys": [
             # "encoder_net.encoder.0.residual_blocks.0.conv1.weight",
             # "encoder_net.encoder.0.residual_blocks.0.conv1.bias",
@@ -1696,10 +1716,10 @@ if __name__ == "__main__":
             # "encoder_net.encoder.0.residual_blocks.4.conv1.bias",
             # "encoder_net.encoder.0.residual_blocks.4.conv2.weight",
             # "encoder_net.encoder.0.residual_blocks.4.conv2.bias",
-            "encoder_net.encoder.0.residual_blocks.5.conv1.weight",
-            "encoder_net.encoder.0.residual_blocks.5.conv1.bias",
-            "encoder_net.encoder.0.residual_blocks.5.conv2.weight",
-            "encoder_net.encoder.0.residual_blocks.5.conv2.bias",
+            # "encoder_net.encoder.0.residual_blocks.5.conv1.weight",
+            # "encoder_net.encoder.0.residual_blocks.5.conv1.bias",
+            # "encoder_net.encoder.0.residual_blocks.5.conv2.weight",
+            # "encoder_net.encoder.0.residual_blocks.5.conv2.bias",
             "clf_out.weight",
             "clf_out.bias",
         ],
@@ -1744,20 +1764,23 @@ if __name__ == "__main__":
     else:
         static_params['effective_seq_len'] = static_params['max_seq_len']
 
-    """# Create Optuna study
+    # Create Optuna study
     study = optuna.create_study(direction="maximize")  # Or "minimize" for loss
-    study.optimize(partial(objective, static_params=static_params), n_trials=40)  # Try 40 different combinations
+    study.optimize(partial(objective, static_params=static_params), n_trials=static_params.get("n_trials", 40))  # Try 40 different combinations
 
     print("\n--- Hyperparameter Optimization Finished ---")
     
     best_trial = study.best_trial
-    print("Best trial F1:", best_trial.value)
-    print("Best model number:", best_trial.params.get('model_number', 'N/A'))
-    
+    best_val_f1 = best_trial.value
+    get_best_model_number = static_params.get("best_model_number", 'N/A')
+    print("Best trial F1:", best_val_f1)
+    print("Best model number:", get_best_model_number)
+
     # Determine folder one level up in order to save the best hyperparameters
     current_dir = os.path.dirname(os.path.abspath(__file__))
     parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
     model_name = static_params['model_name']
+    
     # Create a directory for saving metrics
     metrics_save_dir = os.path.join(parent_dir, 'Conversion comparison', model_name)
     os.makedirs(metrics_save_dir, exist_ok=True)
@@ -1776,29 +1799,41 @@ if __name__ == "__main__":
     # Combine the two
     model_params = {**static_params, **best_params}
 
-    main(model_params)
+    # Run the main training function with the best parameters
+    print("\n--- Running main training with best parameters ---")
+    _, model_number = main(model_params)
+    print(f"\nBest model number: {model_number}")
+    
+    # Get the best model path for the given model number
+    best_model_path = get_final_model_path(
+        model_params["path_results"],
+        model_params["model_name"],
+        model_number
+    )
+    print(f"Best model path: {best_model_path}")
 
-    print("\n--- Training script finished ---")"""
+    print("\n--- Training script finished ---")
     
-    # Determine folder one level up in order to save the best hyperparameters
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
-    model_name = static_params['model_name']
-    # Create a directory for saving metrics
-    metrics_save_dir = os.path.join(parent_dir, 'Conversion comparison', model_name)
-    os.makedirs(metrics_save_dir, exist_ok=True)
-    
-    # Save best parameters to a JSON file
-    with open("best_hyperparams.json", "r") as f:
-        best_params = json.load(f)
-    
-    # Set the best F1 score and K for the model parameters
-    static_params["best_val_f1"] = 0
-    static_params["K"] = None
-    
-    # Combine the two
-    model_params = {**static_params, **best_params}
-
-    main(model_params)
-
-    exit(0)
+    # TODO: Create an if function based on what param you want to load to train a new model
+    # # Determine folder one level up in order to save the best hyperparameters
+    # current_dir = os.path.dirname(os.path.abspath(__file__))
+    # parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
+    # model_name = static_params['model_name']
+    # # Create a directory for saving metrics
+    # metrics_save_dir = os.path.join(parent_dir, 'Conversion comparison', model_name)
+    # os.makedirs(metrics_save_dir, exist_ok=True)
+    # 
+    # # Save best parameters to a JSON file
+    # with open("best_hyperparams.json", "r") as f:
+    #     best_params = json.load(f)
+    # 
+    # # Set the best F1 score and K for the model parameters
+    # static_params["best_val_f1"] = 0
+    # static_params["K"] = None
+    # 
+    # # Combine the two
+    # model_params = {**static_params, **best_params}
+# 
+    # main(model_params)
+# 
+    # exit(0)
