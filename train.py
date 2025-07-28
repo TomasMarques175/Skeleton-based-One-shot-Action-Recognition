@@ -57,6 +57,7 @@ from pytorch_dataset import TripletPoseDataset, TherapyDataset # Your PyTorch Da
 
 from collections import Counter
 import optuna
+from functools import partial
 
 # --- Framework-agnostic or to-be-adapted utility imports ---
 # Ensure these functions do not have hard TensorFlow dependencies.
@@ -759,7 +760,7 @@ def Create_Therapy_Dataloader(model_params, train_data, video_skels, val_data):
     else:
         return train_loader, val_loader, train_dataset, val_dataset
 
-def Get_Confusion_Matrix(epoch, all_clf_preds_val, all_clf_labels_val, model_number, fold):
+def Get_Confusion_Matrix(model_params, all_clf_preds_val, all_clf_labels_val, model_number, fold):
     """
     Compute and save confusion matrix for the validation set.
     Args:
@@ -773,8 +774,11 @@ def Get_Confusion_Matrix(epoch, all_clf_preds_val, all_clf_labels_val, model_num
     current_dir = os.path.dirname(os.path.abspath(__file__))
 
     # Navigate one level up and into "Conversion comparison"
+    current_dir = os.path.dirname(os.path.abspath(__file__))
     parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
-    confusion_matrix_dir = os.path.join(parent_dir, 'Conversion comparison')
+    model_name = model_params['model_name']
+    # Create a directory for saving metrics
+    confusion_matrix_dir = os.path.join(parent_dir, 'Conversion comparison', model_name)
     os.makedirs(confusion_matrix_dir, exist_ok=True)
 
     # Compute confusion matrix
@@ -818,7 +822,7 @@ def Get_Confusion_Matrix(epoch, all_clf_preds_val, all_clf_labels_val, model_num
     plt.savefig(png_path)
     plt.close()
 
-def objective(trial):
+def objective(trial, static_params):
     # Define hyperparameter search space
     optuna_params = {        
         # Training-related
@@ -840,130 +844,19 @@ def objective(trial):
         "es_patience": trial.suggest_int("es_patience", 3, 12),
     }
     
-    # Fixed params — the rest of what your model expects
-    static_params = {
-        "epochs": 300, # Number of training epochs
-        
-        # Set to 0 for no training logs, 1 for basic logs, >1 for more detailed logs
-        "train_verbose": 1,
-        "num_workers": 0,  # Number of workers for DataLoader, adjust based on your system
-        "K": 5,  # Number of folds for cross-validation
-        "path_results": "./pretrained_models_Pytorch/",
-        "model_name": "Models_Therapist_Classifier",
-        # "model_name": "Models_Therapist_Classifier_Block_5_4_3_2_1_0_From_Zero",
-
-        # Convert Keras parameters to PyTorch equivalents (Set True if The model you want to fine tune is in TensorFlow/Keras format)
-        "model_converter": True,
-
-        # Use a pre-trained model (Set True if you want to use a pre-trained model)
-        "use_pretrained_model": True,  # Set to True if you want to use a pre-trained model
-        
-        # Path to the pre-trained model in Pytorch format
-        # "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier_Block_5_4_3_2_1/0720_0313_model_12\weights\ep002-trainloss20.46306-loss0.81176-f10.54457.pt",
-        "pretrained_model_path": "./ntu_benchmark_model/model",
-        
-        # Path to the pre-trained model
-        # "pre-trained_model": "./ntu_benchmark_model/model",  # Path to the pre-trained model for NTU-120 one-shot benchmark
-        # "pre-trained_model": "./therapies_model_7/model",   # Path to the pre-trained model for the therapies dataset
-
-
-        # # NTU-120 Data sets to optimize the therapy data
-        # "train_annotations": "./datasets_annotations/mp_train.txt",
-        # "val_annotations": "./datasets_annotations/mp_val.txt",
-        "eval_therapies": True,  # Therapy data needed for its evaluation
-        # "h_flip": True,
-        # "skip_frames": [2, 3],
-
-        # NTU-120 Data sets to optimize the NTU one-shot benchmark
-        # "train_annotations": "./ntu_annotations/one_shot_aux_set.txt",
-        # "val_annotations": "",
-        # "eval_therapies": False,
-        # "h_flip": False,
-        # "monitor": "ntu_one_shot_acc_euc",
-
-        "excluded_pt_keys": [
-            # "encoder_net.encoder.0.residual_blocks.0.conv1.weight",
-            # "encoder_net.encoder.0.residual_blocks.0.conv1.bias",
-            # "encoder_net.encoder.0.residual_blocks.0.conv2.weight",
-            # "encoder_net.encoder.0.residual_blocks.0.conv2.bias",
-            # "encoder_net.encoder.0.residual_blocks.0.downsample.weight",
-            # "encoder_net.encoder.0.residual_blocks.0.downsample.bias",
-            # "encoder_net.encoder.0.residual_blocks.1.conv1.weight",
-            # "encoder_net.encoder.0.residual_blocks.1.conv1.bias",
-            # "encoder_net.encoder.0.residual_blocks.1.conv2.weight",
-            # "encoder_net.encoder.0.residual_blocks.1.conv2.bias",
-            # "encoder_net.encoder.0.residual_blocks.2.conv1.weight",
-            # "encoder_net.encoder.0.residual_blocks.2.conv1.bias",
-            # "encoder_net.encoder.0.residual_blocks.2.conv2.weight",
-            # "encoder_net.encoder.0.residual_blocks.2.conv2.bias",
-            # "encoder_net.encoder.0.residual_blocks.3.conv1.weight",
-            # "encoder_net.encoder.0.residual_blocks.3.conv1.bias",
-            # "encoder_net.encoder.0.residual_blocks.3.conv2.weight",
-            # "encoder_net.encoder.0.residual_blocks.3.conv2.bias",
-            # "encoder_net.encoder.0.residual_blocks.4.conv1.weight",
-            # "encoder_net.encoder.0.residual_blocks.4.conv1.bias",
-            # "encoder_net.encoder.0.residual_blocks.4.conv2.weight",
-            # "encoder_net.encoder.0.residual_blocks.4.conv2.bias",
-            # "encoder_net.encoder.0.residual_blocks.5.conv1.weight",
-            # "encoder_net.encoder.0.residual_blocks.5.conv1.bias",
-            # "encoder_net.encoder.0.residual_blocks.5.conv2.weight",
-            # "encoder_net.encoder.0.residual_blocks.5.conv2.bias",
-            "clf_out.weight",
-            "clf_out.bias",
-        ],
-
-
-        "in_memory_generator_train": False,
-        "in_memory_generator_val": False,
-        # "in_memory_callback": True,
-        
-        "joints_num": 25, # 24 for MP
-        "joints_dim": 3,
-        "num_classes": 14, # Number of classes for classification (NTU-120 has 120, MP has 12 and Therapies has 14)
-        
-        # Set True to use a fitted data scaler. The one from the pre-trained models can also be used
-        "scale_data": False,
-        "max_seq_len": -32,
-        "num_layers": 2,
-        "num_neurons": 256,
-        "masking": True,
-        "center_skels": True,
-        "scale_by_torso": True,
-        "temporal_scale": [0.8, 1.2],
-        "classification": True,
-        "triplet": False,
-        "decoder": False,
-        "reverse_decoder": False,
-        "clf_neurons": 0,
-
-        "conv_params": [256, 4, 2, True, "causal", [4]],
-        "is_tcn": False,
-        "use_jcd_features": True,
-        "use_speeds": False,
-        "use_coords_raw": False,
-        "use_coords": True,
-        "use_jcd_diff": False,
-        "use_bone_angles": True,
-        "use_bone_angles_cent": False,
-        "average_wrong_skels": True,
-        "average_wrong_skels_method": 'mean',
-    }
-
     # Combine the two
     model_params = {**static_params, **optuna_params}
 
-    # Correct max_seq_len if negative for use in summary/testing
-    if model_params['max_seq_len'] <= 0:
-        # print(
-        #     f"Warning: model_params['max_seq_len'] is {model_params['max_seq_len']}. Using 32 as effective_seq_len for non-dataset parts.")
-        model_params['effective_seq_len'] = 32
-    else:
-        model_params['effective_seq_len'] = model_params['max_seq_len']
-
-    
     # Train your model and return the validation F1 or loss
-    f1_score = main(model_params)  # Use cross-validation here
-    return f1_score
+    best_val_f1, model_number = main(model_params)  # Use cross-validation here
+    
+    # Update best F1 and best model number if improved
+    if static_params["best_val_f1"] is None or best_val_f1 > static_params["best_val_f1"]:
+        static_params["best_val_f1"] = best_val_f1
+        static_params["best_model_number"] = model_number
+        print(f"New best model: {model_number} with F1: {best_val_f1:.4f}")
+
+    return best_val_f1
 
 
 def main(model_params):
@@ -1127,11 +1020,11 @@ def main(model_params):
     ## How many lines have the same action?
     # action_counts = actions_data['action'].value_counts()
     # print(f"Action counts:\n{action_counts}")
-    #
+    
+    # Create a mapping from action names to indices
     all_actions = actions_data['action'].unique()
     action_to_idx = {action: idx for idx, action in enumerate(sorted(all_actions))}
     labels = actions_data['action'].map(action_to_idx).values
-    #
     
     # --- Cross-Validation Setup ---
     if model_params.get("K", None) is not None:
@@ -1322,7 +1215,7 @@ def main(model_params):
                         full_checkpoint_path = os.path.join(weights_save_path, checkpoint_filename)
                         torch.save(pytorch_model.state_dict(), full_checkpoint_path)
                         best_checkpoint_filename = checkpoint_filename
-                        Get_Confusion_Matrix(epoch, all_clf_preds_val, all_clf_labels_val, model_number, fold)
+                        Get_Confusion_Matrix(model_params, all_clf_preds_val, all_clf_labels_val, model_number, fold)
                         # Delete all other checkpoints except the best
                         for fname in os.listdir(weights_save_path):
                             if fname.endswith('.pt') and fname != best_checkpoint_filename:
@@ -1368,7 +1261,9 @@ def main(model_params):
             # Determine folder one level up
             current_dir = os.path.dirname(os.path.abspath(__file__))
             parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
-            metrics_save_dir = os.path.join(parent_dir, 'Conversion comparison')
+            model_name = model_params['model_name']
+            # Create a directory for saving metrics
+            metrics_save_dir = os.path.join(parent_dir, 'Conversion comparison', model_name)
             os.makedirs(metrics_save_dir, exist_ok=True)
 
             # 1. Find the best values (assuming best means minimum loss, maximum score)
@@ -1472,7 +1367,7 @@ def main(model_params):
             current_lr = optimizer.param_groups[0]['lr']
             tb_writer.add_scalar('LearningRate', current_lr, epoch)
             status = (
-                f"\r    f"Epoch {epoch+1} | "
+                f"\r    Epoch {epoch+1} | "
                 f"Loss: {avg_epoch_train_loss:.4f} | "
                 f"current_lr: {current_lr:.4f} | "
             )
@@ -1503,7 +1398,6 @@ def main(model_params):
                         auc = roc_auc_score(y_true, y_scores[:, 1])
                     else:
                         # Multiclass classification with only present classes
-                        from sklearn.preprocessing import label_binarize
                         present_classes = np.unique(y_true)
                         y_true_bin = label_binarize(y_true, classes=present_classes)
                         y_scores_filtered = y_scores[:, present_classes]
@@ -1595,7 +1489,7 @@ def main(model_params):
                 # Confusion Matrix (Every 10 epochs)
                 # Every 10 epochs, save confusion matrix (starting from epoch 0)
                 if epoch == 0 or (epoch + 1) % 5 == 0:
-                    Get_Confusion_Matrix(epoch, all_clf_preds_val, all_clf_labels_val)
+                    Get_Confusion_Matrix(model_params, all_clf_preds_val, all_clf_labels_val, model_number, fold)
                 # EarlyStopping (check against its own best metric, which might be same as checkpointing or different)
                 if early_stopping_counter >= early_stopping_patience:
                     # print(
@@ -1610,12 +1504,9 @@ def main(model_params):
                 )
                 torch.save(pytorch_model.state_dict(), os.path.join(
                     weights_save_path, checkpoint_filename))
-                # print(
-                #     f"  Saved model checkpoint (no validation): {checkpoint_filename}")
-                best_checkpoint_filename = checkpoint_filename
-                Get_Confusion_Matrix(epoch, all_clf_preds_val, all_clf_labels_val, model_number, fold)
-                best_checkpoint_filename = checkpoint_filename
+                
                 # Delete all other checkpoints except the best
+                best_checkpoint_filename = checkpoint_filename
                 for fname in os.listdir(weights_save_path):
                     if fname.endswith('.pt') and fname != best_checkpoint_filename:
                         try:
@@ -1628,13 +1519,15 @@ def main(model_params):
         if epoch_duration > 0:
             tb_writer.add_scalar(
                 'Performance/epoch_duration_sec', epoch_duration, epoch)
-            
+        
         # Determine folder one level up
         current_dir = os.path.dirname(os.path.abspath(__file__))
         parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
-        metrics_save_dir = os.path.join(parent_dir, 'Conversion comparison')
+        model_name = model_params['model_name']
+        # Create a directory for saving metrics
+        metrics_save_dir = os.path.join(parent_dir, 'Conversion comparison', model_name)
         os.makedirs(metrics_save_dir, exist_ok=True)
-
+        
         # 1. Find the best values (assuming best means minimum loss, maximum score)
         best_train_loss = np.min(train_losses)
         best_val_f1 = model_params.get('best_val_f1', 0)
@@ -1681,7 +1574,7 @@ def main(model_params):
 # 
     print("\n--- PyTorch Training Finished ---")
     
-    return best_val_f1
+    return best_val_f1, model_number
 
     # --- Post-training actions ---
     # TODO: Example: remove_suboptimal_weights (needs careful implementation)
@@ -1702,6 +1595,7 @@ if __name__ == "__main__":
     print("CUDA available:", torch.cuda.is_available())
     print("GPU name:", torch.cuda.get_device_name(0)
           if torch.cuda.is_available() else "No GPU found")
+    
     time.sleep(2)  # Small delay for readability in logs
     
     # parser = argparse.ArgumentParser()
@@ -1714,151 +1608,51 @@ if __name__ == "__main__":
     #
     # args = parser.parse_args()
 
-    """ model_params = {
-        # Set to 0 for no training logs, 1 for basic logs, >1 for more detailed logs
-        "train_verbose": 1,
-        "num_workers": 0,  # Number of workers for DataLoader, adjust based on your system
-        "path_results": "./pretrained_models_Pytorch/",
-        "epochs": 300, # Number of training epochs
-
-        # Convert Keras parameters to PyTorch equivalents (Set True if The model you want to fine tune is in TensorFlow/Keras format)
-        "model_converter": True,
-
-        # Path to the pre-trained model in Pytorch format
-        "pretrained_model_path": "./pretrained_models_Pytorch/TCN_Models_Therapist_Only_First_Layer_new_classifier/0718_2035_model_52",  
-        
-        # Path to the pre-trained model
-        # "pre-trained_model": "./ntu_benchmark_model/model",  # Path to the pre-trained model for NTU-120 one-shot benchmark
-        # "pre-trained_model": "./therapies_model_7/model",   # Path to the pre-trained model for the therapies dataset
-
-        # Path to save the model and results
-        "path_model": "./TCN_Models_Therapist_Only_First_Layer/",
-
-        # # NTU-120 Data sets to optimize the therapy data
-        # "train_annotations": "./datasets_annotations/mp_train.txt",
-        # "val_annotations": "./datasets_annotations/mp_val.txt",
-        "eval_therapies": True,  # Therapy data needed for its evaluation
-        # "h_flip": True,
-        # "skip_frames": [2, 3],
-
-        # NTU-120 Data sets to optimize the NTU one-shot benchmark
-        # "train_annotations": "./ntu_annotations/one_shot_aux_set.txt",
-        # "val_annotations": "",
-        # "eval_therapies": False,
-        # "h_flip": False,
-        # "monitor": "ntu_one_shot_acc_euc",
-
-        "in_memory_generator_train": False,
-        "in_memory_generator_val": False,
-        # "in_memory_callback": True,
-
-        
-        "joints_num": 25, # 24 for MP
-        "joints_dim": 3,
-        "num_classes": 14, # Number of classes for classification (NTU-120 has 120, MP has 12 and Therapies has 14)
-
-        "batch_size": 8,
-        "init_lr": 0.001,
-        "lstm_recurrent_dropout": 0.0,
-        "lstm_dropout": 0.2,
-
-        # Set True to use a fitted data scaler. The one from the pre-trained models can also be used
-        "scale_data": False,
-        "max_seq_len": -32,
-        "num_layers": 2,
-        "num_neurons": 256,
-        "masking": True,
-        "center_skels": True,
-        "scale_by_torso": True,
-        "temporal_scale": [0.8, 1.2],
-        "classification": True,
-        "triplet": False,
-        "decoder": False,
-        "reverse_decoder": False,
-        "clf_neurons": 0,
-
-        "model_name": "TCN_Models_Therapist_Only_First_Layer_new_classifier",
-        "conv_params": [256, 4, 2, True, "causal", [4]],
-        "is_tcn": False,
-        "use_jcd_features": True,
-        "use_speeds": False,
-        "use_coords_raw": False,
-        "use_coords": True,
-        "use_jcd_diff": False,
-        "use_bone_angles": True,
-        "use_bone_angles_cent": False,
-        "average_wrong_skels": True,
-        "average_wrong_skels_method": 'mean',
-    }
-    # Correct max_seq_len if negative for use in summary/testing
-    if model_params['max_seq_len'] <= 0:
-        print(
-            f"Warning: model_params['max_seq_len'] is {model_params['max_seq_len']}. Using 32 as effective_seq_len for non-dataset parts.")
-        model_params['effective_seq_len'] = 32
-    else:
-        model_params['effective_seq_len'] = model_params['max_seq_len']
-    # --- Call the main function ---
-    main(model_params) """
-    
-    study = optuna.create_study(direction="maximize")  # Or "minimize" for loss
-    study.optimize(objective, n_trials=40)  # Try 40 different combinations
-
-    # Determine folder one level up
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
-    metrics_save_dir = os.path.join(parent_dir, 'Conversion comparison')
-    os.makedirs(metrics_save_dir, exist_ok=True)
-    
-    print("\n--- Hyperparameter Optimization Finished ---")
-    best_params = study.best_trial.params
-    print(f"Best parameters found: {best_params}")
-    print(f"\nBest F1 score: {study.best_value}")
-    # Save best parameters to a JSON file
-    with open(os.path.join(metrics_save_dir, 'best_hyperparams.json'), 'w') as f:
-        json.dump(best_params, f, indent=4)
-    
     # TODO: Change this after each run to avoid overwriting
     # Fixed params — the rest of what your model expects
     static_params = {
-        "best_val_f1": study.best_value,  # Best F1 score from the study
+        "best_val_f1": 0,  # Best F1 score from the study
+        "best_model_number": 0,  # Best model number from the study
+        "K": 5,  # Number of folds for cross-validation
+        "joints_num": 25, # 24 for MP
+        "num_classes": 14, # Number of classes for classification (NTU-120 has 120, MP has 12 and Therapies has 14)
+
         "epochs": 300, # Number of training epochs
         
         # Set to 0 for no training logs, 1 for basic logs, >1 for more detailed logs
         "train_verbose": 1,
         "num_workers": 0,  # Number of workers for DataLoader, adjust based on your system
-        "K": None,  # Number of folds for cross-validation
         "path_results": "./pretrained_models_Pytorch/",
         "model_name": "Models_Therapist_Classifier",
         # "model_name": "Models_Therapist_Classifier_Block_5_4_3_2_1_0_From_Zero",
 
-        # Convert Keras parameters to PyTorch equivalents (Set True if The model you want to fine tune is in TensorFlow/Keras format)
-        "model_converter": True,
-
         # Use a pre-trained model (Set True if you want to use a pre-trained model)
         "use_pretrained_model": True,  # Set to True if you want to use a pre-trained model
+        
+        # Convert Keras parameters to PyTorch equivalents (Set True if The model you want to fine tune is in TensorFlow/Keras format)
+        "model_converter": True,
         
         # Path to the pre-trained model in Pytorch format
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier_Block_5_4_3_2_1/0720_0313_model_12\weights\ep002-trainloss20.46306-loss0.81176-f10.54457.pt",
         "pretrained_model_path": "./ntu_benchmark_model/model",
         
-        # Path to the pre-trained model
-        # "pre-trained_model": "./ntu_benchmark_model/model",  # Path to the pre-trained model for NTU-120 one-shot benchmark
-        # "pre-trained_model": "./therapies_model_7/model",   # Path to the pre-trained model for the therapies dataset
+        # Path to the pre-trained model in TensorFlow/Keras format
+        # "pretrained_model_path": "./ntu_benchmark_model/model",  # Path to the pre-trained model for NTU-120 one-shot benchmark
+        # "pretrained_model_path": "./therapies_model_7/model",   # Path to the pre-trained model for the therapies dataset
 
 
         # # NTU-120 Data sets to optimize the therapy data
         # "train_annotations": "./datasets_annotations/mp_train.txt",
         # "val_annotations": "./datasets_annotations/mp_val.txt",
         "eval_therapies": True,  # Therapy data needed for its evaluation
-        # "h_flip": True,
-        # "skip_frames": [2, 3],
+        "h_flip": True,
+        "skip_frames": [2, 3],
 
         # NTU-120 Data sets to optimize the NTU one-shot benchmark
         # "train_annotations": "./ntu_annotations/one_shot_aux_set.txt",
         # "val_annotations": "",
         # "eval_therapies": False,
         # "h_flip": False,
-        # "monitor": "ntu_one_shot_acc_euc",
 
         "excluded_pt_keys": [
             # "encoder_net.encoder.0.residual_blocks.0.conv1.weight",
@@ -1893,11 +1687,8 @@ if __name__ == "__main__":
 
         "in_memory_generator_train": False,
         "in_memory_generator_val": False,
-        # "in_memory_callback": True,
         
-        "joints_num": 25, # 24 for MP
         "joints_dim": 3,
-        "num_classes": 14, # Number of classes for classification (NTU-120 has 120, MP has 12 and Therapies has 14)
         
         # Set True to use a fitted data scaler. The one from the pre-trained models can also be used
         "scale_data": False,
@@ -1913,7 +1704,6 @@ if __name__ == "__main__":
         "decoder": False,
         "reverse_decoder": False,
         "clf_neurons": 0,
-
         "conv_params": [256, 4, 2, True, "causal", [4]],
         "is_tcn": False,
         "use_jcd_features": True,
@@ -1927,57 +1717,69 @@ if __name__ == "__main__":
         "average_wrong_skels_method": 'mean',
     }
 
+    # Correct max_seq_len if negative for use in summary/testing
+    if static_params['max_seq_len'] <= 0:
+        print(
+            f"Warning: static_params['max_seq_len'] is {static_params['max_seq_len']}. Using 32 as effective_seq_len for non-dataset parts.")
+        static_params['effective_seq_len'] = 32
+    else:
+        static_params['effective_seq_len'] = static_params['max_seq_len']
+
+    """# Create Optuna study
+    study = optuna.create_study(direction="maximize")  # Or "minimize" for loss
+    study.optimize(partial(objective, static_params=static_params), n_trials=40)  # Try 40 different combinations
+
+    print("\n--- Hyperparameter Optimization Finished ---")
+    
+    best_trial = study.best_trial
+    print("Best trial F1:", best_trial.value)
+    print("Best model number:", best_trial.params.get('model_number', 'N/A'))
+    
+    # Determine folder one level up in order to save the best hyperparameters
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
+    model_name = static_params['model_name']
+    # Create a directory for saving metrics
+    metrics_save_dir = os.path.join(parent_dir, 'Conversion comparison', model_name)
+    os.makedirs(metrics_save_dir, exist_ok=True)
+    
+    # Save best parameters to a JSON file
+    best_params = best_trial.params
+    with open(os.path.join(metrics_save_dir, 'best_hyperparams.json'), 'w') as f:
+        json.dump(best_params, f, indent=4)
+
+    # FOR LAST RUN
+    
+    # Set the best F1 score and K for the model parameters
+    static_params["best_val_f1"] = study.best_value
+    static_params["K"] = None
+    
     # Combine the two
     model_params = {**static_params, **best_params}
 
     main(model_params)
 
-    print("\n--- Training script finished ---")
+    print("\n--- Training script finished ---")"""
+    
+    # Determine folder one level up in order to save the best hyperparameters
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
+    model_name = static_params['model_name']
+    # Create a directory for saving metrics
+    metrics_save_dir = os.path.join(parent_dir, 'Conversion comparison', model_name)
+    os.makedirs(metrics_save_dir, exist_ok=True)
+    
+    # Save best parameters to a JSON file
+    with open("best_hyperparams.json", "r") as f:
+        best_params = json.load(f)
+    
+    # Set the best F1 score and K for the model parameters
+    static_params["best_val_f1"] = 0
+    static_params["K"] = None
+    
+    # Combine the two
+    model_params = {**static_params, **best_params}
+
+    main(model_params)
 
     exit(0)
-    
-    import os
-    import re
-
-    # === CONFIGURATION ===
-    checkpoint_dir = './pretrained_models_Pytorch/Models_Therapist_Classifier_Block_5_4_3_2_1_0_From_Zero/'
-    metric_key = 'f1'  # 'loss' or 'f1'
-    opt_mode = 'max'     # 'min' for loss, 'max' for f1
-
-    # Pattern now supports trailing f1 or any other trailing field
-    pattern = re.compile(
-        r'ep(\d+)-trainloss([0-9.]+)-loss([0-9.]+)-f1([0-9.]+)\.pt'
-    )
-
-    # === SEARCH ===
-    best_val = float('inf') if opt_mode == 'min' else -float('inf')
-    best_checkpoint_path = None
-
-    for dirpath, _, filenames in os.walk(checkpoint_dir):
-        print(f"Searching in directory: {dirpath}")  # ← ADD THIS
-        print(f"Files found: {filenames}")  # ← ADD THIS
-        for fname in filenames:
-            print(f"Checking file: {fname}")  # ← ADD THIS
-            if fname.endswith('.pt'):
-                print(f"Found .pt file: {fname}")  # ← ADD THIS
-                match = pattern.match(fname)
-                if match:
-                    epoch = int(match.group(1))
-                    train_loss = float(match.group(2))
-                    val_loss = float(match.group(3))
-                    val_f1 = float(match.group(4))
-
-                    # Choose which metric to evaluate based on metric_key
-                    val_metric = val_loss if metric_key == 'loss' else val_f1
-                    is_better = (val_metric < best_val) if opt_mode == 'min' else (val_metric > best_val)
-                    if is_better:
-                        best_val = val_metric
-                        best_checkpoint_path = os.path.join(dirpath, fname)
-
-    # === RESULT ===
-    if best_checkpoint_path:
-        print(f"\n✅ Best checkpoint found:")
-        print(f"   Path : {best_checkpoint_path}")
-        print(f"   {metric_key} = {best_val:.5f}")
-    else:
-        print(f"\n❌ No valid checkpoints found for metric '{metric_key}'.")
