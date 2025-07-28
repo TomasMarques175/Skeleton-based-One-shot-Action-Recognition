@@ -319,6 +319,24 @@ def Setup_optimizer_and_loss(pytorch_model, model_params, device, train_dataset=
 
     return active_losses, loss_weights_pytorch_pt, optimizer
 
+def get_best_model_path(model_folder):
+    best_f1 = -1.0
+    best_file = None
+
+    for filename in os.listdir(model_folder):
+        if filename.endswith(".pt"):
+            match = re.search(r"f1([0-9.]+)", filename)
+            if match:
+                f1 = float(match.group(1))
+                if f1 > best_f1:
+                    best_f1 = f1
+                    best_file = filename
+
+    if best_file:
+        return os.path.join(model_folder, best_file)
+    else:
+        raise FileNotFoundError("No valid model with F1 score found in the folder.")
+
 def create_pytorch_model(model_params):
     # --- PyTorch Model Instantiation ---
     # print('\n* Setting model parameters (PyTorch)')  # Mimicking Keras log
@@ -341,7 +359,8 @@ def create_pytorch_model(model_params):
 
         # After loading the model with the pretrained weights
         checkpoint_path = model_params["pretrained_model_path"]
-        pytorch_model.load_state_dict(torch.load(checkpoint_path))
+        best_model_path = get_best_model_path(checkpoint_path)
+        pytorch_model.load_state_dict(torch.load(best_model_path))
 
         # Define which keys are *excluded from training* (i.e., frozen)
         excluded_pt_keys = model_params.get('excluded_pt_keys', [])
@@ -1536,7 +1555,7 @@ def main(model_params):
         filename = (
             f"pytorch_therapy_classifier_train_loss-{best_train_loss:.4f}_"
             f"val_f1-{best_val_f1:.4f}_"
-            f"model_{model_number}.npz"
+            f"final_model_{model_number}_.npz"
         )
         
         # 3. Save arrays with this filename
@@ -1623,18 +1642,18 @@ if __name__ == "__main__":
         "train_verbose": 1,
         "num_workers": 0,  # Number of workers for DataLoader, adjust based on your system
         "path_results": "./pretrained_models_Pytorch/",
-        "model_name": "Models_Therapist_Classifier",
+        "model_name": "Models_Therapist_Classifier_Block_5",
         # "model_name": "Models_Therapist_Classifier_Block_5_4_3_2_1_0_From_Zero",
 
         # Use a pre-trained model (Set True if you want to use a pre-trained model)
         "use_pretrained_model": True,  # Set to True if you want to use a pre-trained model
         
         # Convert Keras parameters to PyTorch equivalents (Set True if The model you want to fine tune is in TensorFlow/Keras format)
-        "model_converter": True,
+        "model_converter": False,
         
         # Path to the pre-trained model in Pytorch format
-        # "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier_Block_5_4_3_2_1/0720_0313_model_12\weights\ep002-trainloss20.46306-loss0.81176-f10.54457.pt",
-        "pretrained_model_path": "./ntu_benchmark_model/model",
+        "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier/0728_1935_model_41/weights/Best_Model-ep300-trainloss0.38170-f10.00000.pt",
+        # "pretrained_model_path": "./ntu_benchmark_model/model",
         
         # Path to the pre-trained model in TensorFlow/Keras format
         # "pretrained_model_path": "./ntu_benchmark_model/model",  # Path to the pre-trained model for NTU-120 one-shot benchmark
@@ -1677,10 +1696,10 @@ if __name__ == "__main__":
             # "encoder_net.encoder.0.residual_blocks.4.conv1.bias",
             # "encoder_net.encoder.0.residual_blocks.4.conv2.weight",
             # "encoder_net.encoder.0.residual_blocks.4.conv2.bias",
-            # "encoder_net.encoder.0.residual_blocks.5.conv1.weight",
-            # "encoder_net.encoder.0.residual_blocks.5.conv1.bias",
-            # "encoder_net.encoder.0.residual_blocks.5.conv2.weight",
-            # "encoder_net.encoder.0.residual_blocks.5.conv2.bias",
+            "encoder_net.encoder.0.residual_blocks.5.conv1.weight",
+            "encoder_net.encoder.0.residual_blocks.5.conv1.bias",
+            "encoder_net.encoder.0.residual_blocks.5.conv2.weight",
+            "encoder_net.encoder.0.residual_blocks.5.conv2.bias",
             "clf_out.weight",
             "clf_out.bias",
         ],
