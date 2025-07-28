@@ -1610,6 +1610,16 @@ def main(model_params):
                     weights_save_path, checkpoint_filename))
                 print(
                     f"  Saved model checkpoint (no validation): {checkpoint_filename}")
+                best_checkpoint_filename = checkpoint_filename
+                Get_Confusion_Matrix(epoch, all_clf_preds_val, all_clf_labels_val, model_number, fold)
+                best_checkpoint_filename = checkpoint_filename
+                # Delete all other checkpoints except the best
+                for fname in os.listdir(weights_save_path):
+                    if fname.endswith('.pt') and fname != best_checkpoint_filename:
+                        try:
+                            os.remove(os.path.join(weights_save_path, fname))
+                        except Exception as e:
+                            print(f"Could not delete {fname}: {e}")
 
         epoch_duration = time.time() - epoch_start_time
         # print(f"Epoch {epoch+1} duration: {epoch_duration:.2f} seconds")
