@@ -36,7 +36,7 @@ from matplotlib import pyplot as plt
 from sklearn.metrics import roc_auc_score
 import argparse
 from sklearn.model_selection import train_test_split
-
+from sklearn.preprocessing import label_binarize
 from sklearn.model_selection import StratifiedKFold
 
 
@@ -1248,7 +1248,6 @@ def main(model_params):
                             auc = roc_auc_score(y_true, y_scores[:, 1])
                         else:
                             # Multiclass classification with only present classes
-                            from sklearn.preprocessing import label_binarize
                             present_classes = np.unique(y_true)
                             y_true_bin = label_binarize(y_true, classes=present_classes)
                             y_scores_filtered = y_scores[:, present_classes]
@@ -1270,7 +1269,6 @@ def main(model_params):
                         val_accuracy = correct_val / len(all_clf_labels_val)
                         val_metrics['val_accuracy'] = val_accuracy
                         tb_writer.add_scalar('Accuracy/val', val_accuracy, epoch)
-                        # TODO: Usar Wheighted F1 Score?
                         f1_macro = f1_score(all_clf_labels_val,
                                             all_clf_preds_val, average='macro')
                         val_metrics['val_f1_macro'] = f1_macro
@@ -1448,7 +1446,6 @@ def main(model_params):
 
         for epoch in range(num_epochs):
             epoch_start_time = time.time()
-            print(f"\nEpoch {epoch+1}/{num_epochs}")
             
             pytorch_model.train()
             running_train_loss = 0.0
@@ -1474,8 +1471,13 @@ def main(model_params):
 
             current_lr = optimizer.param_groups[0]['lr']
             tb_writer.add_scalar('LearningRate', current_lr, epoch)
-            print(
-                f"Epoch {epoch+1} Train Summary: Avg Total Loss: {avg_epoch_train_loss:.4f}, LR: {current_lr}")
+            status = (
+                f"\r    f"Epoch {epoch+1} | "
+                f"Loss: {avg_epoch_train_loss:.4f} | "
+                f"current_lr: {current_lr:.4f} | "
+            )
+            sys.stdout.write(status)
+            sys.stdout.flush()
 
             # --- Validation Phase ---
             if val_loader is not None:
@@ -1600,7 +1602,7 @@ def main(model_params):
                     #     f"  Early stopping triggered after {early_stopping_patience} epochs without improvement on '{monitor_metric_name}'.")
                     break  # Break from epoch loop
             else:  # No val_loader
-                print("  No validation loader. Skipping validation phase, LR scheduling based on val_metrics, and early stopping.")
+                # print("  No validation loader. Skipping validation phase, LR scheduling based on val_metrics, and early stopping.")
                 # Optionally, save model at end of epoch if no validation
                 checkpoint_filename = (
                     f"Best_Model-ep{epoch+1:03d}-trainloss{avg_epoch_train_loss:.5f}-"
@@ -1608,8 +1610,8 @@ def main(model_params):
                 )
                 torch.save(pytorch_model.state_dict(), os.path.join(
                     weights_save_path, checkpoint_filename))
-                print(
-                    f"  Saved model checkpoint (no validation): {checkpoint_filename}")
+                # print(
+                #     f"  Saved model checkpoint (no validation): {checkpoint_filename}")
                 best_checkpoint_filename = checkpoint_filename
                 Get_Confusion_Matrix(epoch, all_clf_preds_val, all_clf_labels_val, model_number, fold)
                 best_checkpoint_filename = checkpoint_filename
