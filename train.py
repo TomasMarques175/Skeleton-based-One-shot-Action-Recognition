@@ -1748,7 +1748,7 @@ if __name__ == "__main__":
         "path_results": "./pretrained_models_Pytorch/",
         
         # TODO: Change every time you switch to the next model
-        "model_name": "Models_Therapist_Classifier_Block_5",
+        "model_name": "Models_Therapist_Classifier_Block_5_4",
         # "model_name": "Models_Therapist_Classifier_Block_5_4_3_2_1_0_From_Zero",
 
         # TODO: Change every time you switch to the next model
@@ -1761,7 +1761,7 @@ if __name__ == "__main__":
         
         # TODO: Change every time you switch to the next model
         # Path to the pre-trained model in Pytorch format
-        "pretrained_model_path": "pretrained_models_Pytorch/Models_Therapist_Classifier/0729_0452_model_41/weights/Best_Model-ep300-trainloss0.45288-f10.37359.pt",
+        "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier_Block_5/0729_1847_model_65/weights/Best_Model-ep300-trainloss0.09947-f10.57415.pt",
 
         # Path to the pre-trained model in TensorFlow/Keras format
         # "pretrained_model_path": "./ntu_benchmark_model/model",  # Path to the pre-trained model for NTU-120 one-shot benchmark
@@ -1801,10 +1801,10 @@ if __name__ == "__main__":
             # "encoder_net.encoder.0.residual_blocks.3.conv1.bias",
             # "encoder_net.encoder.0.residual_blocks.3.conv2.weight",
             # "encoder_net.encoder.0.residual_blocks.3.conv2.bias",
-            # "encoder_net.encoder.0.residual_blocks.4.conv1.weight",
-            # "encoder_net.encoder.0.residual_blocks.4.conv1.bias",
-            # "encoder_net.encoder.0.residual_blocks.4.conv2.weight",
-            # "encoder_net.encoder.0.residual_blocks.4.conv2.bias",
+            "encoder_net.encoder.0.residual_blocks.4.conv1.weight",
+            "encoder_net.encoder.0.residual_blocks.4.conv1.bias",
+            "encoder_net.encoder.0.residual_blocks.4.conv2.weight",
+            "encoder_net.encoder.0.residual_blocks.4.conv2.bias",
             "encoder_net.encoder.0.residual_blocks.5.conv1.weight",
             "encoder_net.encoder.0.residual_blocks.5.conv1.bias",
             "encoder_net.encoder.0.residual_blocks.5.conv2.weight",
