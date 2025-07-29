@@ -1761,8 +1761,8 @@ if __name__ == "__main__":
         
         # TODO: Change every time you switch to the next model
         # Path to the pre-trained model in Pytorch format
-        "pretrained_model_path": "pretrained_models_Pytorch\Models_Therapist_Classifier\0729_0452_model_41\weights\Best_Model-ep300-trainloss0.45288-f10.37359.pt",
-        
+        "pretrained_model_path": "pretrained_models_Pytorch/Models_Therapist_Classifier/0729_0452_model_41/weights/Best_Model-ep300-trainloss0.45288-f10.37359.pt",
+
         # Path to the pre-trained model in TensorFlow/Keras format
         # "pretrained_model_path": "./ntu_benchmark_model/model",  # Path to the pre-trained model for NTU-120 one-shot benchmark
         # "pretrained_model_path": "./therapies_model_7/model",   # Path to the pre-trained model for the therapies dataset
