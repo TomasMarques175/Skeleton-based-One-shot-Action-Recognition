@@ -388,7 +388,7 @@ def create_pytorch_model(model_params):
         for name, param in pytorch_model.named_parameters():
             if name in excluded_pt_keys:
                 param.requires_grad = False
-                print(f"Froze: {name}")
+                # print(f"Froze: {name}")
             else:
                 param.requires_grad = True  # Unfrozen by default
 
