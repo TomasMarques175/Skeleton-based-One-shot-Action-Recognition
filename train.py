@@ -1809,9 +1809,7 @@ if __name__ == "__main__":
 
         # Otherwise, delete it
         file_path = os.path.join(metrics_save_dir, filename)
-        try:
-            os.remove(file_path)
-            #print(f"Deleted non-best file: {filename}")
+        os.remove(file_path)
     # ----------------------------
     
     exit(0)  # Exit after hyperparameter optimization
