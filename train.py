@@ -38,7 +38,8 @@ import argparse
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import label_binarize
 from sklearn.model_selection import StratifiedKFold
-
+from sklearn.metrics import classification_report, confusion_matrix
+import shutil
 
 # --- PyTorch specific imports ---
 from models.TCN_classifier import TCN_clf  # Your PyTorch model
@@ -139,6 +140,23 @@ def get_final_model_path(path_results, model_name, model_number):
                     return os.path.join(weights_dir, file)
 
     raise FileNotFoundError(f"No .pt file found for model {model_number} in {model_dir}")
+
+# def remove_suboptimal_models(models_dir, keep_folder_name):
+#     """
+#     Deletes all subfolders in models_dir except the one specified in keep_folder_name.
+#     
+#     Parameters:
+#     - models_dir: Path to the directory containing all model folders.
+#     - keep_folder_name: Folder name (e.g., '0729_0452_model_41') to keep.
+#     """
+#     for folder in os.listdir(models_dir):
+#         folder_path = os.path.join(models_dir, folder)
+#         if os.path.isdir(folder_path):
+#             if folder != keep_folder_name:
+#                 shutil.rmtree(folder_path)
+#                 print(f"❌ Removed: {folder}")
+#             else:
+#                 print(f"✅ Kept: {folder}")
 
 def train_model(model_params, running_train_loss_clf, running_train_loss, pytorch_model, softmax_outputs, \
     device, train_loader, optimizer, active_losses, loss_weights_pytorch_pt, epoch=0, train_verbose=1, log_interval=100):
@@ -719,7 +737,7 @@ def Data_Loader_Classification(model_params, train_data, val_data, test_data, ba
         train_loader = DataLoader(train_dataset, batch_size=model_params['batch_size'], shuffle=True,
                                 num_workers=model_params.get(
                                     'num_workers', 0),
-                                pin_memory=True if device.type == 'cuda' else False, drop_last=True)
+                                pin_memory=True if device.type == 'cuda' else False, drop_last=False)
         print(
             f"Train DataLoader: Batches per epoch approx {len(train_loader)}")
     except Exception as e:
@@ -778,7 +796,7 @@ def Create_Therapy_Dataloader(model_params, train_data, video_skels, val_data):
                                 batch_size=model_params['batch_size'],
                                 sampler=sampler, 
                                 num_workers=model_params['num_workers'],
-                                drop_last=True, 
+                                drop_last=False, 
                                 collate_fn=collate_fn_classification_pre_pad)
 
     if val_dataset is not None:
@@ -873,7 +891,7 @@ def objective(trial, static_params):
 
         # ReduceLROnPlateau
         "lr_min_delta": trial.suggest_float("lr_min_delta", 1e-5, 1e-2, log=True),
-        "lr_factor": trial.suggest_float("lr_factor", 0.1, 0.3),
+        "lr_factor": trial.suggest_float("lr_factor", 0.1, 0.8),
         "lr_patience": trial.suggest_int("lr_patience", 10, 20),
         "min_lr": trial.suggest_float("min_lr", 1e-7, 1e-4, log=True),
 
@@ -895,6 +913,72 @@ def objective(trial, static_params):
         print(f"New best model: {model_number} with F1: {best_val_f1:.4f}")
 
     return best_val_f1
+
+def evaluate_model_on_all_data(model, full_df, video_skels, model_params, device=None):
+
+    # Set device
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+    model.eval()
+
+    # Create dataset
+    full_dataset = TherapyDataset(
+        full_df,
+        video_skels,
+        in_memory=model_params.get('in_memory_generator_val', False),
+        validation=True,
+        **model_params
+    )
+
+    # Create DataLoader
+    full_loader = DataLoader(
+        full_dataset,
+        batch_size=model_params.get('batch_size', 32),
+        shuffle=False,
+        num_workers=model_params.get('num_workers', 4),
+        drop_last=False,
+        collate_fn=collate_fn_classification_pre_pad
+    )
+
+    # Create a mapping from action names to indices
+    all_actions = actions_data['action'].unique()
+    action_to_idx = {action: idx for idx, action in enumerate(sorted(all_actions))}
+    labels = actions_data['action'].map(action_to_idx).values
+
+    # Inference
+    all_preds, all_labels = [], []
+    with torch.no_grad():
+        for batch in full_loader:
+            inputs, labels = batch
+            inputs = inputs.to(device)
+
+            outputs = model(inputs)
+            preds = torch.argmax(outputs, dim=1)
+
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+
+    # Report
+    print("\n--- Classification Report ---")
+    print(classification_report(all_labels, all_preds))
+
+    # Confusion Matrix
+    conf_mat = confusion_matrix(all_labels, all_preds)
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(conf_mat, annot=True, fmt='d', cmap='Blues')
+    plt.xlabel("Predicted")
+    plt.ylabel("Actual")
+    plt.title("Confusion Matrix on Full Dataset")
+    plt.tight_layout()
+
+    # Save to Final validation/<model_name>/
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    save_dir = os.path.join(base_dir, 'Final validation', model_name)
+    os.makedirs(save_dir, exist_ok=True)
+    save_path = os.path.join(save_dir, 'conf_matrix_full_data.png')
+    plt.savefig(save_path)
+    print(f"Confusion matrix saved to: {save_path}")
 
 
 def main(model_params):
@@ -1375,7 +1459,7 @@ def main(model_params):
         train_losses = []
         val_losses = []
         val_f1_scores = []
-        val_auc_scores = []  # Move this to the top, before the epoch loop
+        val_auc_scores = []
 
         for epoch in range(num_epochs):
             epoch_start_time = time.time()
@@ -1656,7 +1740,7 @@ if __name__ == "__main__":
         "num_classes": 14, # Number of classes for classification (NTU-120 has 120, MP has 12 and Therapies has 14)
 
         "epochs": 300, # Number of training epochs
-        "n_trials": 40,  # Number of trials for Optuna
+        "n_trials": 20,  # Number of trials for Optuna
 
         # Set to 0 for no training logs, 1 for basic logs, >1 for more detailed logs
         "train_verbose": 1,
@@ -1664,7 +1748,7 @@ if __name__ == "__main__":
         "path_results": "./pretrained_models_Pytorch/",
         
         # TODO: Change every time you switch to the next model
-        "model_name": "Models_Therapist_Classifier_Block_5_4",
+        "model_name": "Models_Therapist_Classifier_Block_5",
         # "model_name": "Models_Therapist_Classifier_Block_5_4_3_2_1_0_From_Zero",
 
         # TODO: Change every time you switch to the next model
@@ -1677,7 +1761,7 @@ if __name__ == "__main__":
         
         # TODO: Change every time you switch to the next model
         # Path to the pre-trained model in Pytorch format
-        "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier_Block_5/0729_1449_model_42/weights/Best_Model-ep300-trainloss0.02141-f10.61122.pt",
+        "pretrained_model_path": "pretrained_models_Pytorch\Models_Therapist_Classifier\0729_0452_model_41\weights\Best_Model-ep300-trainloss0.45288-f10.37359.pt",
         
         # Path to the pre-trained model in TensorFlow/Keras format
         # "pretrained_model_path": "./ntu_benchmark_model/model",  # Path to the pre-trained model for NTU-120 one-shot benchmark
@@ -1717,10 +1801,10 @@ if __name__ == "__main__":
             # "encoder_net.encoder.0.residual_blocks.3.conv1.bias",
             # "encoder_net.encoder.0.residual_blocks.3.conv2.weight",
             # "encoder_net.encoder.0.residual_blocks.3.conv2.bias",
-            "encoder_net.encoder.0.residual_blocks.4.conv1.weight",
-            "encoder_net.encoder.0.residual_blocks.4.conv1.bias",
-            "encoder_net.encoder.0.residual_blocks.4.conv2.weight",
-            "encoder_net.encoder.0.residual_blocks.4.conv2.bias",
+            # "encoder_net.encoder.0.residual_blocks.4.conv1.weight",
+            # "encoder_net.encoder.0.residual_blocks.4.conv1.bias",
+            # "encoder_net.encoder.0.residual_blocks.4.conv2.weight",
+            # "encoder_net.encoder.0.residual_blocks.4.conv2.bias",
             "encoder_net.encoder.0.residual_blocks.5.conv1.weight",
             "encoder_net.encoder.0.residual_blocks.5.conv1.bias",
             "encoder_net.encoder.0.residual_blocks.5.conv2.weight",
@@ -1768,6 +1852,124 @@ if __name__ == "__main__":
         static_params['effective_seq_len'] = 32
     else:
         static_params['effective_seq_len'] = static_params['max_seq_len']
+
+
+
+    """ # Check if model is overfitting
+
+
+    # --- Path and Feature Calculation (Cleaned Up) ---
+    # print("--- Initializing Parameters and Paths ---")
+    static_params['path_model'] = train_utils.create_model_folder(
+        static_params['path_results'], static_params['model_name']
+    )
+    os.makedirs(static_params['path_model'], exist_ok=True)
+
+    # Calculate num_jcd_feats and add to static_params (for record-keeping and if get_num_feats uses it)
+    try:
+        static_params['num_jcd_feats'] = int(
+            comb(static_params.get('joints_num', 23), 2))
+    except Exception as e:
+        print(
+            f"Warning: Could not calculate num_jcd_feats using comb: {e}. Setting to None or a fallback.")
+        static_params['num_jcd_feats'] = None  # Or a fallback value if critical
+
+    # Calculate final num_feats using get_num_feats
+    try:
+        calculated_num_feats = get_num_feats(**static_params)
+        # Check if a 'num_feats' was pre-set in static_params and if it differs.
+        # The value from get_num_feats should be authoritative.
+        if static_params.get('num_feats') != calculated_num_feats and static_params.get('num_feats') is not None:
+            print(f"Warning: Initial static_params['num_feats'] ({static_params.get('num_feats')}) "
+                  f"differs from get_num_feats() calculation ({calculated_num_feats}). "
+                  f"Using calculated value from get_num_feats: {calculated_num_feats}.")
+        static_params['num_feats'] = calculated_num_feats
+    except Exception as e:
+        print(
+            f"CRITICAL Error calling get_num_feats: {e}. num_feats might be incorrect.")
+        if 'num_feats' not in static_params or static_params['num_feats'] is None:
+            # If get_num_feats fails and no num_feats is set, it's a critical issue.
+            print("CRITICAL: num_feats is not set and get_num_feats failed. Aborting.")
+            exit()  # Exit if essential num_feats cannot be determined
+
+    # Save the complete static_params to JSON
+    static_params_save_path = os.path.join(
+        static_params['path_model'], 'static_params.json')
+    try:
+        with open(static_params_save_path, 'w') as f:
+            json.dump(static_params, f, indent=4)
+        print(f"Saved model parameters to {static_params_save_path}")
+    except Exception as e:
+        print(f"Error saving static_params.json: {e}")
+
+    # print(' * Final Model params for this run:',
+    #       json.dumps(static_params, indent=2))
+
+    copy_scaler_if_needed(static_params)
+
+    # --- Annotation File Counts (for informational purposes) ---
+    num_train_files, num_val_files = 0, 0
+    try:
+        if static_params.get('train_annotations'):
+            with open(static_params['train_annotations'], 'r') as f:
+                num_train_files = len(f.read().splitlines())
+        if static_params.get('val_annotations'):
+            with open(static_params['val_annotations'], 'r') as f:
+                num_val_files = len(f.read().splitlines())
+        print(
+            f"Num train annotation lines: {num_train_files}, Num val annotation lines: {num_val_files}")
+    except FileNotFoundError as e:
+        print(f"Warning: Annotation file not found: {e}. Counts will be 0.")
+    except Exception as e:
+        print(
+            f"Warning: Error reading annotation files: {e}. Counts might be inaccurate.")
+
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
+    model_name = static_params['model_name']
+    # Create a directory for saving metrics
+    metrics_save_dir = os.path.join(parent_dir, 'Conversion comparison', model_name)
+    
+    # Save best parameters to a JSON file
+    json_path = os.path.join(metrics_save_dir, "best_hyperparams.json")
+    with open(json_path, "r") as f:
+        best_params = json.load(f)
+
+    model_params = {**static_params, **best_params}
+
+    # --- Data Loading Therapist ---
+    # Load your raw data
+    raw_data_path = './datasets/therapies_dataset/'
+    actions_data = pickle.load(open(os.path.join(raw_data_path, 'actions_data_v2.pckl'), 'rb'))
+    video_skels = pickle.load(open(os.path.join(raw_data_path, 'video_skels_v2.pckl'), 'rb'))
+
+    # Filter out unwanted actions (same as your TF code)
+    actions_data = actions_data[~actions_data.action.isin(['no', 'si'])]
+    print(f"Loaded actions_data with {len(actions_data)} entries and video_skels with {len(video_skels)} videos.")
+    
+    actions_data = actions_data.sort_values(by=['patient', 'session', 'video', 'ex_num'])
+
+    # Create a mapping from action names to indices
+    all_actions = actions_data['action'].unique()
+    action_to_idx = {action: idx for idx, action in enumerate(sorted(all_actions))}
+    labels = actions_data['action'].map(action_to_idx).values
+
+    pytorch_model = TCN_clf(
+        num_feats=model_params['num_feats'], conv_params=model_params['conv_params'],
+        lstm_dropout=model_params['lstm_dropout'], masking=model_params['masking'],
+        triplet=model_params.get('triplet', False), classification=model_params.get('classification', True),
+        clf_neurons=model_params['clf_neurons'], num_classes=14
+    )
+
+    # After loading the model with the pretrained weights
+    checkpoint_path = model_params["pretrained_model_path"]
+    best_model_path = get_best_model_path(checkpoint_path)
+    pytorch_model.load_state_dict(torch.load(best_model_path))
+
+    evaluate_model_on_all_data(pytorch_model, actions_data, video_skels, model_params, None)
+
+    exit(0) """
+
 
     # Create Optuna study
     study = optuna.create_study(direction="maximize")  # Or "minimize" for loss
