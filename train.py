@@ -333,11 +333,16 @@ def Setup_optimizer_and_loss(pytorch_model, model_params, device, train_dataset=
 
     return active_losses, loss_weights_pytorch_pt, optimizer
 
-def get_best_model_path(model_folder):
+def get_best_model_path(model_path_or_folder):
+    # If a full .pt file is given, just return it directly
+    if os.path.isfile(model_path_or_folder) and model_path_or_folder.endswith(".pt"):
+        return model_path_or_folder
+
+    # Otherwise, search in the folder for the .pt file with the best F1 score
     best_f1 = -1.0
     best_file = None
 
-    for filename in os.listdir(model_folder):
+    for filename in os.listdir(model_path_or_folder):
         if filename.endswith(".pt"):
             match = re.search(r"f1([0-9.]+)", filename)
             if match:
@@ -347,7 +352,7 @@ def get_best_model_path(model_folder):
                     best_file = filename
 
     if best_file:
-        return os.path.join(model_folder, best_file)
+        return os.path.join(model_path_or_folder, best_file)
     else:
         raise FileNotFoundError("No valid model with F1 score found in the folder.")
 
