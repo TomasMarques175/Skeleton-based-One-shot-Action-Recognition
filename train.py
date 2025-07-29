@@ -1664,7 +1664,7 @@ if __name__ == "__main__":
         "path_results": "./pretrained_models_Pytorch/",
         
         # TODO: Change every time you switch to the next model
-        "model_name": "Models_Therapist_Classifier_Block_5",
+        "model_name": "Models_Therapist_Classifier(Therapist)",
         # "model_name": "Models_Therapist_Classifier_Block_5_4_3_2_1_0_From_Zero",
 
         # TODO: Change every time you switch to the next model
@@ -1769,32 +1769,52 @@ if __name__ == "__main__":
     else:
         static_params['effective_seq_len'] = static_params['max_seq_len']
 
-    # Create Optuna study
-    study = optuna.create_study(direction="maximize")  # Or "minimize" for loss
-    study.optimize(partial(objective, static_params=static_params), n_trials=static_params.get("n_trials", 40))  # Try 40 different combinations
+#    # Create Optuna study
+#    study = optuna.create_study(direction="maximize")  # Or "minimize" for loss
+#    study.optimize(partial(objective, static_params=static_params), n_trials=static_params.get("n_trials", 40))  # Try 40 different combinations#
 
-    print("\n--- Hyperparameter Optimization Finished ---")
-    
-    best_trial = study.best_trial
-    best_val_f1 = best_trial.value
-    get_best_model_number = static_params.get("best_model_number", 'N/A')
-    print("Best trial F1:", best_val_f1)
-    print("Best model number:", get_best_model_number)
+#    print("\n--- Hyperparameter Optimization Finished ---")
+#    
+#    best_trial = study.best_trial
+#    best_val_f1 = best_trial.value
+#    get_best_model_number = static_params.get("best_model_number", 'N/A')
+#    print("Best trial F1:", best_val_f1)
+#    print("Best model number:", get_best_model_number)#
 
     # Determine folder one level up in order to save the best hyperparameters
     current_dir = os.path.dirname(os.path.abspath(__file__))
     parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
     model_name = static_params['model_name']
-    
+    #    
     # Create a directory for saving metrics
     metrics_save_dir = os.path.join(parent_dir, 'Conversion comparison', model_name)
     os.makedirs(metrics_save_dir, exist_ok=True)
-    
+    #    
     # Save best parameters to a JSON file
-    best_params = best_trial.params
-    with open(os.path.join(metrics_save_dir, 'best_hyperparams.json'), 'w') as f:
-        json.dump(best_params, f, indent=4)
+    # best_params = best_trial.params
+    # with open(os.path.join(metrics_save_dir, 'best_hyperparams.json'), 'w') as f:
+    #     json.dump(best_params, f, indent=4)
 
+    get_best_model_number = 24
+    
+    # ----------------------------
+    # New part: Clean up unrelated files
+    # ----------------------------
+    for filename in os.listdir(metrics_save_dir):
+        # Keep only .npz or .png that include the correct model number
+        if filename.endswith(('.npz', '.png')) and f"model_{get_best_model_number}_" in filename:
+            continue  # Keep this file
+        if filename == 'best_hyperparams.json':
+            continue  # Keep the JSON too
+
+        # Otherwise, delete it
+        file_path = os.path.join(metrics_save_dir, filename)
+        try:
+            os.remove(file_path)
+            #print(f"Deleted non-best file: {filename}")
+    # ----------------------------
+    
+    exit(0)  # Exit after hyperparameter optimization
     # FOR LAST RUN
     
     # Set the best F1 score and K for the model parameters
