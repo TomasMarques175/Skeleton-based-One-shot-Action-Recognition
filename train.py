@@ -141,23 +141,6 @@ def get_final_model_path(path_results, model_name, model_number):
 
     raise FileNotFoundError(f"No .pt file found for model {model_number} in {model_dir}")
 
-# def remove_suboptimal_models(models_dir, keep_folder_name):
-#     """
-#     Deletes all subfolders in models_dir except the one specified in keep_folder_name.
-#     
-#     Parameters:
-#     - models_dir: Path to the directory containing all model folders.
-#     - keep_folder_name: Folder name (e.g., '0729_0452_model_41') to keep.
-#     """
-#     for folder in os.listdir(models_dir):
-#         folder_path = os.path.join(models_dir, folder)
-#         if os.path.isdir(folder_path):
-#             if folder != keep_folder_name:
-#                 shutil.rmtree(folder_path)
-#                 print(f"❌ Removed: {folder}")
-#             else:
-#                 print(f"✅ Kept: {folder}")
-
 def train_model(model_params, running_train_loss_clf, running_train_loss, pytorch_model, softmax_outputs, \
     device, train_loader, optimizer, active_losses, loss_weights_pytorch_pt, epoch=0, train_verbose=1, log_interval=100):
     
@@ -423,58 +406,52 @@ def create_pytorch_model(model_params):
             clf_neurons=model_params['clf_neurons'], num_classes=num_classes_for_model
         )
         
-        #print("\n=== PyTorch state_dict keys ===")
-        #for k, v in pytorch_model.state_dict().items():
-        #    print(f"{k} {tuple(v.shape)}")
-
+        """
+        print("\n=== PyTorch state_dict keys ===")
+        for k, v in pytorch_model.state_dict().items():
+            print(f"{k} {tuple(v.shape)}")
+        """
+        
         # ------------------------------
         # 2. Load the TensorFlow SavedModel
         tf_model = tf.saved_model.load(model_params["pretrained_model_path"])
-        #print("\n=== TensorFlow variables ===")
         
-        #for var in tf_model.variables:
-        #    print(f"{var.name} {tuple(var.shape)}")
-            
-        # --- 3. Extract TensorFlow weights to numpy dict ---
+        """
+        print("\n=== TensorFlow variables ===")
+                for var in tf_model.variables:
+                    print(f"{var.name} {tuple(var.shape)}")
+        """
+                # --- 3. Extract TensorFlow weights to numpy dict ---
+        
         tf_weights = {}
         for var in tf_model.variables:
             # Convert tensor to numpy
             tf_weights[var.name] = var.numpy()
         #    print(var.name, var.shape)
 
-        excluded_pt_keys = [
-            'clf_out.weight', 
-            'clf_out.bias',
-            # 'encoder_net.encoder.0.residual_blocks.0.conv1.weight',
-            # 'encoder_net.encoder.0.residual_blocks.0.conv1.bias',
-            # 'encoder_net.encoder.0.residual_blocks.0.downsample.weight',
-            # 'encoder_net.encoder.0.residual_blocks.0.downsample.bias'
-        ]
+        # Define which keys are *excluded from training* (i.e., frozen)
+        excluded_pt_keys = model_params.get('excluded_pt_keys', [])
+        
+        # Define which keys are replaced with new ones (i.e., re-initialized)
+        excluded_tf_prefixes = model_params.get('excluded_tf_prefixes', [])
 
-        excluded_tf_prefixes = [
-            'out_clf/kernel:0',
-            'out_clf/bias:0',
-            # 'encoder_tcn/sequential/tcn/residual_block_0/conv1D_0/kernel:0',
-            # 'encoder_tcn/sequential/tcn/residual_block_0/conv1D_0/bias:0',
-            # 'encoder_tcn/sequential/tcn/residual_block_0/matching_conv1D/kernel:0',
-            # 'encoder_tcn/sequential/tcn/residual_block_0/matching_conv1D/bias:0',
-        ]
-
+        """ 
         # Filter and display PyTorch parameters
         included_pt_params = [(name, p.shape) for name, p in pytorch_model.named_parameters() if name not in excluded_pt_keys]
         total_pt_params = sum(p.numel() for name, p in pytorch_model.named_parameters() if name not in excluded_pt_keys)
 
-        #print(f"\nTotal PyTorch parameters (excluding excluded layers): {total_pt_params}")
-        #print("[Included PyTorch parameter keys with shapes:]")
-        #for name, shape in included_pt_params:
-        #    print(f"  {name}: {tuple(shape)}")
+        print(f"\nTotal PyTorch parameters (excluding excluded layers): {total_pt_params}")
+        print("[Included PyTorch parameter keys with shapes:]")
+        for name, shape in included_pt_params:
+            print(f"  {name}: {tuple(shape)}") 
+        """
 
         # Filter and display TensorFlow weights
         tf_weights_filtered = {
             k: v for k, v in tf_weights.items()
             if not any(k.startswith(prefix) for prefix in excluded_tf_prefixes)
         }
-        total_tf_params = sum(np.prod(v.shape) for v in tf_weights_filtered.values())
+        # total_tf_params = sum(np.prod(v.shape) for v in tf_weights_filtered.values())
 
         #print(f"\nTotal TF parameters from checkpoint (excluding excluded layers): {total_tf_params}")
         #print("[Included TensorFlow keys with shapes:]")
@@ -504,20 +481,24 @@ def create_pytorch_model(model_params):
                 # else:
                 #     print(f"[SKIP] {name}: not found in converted weights")
 
+        """         
         converted_param_count = sum(
             v.numel() for k, v in converted_weights.items() if k not in excluded_pt_keys
         )
-        #print(f"Total converted parameters (excluding excluded layers): {converted_param_count}")
-        #print(f"Coverage: {converted_param_count} / {total_pt_params} = {converted_param_count / total_pt_params:.2%}")
-
+        print(f"Total converted parameters (excluding excluded layers): {converted_param_count}")
+        print(f"Coverage: {converted_param_count} / {total_pt_params} = {converted_param_count / total_pt_params:.2%}")
+        """
+        
         # --- 7. Freeze unconverted parameters ---
         #print("\n=== Freezing unconverted parameters ===")
-        # Freeze all parameters that are NOT in the excluded list
+        # Freeze all parameters that are in the excluded list
         for name, param in pytorch_model.named_parameters():
-            if name not in excluded_pt_keys:
+            if name in excluded_pt_keys:
                 param.requires_grad = False
+        
         # for name, param in pytorch_model.named_parameters():
         #     print(f"{name}: {'❄️ Frozen' if not param.requires_grad else '🔥 Trainable'}")
+        
         initial_state_dict = copy.deepcopy(pytorch_model.state_dict())
     
     # If not converting or using a pre-trained model, initialize a new model
@@ -1748,7 +1729,7 @@ if __name__ == "__main__":
         "path_results": "./pretrained_models_Pytorch/",
         
         # TODO: Change every time you switch to the next model
-        "model_name": "Models_Therapist_Classifier_Block_5_4",
+        "model_name": "Models_Therapist_Classifier_Block_5",
         # "model_name": "Models_Therapist_Classifier_Block_5_4_3_2_1_0_From_Zero",
 
         # TODO: Change every time you switch to the next model
@@ -1761,7 +1742,7 @@ if __name__ == "__main__":
         
         # TODO: Change every time you switch to the next model
         # Path to the pre-trained model in Pytorch format
-        "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier_Block_5/0729_1847_model_65/weights/Best_Model-ep300-trainloss0.09947-f10.57415.pt",
+        "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier/0729_0452_model_41/weights/Best_Model-ep300-trainloss0.45288-f10.37359.pt",
 
         # Path to the pre-trained model in TensorFlow/Keras format
         # "pretrained_model_path": "./ntu_benchmark_model/model",  # Path to the pre-trained model for NTU-120 one-shot benchmark
@@ -1782,35 +1763,47 @@ if __name__ == "__main__":
         # "h_flip": False,
 
         # TODO: Change every time you switch to the next model
+        # Define which keys are *excluded from training* (i.e., frozen)
         "excluded_pt_keys": [
-            # "encoder_net.encoder.0.residual_blocks.0.conv1.weight",
-            # "encoder_net.encoder.0.residual_blocks.0.conv1.bias",
-            # "encoder_net.encoder.0.residual_blocks.0.conv2.weight",
-            # "encoder_net.encoder.0.residual_blocks.0.conv2.bias",
-            # "encoder_net.encoder.0.residual_blocks.0.downsample.weight",
-            # "encoder_net.encoder.0.residual_blocks.0.downsample.bias",
-            # "encoder_net.encoder.0.residual_blocks.1.conv1.weight",
-            # "encoder_net.encoder.0.residual_blocks.1.conv1.bias",
-            # "encoder_net.encoder.0.residual_blocks.1.conv2.weight",
-            # "encoder_net.encoder.0.residual_blocks.1.conv2.bias",
-            # "encoder_net.encoder.0.residual_blocks.2.conv1.weight",
-            # "encoder_net.encoder.0.residual_blocks.2.conv1.bias",
-            # "encoder_net.encoder.0.residual_blocks.2.conv2.weight",
-            # "encoder_net.encoder.0.residual_blocks.2.conv2.bias",
-            # "encoder_net.encoder.0.residual_blocks.3.conv1.weight",
-            # "encoder_net.encoder.0.residual_blocks.3.conv1.bias",
-            # "encoder_net.encoder.0.residual_blocks.3.conv2.weight",
-            # "encoder_net.encoder.0.residual_blocks.3.conv2.bias",
+            "encoder_net.encoder.0.residual_blocks.0.conv1.weight",
+            "encoder_net.encoder.0.residual_blocks.0.conv1.bias",
+            "encoder_net.encoder.0.residual_blocks.0.conv2.weight",
+            "encoder_net.encoder.0.residual_blocks.0.conv2.bias",
+            "encoder_net.encoder.0.residual_blocks.0.downsample.weight",
+            "encoder_net.encoder.0.residual_blocks.0.downsample.bias",
+            "encoder_net.encoder.0.residual_blocks.1.conv1.weight",
+            "encoder_net.encoder.0.residual_blocks.1.conv1.bias",
+            "encoder_net.encoder.0.residual_blocks.1.conv2.weight",
+            "encoder_net.encoder.0.residual_blocks.1.conv2.bias",
+            "encoder_net.encoder.0.residual_blocks.2.conv1.weight",
+            "encoder_net.encoder.0.residual_blocks.2.conv1.bias",
+            "encoder_net.encoder.0.residual_blocks.2.conv2.weight",
+            "encoder_net.encoder.0.residual_blocks.2.conv2.bias",
+            "encoder_net.encoder.0.residual_blocks.3.conv1.weight",
+            "encoder_net.encoder.0.residual_blocks.3.conv1.bias",
+            "encoder_net.encoder.0.residual_blocks.3.conv2.weight",
+            "encoder_net.encoder.0.residual_blocks.3.conv2.bias",
             "encoder_net.encoder.0.residual_blocks.4.conv1.weight",
             "encoder_net.encoder.0.residual_blocks.4.conv1.bias",
             "encoder_net.encoder.0.residual_blocks.4.conv2.weight",
             "encoder_net.encoder.0.residual_blocks.4.conv2.bias",
-            "encoder_net.encoder.0.residual_blocks.5.conv1.weight",
-            "encoder_net.encoder.0.residual_blocks.5.conv1.bias",
-            "encoder_net.encoder.0.residual_blocks.5.conv2.weight",
-            "encoder_net.encoder.0.residual_blocks.5.conv2.bias",
-            "clf_out.weight",
-            "clf_out.bias",
+            # "encoder_net.encoder.0.residual_blocks.5.conv1.weight",
+            # "encoder_net.encoder.0.residual_blocks.5.conv1.bias",
+            # "encoder_net.encoder.0.residual_blocks.5.conv2.weight",
+            # "encoder_net.encoder.0.residual_blocks.5.conv2.bias",
+            # "clf_out.weight",
+            # "clf_out.bias",
+        ],
+        
+        # Define which keys are replaced with new ones (i.e., re-initialized)
+        "excluded_tf_prefixes": [
+            # 'encoder_tcn/sequential/tcn/residual_block_0/conv1D_0/kernel:0',
+            # 'encoder_tcn/sequential/tcn/residual_block_0/conv1D_0/bias:0',
+            # 'encoder_tcn/sequential/tcn/residual_block_0/matching_conv1D/kernel:0',
+            # 'encoder_tcn/sequential/tcn/residual_block_0/matching_conv1D/bias:0',
+            
+            'out_clf/kernel:0',
+            'out_clf/bias:0',
         ],
 
         "in_memory_generator_train": False,
@@ -1852,8 +1845,6 @@ if __name__ == "__main__":
         static_params['effective_seq_len'] = 32
     else:
         static_params['effective_seq_len'] = static_params['max_seq_len']
-
-
 
     """ # Check if model is overfitting
 
@@ -1968,8 +1959,8 @@ if __name__ == "__main__":
 
     evaluate_model_on_all_data(pytorch_model, actions_data, video_skels, model_params, None)
 
-    exit(0) """
-
+    exit(0)
+    """
 
     # Create Optuna study
     study = optuna.create_study(direction="maximize")  # Or "minimize" for loss
@@ -1997,7 +1988,7 @@ if __name__ == "__main__":
         json.dump(best_params, f, indent=4)
     
     # ----------------------------
-    # New part: Clean up unrelated files but keep all the models
+    # Clean up unrelated files
     # ----------------------------
     for filename in os.listdir(metrics_save_dir):
         # Keep only .npz or .png that include the correct model number
@@ -2009,6 +2000,17 @@ if __name__ == "__main__":
         # Otherwise, delete it
         file_path = os.path.join(metrics_save_dir, filename)
         os.remove(file_path)
+    # ----------------------------
+    
+    # ----------------------------
+    # Clean up old model folders
+    # ----------------------------
+    for foldername in os.listdir(static_params['path_results']):
+        folder_path = os.path.join(static_params['path_results'], foldername)
+        
+        # Only consider directories and ignore the best model folder
+        if os.path.isdir(folder_path) and f"model_{get_best_model_number}" not in foldername:
+            shutil.rmtree(folder_path)
     # ----------------------------
     
     # FOR LAST RUN
@@ -2035,7 +2037,7 @@ if __name__ == "__main__":
 
     print("\n--- Training script finished ---")
     
-    # TODO: Create an if function based on what param you want to load to train a new model
+    """ TODO: Create an if function based on what param you want to load to train a new model
     # # Determine folder one level up in order to save the best hyperparameters
     # current_dir = os.path.dirname(os.path.abspath(__file__))
     # parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
@@ -2054,7 +2056,8 @@ if __name__ == "__main__":
     # 
     # # Combine the two
     # model_params = {**static_params, **best_params}
-# 
+    # 
     # main(model_params)
-# 
+    # 
     # exit(0)
+    """
