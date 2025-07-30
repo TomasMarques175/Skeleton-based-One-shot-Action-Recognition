@@ -1720,8 +1720,8 @@ if __name__ == "__main__":
         "joints_num": 25, # 24 for MP
         "num_classes": 14, # Number of classes for classification (NTU-120 has 120, MP has 12 and Therapies has 14)
 
-        "epochs": 1, # Number of training epochs
-        "n_trials": 1,  # Number of trials for Optuna
+        "epochs": 300, # Number of training epochs
+        "n_trials": 20,  # Number of trials for Optuna
 
         # Set to 0 for no training logs, 1 for basic logs, >1 for more detailed logs
         "train_verbose": 1,
