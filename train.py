@@ -2024,8 +2024,7 @@ if __name__ == "__main__":
     # Set the best F1 score and K for the model parameters
     static_params["best_val_f1"] = study.best_value
     static_params["K"] = None
-    best_params["lr_patience"] = 
-    best_params["es_patience"] = 20  # Set a default patience for early stopping
+
     # Combine the two
     model_params = {**static_params, **best_params}
 
