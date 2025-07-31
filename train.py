@@ -872,7 +872,7 @@ def objective(trial, static_params):
 
         # ReduceLROnPlateau
         "lr_min_delta": trial.suggest_float("lr_min_delta", 1e-5, 1e-2, log=True),
-        "lr_factor": trial.suggest_float("lr_factor", 0.1, 0.8),
+        "lr_factor": trial.suggest_float("lr_factor", 0.1, 0.3),
         "lr_patience": trial.suggest_int("lr_patience", 10, 20),
         "min_lr": trial.suggest_float("min_lr", 1e-7, 1e-4, log=True),
 
