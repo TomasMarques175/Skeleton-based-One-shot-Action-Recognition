@@ -357,7 +357,34 @@ def get_best_model_path(model_path_or_folder):
     else:
         raise FileNotFoundError("No valid model with F1 score found in the folder.")
 
-def create_pytorch_model(model_params):
+def get_k_fold_model_path(model_path_or_folder, fold=None):
+    # If a full .pt file is given, just return it directly
+    if os.path.isfile(model_path_or_folder) and model_path_or_folder.endswith(".pt"):
+        return model_path_or_folder
+
+    best_f1 = -1.0
+    best_file = None
+
+    for filename in os.listdir(model_path_or_folder):
+        if not filename.endswith(".pt"):
+            continue
+
+        if fold is not None and f"fold_{fold}" not in filename:
+            continue  # Skip files from other folds
+
+        match = re.search(r"f1([0-9.]+)", filename)
+        if match:
+            f1 = float(match.group(1))
+            if f1 > best_f1:
+                best_f1 = f1
+                best_file = filename
+
+    if best_file:
+        return os.path.join(model_path_or_folder, best_file)
+    else:
+        raise FileNotFoundError(f"No valid model found for fold {fold} in the folder.")
+
+def create_pytorch_model(model_params, fold=None):
     # --- PyTorch Model Instantiation ---
     # print('\n* Setting model parameters (PyTorch)')  # Mimicking Keras log
     # Ensure num_classes is correctly derived if dataset re-indexing happened,
@@ -367,7 +394,9 @@ def create_pytorch_model(model_params):
     initial_state_dict = None  # Initialize to None, will be set later
     
     # If the model is in Pytorch format, we assume it has been converted or is ready to be used.
-    if model_params.get("use_pretrained_model", False) and not model_params.get('model_converter', False):
+    if model_params.get("use_pretrained_model", False)  \
+            and not model_params.get('model_converter', False) and \
+                not model_params.get('fine_Tunning', False):
         # --- PyTorch Model Instantiation ---
         # If the model is in PyTorch format, we will load it directly.
         pytorch_model = TCN_clf(
@@ -380,6 +409,38 @@ def create_pytorch_model(model_params):
         # After loading the model with the pretrained weights
         checkpoint_path = model_params["pretrained_model_path"]
         best_model_path = get_best_model_path(checkpoint_path)
+        pytorch_model.load_state_dict(torch.load(best_model_path))
+
+        # Define which keys are *excluded from training* (i.e., frozen)
+        excluded_pt_keys = model_params.get('excluded_pt_keys', [])
+
+        # Freeze only the layers you want
+        for name, param in pytorch_model.named_parameters():
+            if name in excluded_pt_keys:
+                param.requires_grad = False
+                # print(f"Froze: {name}")
+            else:
+                param.requires_grad = True  # Unfrozen by default
+
+        # Capture the initial state_dict *after freezing*
+        initial_state_dict = {k: v.clone().detach().cpu() for k, v in pytorch_model.state_dict().items()}
+
+        # If the model is in Pytorch format, we assume it has been converted or is ready to be used.
+    if model_params.get("use_pretrained_model", False)  \
+            and not model_params.get('model_converter', False) and \
+                model_params.get('fine_Tunning', False):
+        # --- PyTorch Model Instantiation ---
+        # If the model is in PyTorch format, we will load it directly.
+        pytorch_model = TCN_clf(
+            num_feats=model_params['num_feats'], conv_params=model_params['conv_params'],
+            lstm_dropout=model_params['lstm_dropout'], masking=model_params['masking'],
+            triplet=model_params.get('triplet', False), classification=model_params.get('classification', True),
+            clf_neurons=model_params['clf_neurons'], num_classes=num_classes_for_model
+        )
+
+        # After loading the model with the pretrained weights
+        checkpoint_path = model_params["pretrained_model_path"]
+        best_model_path = get_k_fold_model_path(checkpoint_path, fold)
         pytorch_model.load_state_dict(torch.load(best_model_path))
 
         # Define which keys are *excluded from training* (i.e., frozen)
@@ -961,7 +1022,6 @@ def evaluate_model_on_all_data(model, full_df, video_skels, model_params, device
     plt.savefig(save_path)
     print(f"Confusion matrix saved to: {save_path}")
 
-
 def main(model_params):
     train_verbose = model_params.get('train_verbose', 1)
     log_interval = model_params.get('log_interval', 10)
@@ -1313,15 +1373,22 @@ def main(model_params):
                         checkpoint_filename = (
                             f"ep{epoch+1:03d}-trainloss{avg_epoch_train_loss:.5f}-"
                             f"{monitor_metric_name.replace('val_', '')}{current_metric_for_scheduler_es:.5f}-"
-                            f"f1{best_val_f1:.5f}.pt"
+                            f"f1{best_val_f1:.5f}_"
+                            f"model_{model_number}_fold_{fold}.pt"
                         )
                         full_checkpoint_path = os.path.join(weights_save_path, checkpoint_filename)
                         torch.save(pytorch_model.state_dict(), full_checkpoint_path)
                         best_checkpoint_filename = checkpoint_filename
+                        
+                        # Save confusion matrix for this fold
                         Get_Confusion_Matrix(model_params, all_clf_preds_val, all_clf_labels_val, model_number, fold)
-                        # Delete all other checkpoints except the best
+                        
+                        # Delete other checkpoints for this fold, keep only the best one
                         for fname in os.listdir(weights_save_path):
-                            if fname.endswith('.pt') and fname != best_checkpoint_filename:
+                            if (
+                                fname.endswith(f"fold_{fold}.pt") and
+                                fname != best_checkpoint_filename
+                            ):
                                 try:
                                     os.remove(os.path.join(weights_save_path, fname))
                                 except Exception as e:
@@ -1358,6 +1425,7 @@ def main(model_params):
                 tb_writer.add_scalar(
                     'Performance/epoch_duration_sec', epoch_duration, epoch)
             
+            # Save final model F1 and AUC scores for this fold
             fold_val_f1_scores.append(best_val_f1)
             fold_val_auc_scores.append(best_val_auc)
             
@@ -1365,6 +1433,7 @@ def main(model_params):
             current_dir = os.path.dirname(os.path.abspath(__file__))
             parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
             model_name = model_params['model_name']
+            
             # Create a directory for saving metrics
             metrics_save_dir = os.path.join(parent_dir, 'Conversion comparison', model_name)
             os.makedirs(metrics_save_dir, exist_ok=True)
@@ -1372,8 +1441,6 @@ def main(model_params):
             # 1. Find the best values (assuming best means minimum loss, maximum score)
             best_train_loss = np.min(train_losses)
             best_val_loss = np.min(val_losses)
-            best_val_f1 = np.max(val_f1_scores)
-            best_val_auc = np.max(val_auc_scores)
 
             # 2. Create filename with best values embedded (rounded for readability)
             filename = (
@@ -1392,7 +1459,9 @@ def main(model_params):
                     val_f1_scores=np.array(val_f1_scores),
                     val_auc_scores=np.array(val_auc_scores),
                     )
-
+        # Save the mean of the best F1 scores across folds
+        # in order to report the overall performance
+        mean_best_val_f1 = np.mean(fold_val_f1_scores)
     else:
         # --- Only Training for the best Hyperparameters using all the data ---
         print("\n--- Training with all data (no K-Fold) ---")
@@ -1633,12 +1702,12 @@ def main(model_params):
         
         # 1. Find the best values (assuming best means minimum loss, maximum score)
         best_train_loss = np.min(train_losses)
-        best_val_f1 = model_params.get('best_val_f1', 0)
+        mean_best_val_f1 = model_params.get('best_val_f1', 0)
 
         # 2. Create filename with best values embedded (rounded for readability)
         filename = (
             f"pytorch_therapy_classifier_train_loss-{best_train_loss:.4f}_"
-            f"val_f1-{best_val_f1:.4f}_"
+            f"val_f1-{mean_best_val_f1:.4f}_"
             f"final_model_{model_number}_.npz"
         )
         
@@ -1677,7 +1746,7 @@ def main(model_params):
 # 
     print("\n--- PyTorch Training Finished ---")
     
-    return best_val_f1, model_number
+    return mean_best_val_f1, model_number
 
     # --- Post-training actions ---
     # TODO: Example: remove_suboptimal_weights (needs careful implementation)
@@ -1690,7 +1759,6 @@ def main(model_params):
     #         print("Warning: remove_suboptimal_weights_pytorch not found.")
     #     except Exception as e_rsw:
     #         print(f"Error during remove_suboptimal_weights: {e_rsw}")
-
 
 if __name__ == "__main__":
 
@@ -1727,6 +1795,9 @@ if __name__ == "__main__":
         "train_verbose": 1,
         "num_workers": 0,  # Number of workers for DataLoader, adjust based on your system
         "path_results": "./pretrained_models_Pytorch/",
+
+        # TODO: Change based on if you want to continue to use the models from the previous K-fold
+        "fine_Tunning": False,  # Set to True if you want to fine-tune the previous K models
         
         # TODO: Change every time you switch to the next model
         "model_name": "Models_Therapist_Classifier_Block",
@@ -2021,6 +2092,7 @@ if __name__ == "__main__":
     
     # FOR LAST RUN
     
+    """     
     # Set the best F1 score and K for the model parameters
     static_params["best_val_f1"] = study.best_value
     static_params["K"] = None
@@ -2040,7 +2112,8 @@ if __name__ == "__main__":
         model_number
     )
     print(f"Best model path: {best_model_path}")
-
+    """
+    
     print("\n--- Training script finished ---")
     
     """ TODO: Create an if function based on what param you want to load to train a new model
