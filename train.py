@@ -1800,7 +1800,7 @@ if __name__ == "__main__":
         "fine_Tunning": False,  # Set to True if you want to fine-tune the previous K models
         
         # TODO: Change every time you switch to the next model
-        "model_name": "Models_Therapist_Classifier_Block",
+        "model_name": "Models_Therapist_Classifier_Block_5",
         # "model_name": "Models_Therapist_Classifier_Block_5_4_3_2_1_0_From_Zero",
 
         # TODO: Change every time you switch to the next model
