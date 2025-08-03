@@ -1797,7 +1797,7 @@ if __name__ == "__main__":
         "path_results": "./pretrained_models_Pytorch/",
 
         # TODO: Change based on if you want to continue to use the models from the previous K-fold
-        "fine_Tunning": False,  # Set to True if you want to fine-tune the previous K models
+        "fine_Tunning": True,  # Set to True if you want to fine-tune the previous K models
         
         # TODO: Change every time you switch to the next model
         "model_name": "Models_Therapist_Classifier_Block_5",
@@ -1809,7 +1809,7 @@ if __name__ == "__main__":
         
         # TODO: Change every time you switch to the next model
         # Convert Keras parameters to PyTorch equivalents (Set True if The model you want to fine tune is in TensorFlow/Keras format)
-        "model_converter": True, # Set to True if you want to convert a Keras model to PyTorch
+        "model_converter": False, # Set to True if you want to convert a Keras model to PyTorch
         
         # TODO: Change every time you switch to the next model
         # Path to the pre-trained model in Pytorch format
