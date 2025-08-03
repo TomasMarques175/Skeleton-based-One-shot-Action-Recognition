@@ -362,15 +362,21 @@ def get_k_fold_model_path(model_path_or_folder, fold=None):
     if os.path.isfile(model_path_or_folder) and model_path_or_folder.endswith(".pt"):
         return model_path_or_folder
 
+    # Step into the only subfolder (e.g., 0730_1921_model_1)
+    subdirs = [d for d in os.listdir(model_path_or_folder) if os.path.isdir(os.path.join(model_path_or_folder, d))]
+    if not subdirs:
+        raise FileNotFoundError("No model subdirectory found.")
+    
+    model_subdir = os.path.join(model_path_or_folder, subdirs[0], "weights")
+
     best_f1 = -1.0
     best_file = None
 
-    for filename in os.listdir(model_path_or_folder):
+    for filename in os.listdir(model_subdir):
         if not filename.endswith(".pt"):
             continue
-
         if fold is not None and f"fold_{fold}" not in filename:
-            continue  # Skip files from other folds
+            continue
 
         match = re.search(r"f1([0-9.]+)", filename)
         if match:
@@ -380,9 +386,9 @@ def get_k_fold_model_path(model_path_or_folder, fold=None):
                 best_file = filename
 
     if best_file:
-        return os.path.join(model_path_or_folder, best_file)
+        return os.path.join(model_subdir, best_file)
     else:
-        raise FileNotFoundError(f"No valid model found for fold {fold} in the folder.")
+        raise FileNotFoundError(f"No valid model found for fold {fold} in {model_subdir}")
 
 def create_pytorch_model(model_params, fold=None):
     # --- PyTorch Model Instantiation ---
