@@ -930,7 +930,7 @@ def objective(trial, static_params):
     # Define hyperparameter search space
     optuna_params = {        
         # Training-related
-        "init_lr": trial.suggest_float("init_lr", 1e-6, 1e-5, log=True),
+        "init_lr": trial.suggest_float("init_lr", 1e-5, 1e-3, log=True),
         "batch_size": trial.suggest_categorical("batch_size", [8, 16, 32, 64]),
 
         # LSTM
@@ -939,13 +939,13 @@ def objective(trial, static_params):
 
         # ReduceLROnPlateau
         "lr_min_delta": trial.suggest_float("lr_min_delta", 1e-5, 1e-2, log=True),
-        "lr_factor": trial.suggest_float("lr_factor", 0.1, 0.3),
-        "lr_patience": trial.suggest_int("lr_patience", 10, 20),
+        "lr_factor": trial.suggest_float("lr_factor", 0.1, 0.9),
+        "lr_patience": trial.suggest_int("lr_patience", 2, 10),
         "min_lr": trial.suggest_float("min_lr", 1e-7, 1e-4, log=True),
 
         # EarlyStopping
         "early_stopping_min_delta": trial.suggest_float("early_stopping_min_delta", 1e-5, 1e-2, log=True),
-        "es_patience": trial.suggest_int("es_patience", 10, 20),
+        "es_patience": trial.suggest_int("es_patience", 3, 12),
     }
     
     # Combine the two
@@ -1212,7 +1212,7 @@ def main(model_params):
             train_loader, val_loader, train_dataset, val_dataset = Create_Therapy_Dataloader(model_params, train_data, video_skels, val_data)
             
             # --- PyTorch Model Instantiation ---
-            pytorch_model, initial_state_dict = create_pytorch_model(model_params)
+            pytorch_model, initial_state_dict = create_pytorch_model(model_params, fold)
             
             # --- Model Summary ---
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -1795,7 +1795,7 @@ if __name__ == "__main__":
         "num_classes": 14, # Number of classes for classification (NTU-120 has 120, MP has 12 and Therapies has 14)
 
         "epochs": 300, # Number of training epochs
-        "n_trials": 20,  # Number of trials for Optuna
+        "n_trials": 40,  # Number of trials for Optuna
 
         # Set to 0 for no training logs, 1 for basic logs, >1 for more detailed logs
         "train_verbose": 1,
@@ -1803,10 +1803,10 @@ if __name__ == "__main__":
         "path_results": "./pretrained_models_Pytorch/",
 
         # TODO: Change based on if you want to continue to use the models from the previous K-fold
-        "fine_Tunning": True,  # Set to True if you want to fine-tune the previous K models
+        "fine_Tunning": False,  # Set to True if you want to fine-tune the previous K models
         
         # TODO: Change every time you switch to the next model
-        "model_name": "Models_Therapist_Classifier_Block_5_4",
+        "model_name": "Models_Therapist_Classifier_Block",
         # "model_name": "Models_Therapist_Classifier_Block_5_4_3_2_1_0_From_Zero",
 
         # TODO: Change every time you switch to the next model
@@ -1815,16 +1815,16 @@ if __name__ == "__main__":
         
         # TODO: Change every time you switch to the next model
         # Convert Keras parameters to PyTorch equivalents (Set True if The model you want to fine tune is in TensorFlow/Keras format)
-        "model_converter": False, # Set to True if you want to convert a Keras model to PyTorch
+        "model_converter": True, # Set to True if you want to convert a Keras model to PyTorch
         
         # TODO: Change every time you switch to the next model
         # Path to the pre-trained model in Pytorch format
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier_Block_5/0730_1921_model_1/weights/Best_Model-ep300-trainloss0.31293-f10.54116.pt",
-        "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier_Block_5",  # Path to the pre-trained model for Therapies dataset in Pytorch format
+        # "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier_Block",  # Path to the pre-trained model for Therapies dataset in Pytorch format
         
         # Path to the pre-trained model in TensorFlow/Keras format
         # "pretrained_model_path": "./ntu_benchmark_model/model",  # Path to the pre-trained model for NTU-120 one-shot benchmark
-        # "pretrained_model_path": "./therapies_model_7/model",   # Path to the pre-trained model for the therapies dataset
+        "pretrained_model_path": "./therapies_model_7/model",   # Path to the pre-trained model for the therapies dataset
 
         # TODO: Change every time you switch to the next model
         # # NTU-120 Data sets to optimize the therapy data
@@ -1861,14 +1861,14 @@ if __name__ == "__main__":
             "encoder_net.encoder.0.residual_blocks.3.conv1.bias",
             "encoder_net.encoder.0.residual_blocks.3.conv2.weight",
             "encoder_net.encoder.0.residual_blocks.3.conv2.bias",
-            # "encoder_net.encoder.0.residual_blocks.4.conv1.weight",
-            # "encoder_net.encoder.0.residual_blocks.4.conv1.bias",
-            # "encoder_net.encoder.0.residual_blocks.4.conv2.weight",
-            # "encoder_net.encoder.0.residual_blocks.4.conv2.bias",
-            # "encoder_net.encoder.0.residual_blocks.5.conv1.weight",
-            # "encoder_net.encoder.0.residual_blocks.5.conv1.bias",
-            # "encoder_net.encoder.0.residual_blocks.5.conv2.weight",
-            # "encoder_net.encoder.0.residual_blocks.5.conv2.bias",
+            "encoder_net.encoder.0.residual_blocks.4.conv1.weight",
+            "encoder_net.encoder.0.residual_blocks.4.conv1.bias",
+            "encoder_net.encoder.0.residual_blocks.4.conv2.weight",
+            "encoder_net.encoder.0.residual_blocks.4.conv2.bias",
+            "encoder_net.encoder.0.residual_blocks.5.conv1.weight",
+            "encoder_net.encoder.0.residual_blocks.5.conv1.bias",
+            "encoder_net.encoder.0.residual_blocks.5.conv2.weight",
+            "encoder_net.encoder.0.residual_blocks.5.conv2.bias",
             # "clf_out.weight",
             # "clf_out.bias",
         ],
