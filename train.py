@@ -390,6 +390,93 @@ def get_k_fold_model_path(model_path_or_folder, fold=None):
     else:
         raise FileNotFoundError(f"No valid model found for fold {fold} in {model_subdir}")
 
+def save_average_k_fold_model(checkpoint_path, model_class, save_name_prefix="average_k_fold", device="cpu"):
+    """
+    Averages all .pt models in all 'weights' folders under checkpoint_path and saves the result.
+
+    Args:
+        checkpoint_path (str): Base path where subfolders containing 'weights/*.pt' files exist.
+        model_class (callable): Class or function that returns a new model instance.
+        save_name_prefix (str): Prefix for the saved averaged model.
+        device (str): 'cpu' or 'cuda'.
+    """
+    pt_paths = []
+
+    # 1. Traverse subfolders and collect .pt model paths
+    for subdir in os.listdir(checkpoint_path):
+        weights_dir = os.path.join(checkpoint_path, subdir, "weights")
+        if not os.path.isdir(weights_dir):
+            continue
+        for filename in os.listdir(weights_dir):
+            if filename.endswith(".pt"):
+                pt_paths.append(os.path.join(weights_dir, filename))
+
+    if not pt_paths:
+        raise FileNotFoundError("No .pt model files found in any weights subfolder.")
+
+    # 2. Load and average the state dicts
+    avg_state_dict = None
+    f1_scores = []
+
+    for path in pt_paths:
+        state_dict = torch.load(path, map_location=device)
+
+        match = re.search(r"f1([0-9.]+)", os.path.basename(path))
+        if match:
+            f1_scores.append(float(match.group(1)))
+
+        if avg_state_dict is None:
+            avg_state_dict = {k: v.clone() for k, v in state_dict.items()}
+        else:
+            for k in avg_state_dict:
+                avg_state_dict[k] += state_dict[k]
+
+    for k in avg_state_dict:
+        avg_state_dict[k] /= len(pt_paths)
+
+    # 3. Create averaged model
+    model = model_class()
+    model.load_state_dict(avg_state_dict)
+    model.to(device)
+
+    # 4. Save model with F1 in name
+    avg_f1 = sum(f1_scores) / len(f1_scores) if f1_scores else 0.0
+    save_name = f"{save_name_prefix}-f1{avg_f1:.5f}.pt"
+    save_path = os.path.join(checkpoint_path, save_name)
+
+    torch.save(model.state_dict(), save_path)
+
+def get_average_k_fold_model_path(model_path_or_folder):
+    """
+    Searches for the averaged k-fold model with highest F1 score inside 'weights' folders
+    under subdirectories of the given path.
+    """
+    if os.path.isfile(model_path_or_folder) and model_path_or_folder.endswith(".pt"):
+        return model_path_or_folder
+
+    best_f1 = -1.0
+    best_file_path = None
+
+    # Traverse subdirectories and look for average_k_fold models
+    for subdir in os.listdir(model_path_or_folder):
+        weights_dir = os.path.join(model_path_or_folder, subdir, "weights")
+        if not os.path.isdir(weights_dir):
+            continue
+
+        for filename in os.listdir(weights_dir):
+            if "average_k_fold" in filename and filename.endswith(".pt"):
+                match = re.search(r"f1([0-9.]+)", filename)
+                if match:
+                    f1 = float(match.group(1))
+                    if f1 > best_f1:
+                        best_f1 = f1
+                        best_file_path = os.path.join(weights_dir, filename)
+
+    if best_file_path:
+        return best_file_path
+    else:
+        raise FileNotFoundError("No averaged k-fold model file found.")
+
 def create_pytorch_model(model_params, fold=None):
     # --- PyTorch Model Instantiation ---
     # print('\n* Setting model parameters (PyTorch)')  # Mimicking Keras log
@@ -399,71 +486,7 @@ def create_pytorch_model(model_params, fold=None):
         'actual_num_classes', model_params['num_classes'])
     initial_state_dict = None  # Initialize to None, will be set later
     
-    # If the model is in Pytorch format, we assume it has been converted or is ready to be used.
-    if model_params.get("use_pretrained_model", False)  \
-            and not model_params.get('model_converter', False) and \
-                not model_params.get('fine_Tunning', False):
-        # --- PyTorch Model Instantiation ---
-        # If the model is in PyTorch format, we will load it directly.
-        pytorch_model = TCN_clf(
-            num_feats=model_params['num_feats'], conv_params=model_params['conv_params'],
-            lstm_dropout=model_params['lstm_dropout'], masking=model_params['masking'],
-            triplet=model_params.get('triplet', False), classification=model_params.get('classification', True),
-            clf_neurons=model_params['clf_neurons'], num_classes=num_classes_for_model
-        )
-
-        # After loading the model with the pretrained weights
-        checkpoint_path = model_params["pretrained_model_path"]
-        best_model_path = get_best_model_path(checkpoint_path)
-        pytorch_model.load_state_dict(torch.load(best_model_path))
-
-        # Define which keys are *excluded from training* (i.e., frozen)
-        excluded_pt_keys = model_params.get('excluded_pt_keys', [])
-
-        # Freeze only the layers you want
-        for name, param in pytorch_model.named_parameters():
-            if name in excluded_pt_keys:
-                param.requires_grad = False
-                # print(f"Froze: {name}")
-            else:
-                param.requires_grad = True  # Unfrozen by default
-
-        # Capture the initial state_dict *after freezing*
-        initial_state_dict = {k: v.clone().detach().cpu() for k, v in pytorch_model.state_dict().items()}
-
-        # If the model is in Pytorch format, we assume it has been converted or is ready to be used.
-    if model_params.get("use_pretrained_model", False)  \
-            and not model_params.get('model_converter', False) and \
-                model_params.get('fine_Tunning', False):
-        # --- PyTorch Model Instantiation ---
-        # If the model is in PyTorch format, we will load it directly.
-        pytorch_model = TCN_clf(
-            num_feats=model_params['num_feats'], conv_params=model_params['conv_params'],
-            lstm_dropout=model_params['lstm_dropout'], masking=model_params['masking'],
-            triplet=model_params.get('triplet', False), classification=model_params.get('classification', True),
-            clf_neurons=model_params['clf_neurons'], num_classes=num_classes_for_model
-        )
-
-        # After loading the model with the pretrained weights
-        checkpoint_path = model_params["pretrained_model_path"]
-        best_model_path = get_k_fold_model_path(checkpoint_path, fold)
-        pytorch_model.load_state_dict(torch.load(best_model_path))
-
-        # Define which keys are *excluded from training* (i.e., frozen)
-        excluded_pt_keys = model_params.get('excluded_pt_keys', [])
-
-        # Freeze only the layers you want
-        for name, param in pytorch_model.named_parameters():
-            if name in excluded_pt_keys:
-                param.requires_grad = False
-                # print(f"Froze: {name}")
-            else:
-                param.requires_grad = True  # Unfrozen by default
-
-        # Capture the initial state_dict *after freezing*
-        initial_state_dict = {k: v.clone().detach().cpu() for k, v in pytorch_model.state_dict().items()}
-
-    # If the model is in TensorFlow/Keras format, we will convert it to PyTorch.
+        # If the model is in TensorFlow/Keras format, we will convert it to PyTorch.
     if model_params.get('model_converter', False):
         # --- PyTorch Model Instantiation ---
         pytorch_model = TCN_clf(
@@ -567,9 +590,11 @@ def create_pytorch_model(model_params, fold=None):
         #     print(f"{name}: {'❄️ Frozen' if not param.requires_grad else '🔥 Trainable'}")
         
         initial_state_dict = copy.deepcopy(pytorch_model.state_dict())
-    
+
     # If not converting or using a pre-trained model, initialize a new model
-    if not model_params.get('model_converter', False) and not model_params.get("use_pretrained_model", False):
+    if not model_params.get('model_converter', False) and \
+        not model_params.get("use_pretrained_model", False):
+        
         # If not converting or using a pre-trained model, initialize a new model
         pytorch_model = TCN_clf(
             num_feats=model_params['num_feats'], conv_params=model_params['conv_params'],
@@ -577,6 +602,106 @@ def create_pytorch_model(model_params, fold=None):
             triplet=model_params.get('triplet', False), classification=model_params.get('classification', True),
             clf_neurons=model_params['clf_neurons'], num_classes=num_classes_for_model
         )
+    
+    # If the model is in Pytorch format, we assume it has been converted or is ready to be used.
+    if not model_params.get('model_converter', False) and \
+        model_params.get("use_pretrained_model", False) and \
+            not model_params.get('fine_tunning', False) and \
+                not model_params.get('average_k_fold', False):
+
+        # --- PyTorch Model Instantiation ---
+        pytorch_model = TCN_clf(
+            num_feats=model_params['num_feats'], conv_params=model_params['conv_params'],
+            lstm_dropout=model_params['lstm_dropout'], masking=model_params['masking'],
+            triplet=model_params.get('triplet', False), classification=model_params.get('classification', True),
+            clf_neurons=model_params['clf_neurons'], num_classes=num_classes_for_model
+        )
+
+        # After loading the model with the pretrained weights
+        checkpoint_path = model_params["pretrained_model_path"]
+        best_model_path = get_best_model_path(checkpoint_path)
+        pytorch_model.load_state_dict(torch.load(best_model_path))
+
+        # Define which keys are *excluded from training* (i.e., frozen)
+        excluded_pt_keys = model_params.get('excluded_pt_keys', [])
+
+        # Freeze only the layers you want
+        for name, param in pytorch_model.named_parameters():
+            if name in excluded_pt_keys:
+                param.requires_grad = False
+                # print(f"Froze: {name}")
+            else:
+                param.requires_grad = True  # Unfrozen by default
+
+        # Capture the initial state_dict *after freezing*
+        initial_state_dict = {k: v.clone().detach().cpu() for k, v in pytorch_model.state_dict().items()}
+
+    # If the model is in Pytorch format, we assume it has been converted or is ready to be used.
+    if not model_params.get('model_converter', False) and \
+        model_params.get("use_pretrained_model", False) and \
+            model_params.get('fine_tunning', False) and \
+                not model_params.get('average_k_fold', False):
+        
+        # --- PyTorch Model Instantiation ---
+        pytorch_model = TCN_clf(
+            num_feats=model_params['num_feats'], conv_params=model_params['conv_params'],
+            lstm_dropout=model_params['lstm_dropout'], masking=model_params['masking'],
+            triplet=model_params.get('triplet', False), classification=model_params.get('classification', True),
+            clf_neurons=model_params['clf_neurons'], num_classes=num_classes_for_model
+        )
+
+        # After loading the model with the pretrained weights
+        checkpoint_path = model_params["pretrained_model_path"]
+        best_model_path = get_k_fold_model_path(checkpoint_path, fold)
+        pytorch_model.load_state_dict(torch.load(best_model_path))
+
+        # Define which keys are *excluded from training* (i.e., frozen)
+        excluded_pt_keys = model_params.get('excluded_pt_keys', [])
+
+        # Freeze only the layers you want
+        for name, param in pytorch_model.named_parameters():
+            if name in excluded_pt_keys:
+                param.requires_grad = False
+                # print(f"Froze: {name}")
+            else:
+                param.requires_grad = True  # Unfrozen by default
+
+        # Capture the initial state_dict *after freezing*
+        initial_state_dict = {k: v.clone().detach().cpu() for k, v in pytorch_model.state_dict().items()}
+
+    # If the model is in Pytorch format, we assume it has been converted or is ready to be used.
+    if not model_params.get('model_converter', False) and \
+        model_params.get("use_pretrained_model", False) and \
+            model_params.get('fine_tunning', False) and \
+                model_params.get('average_k_fold', False):
+        
+        # --- PyTorch Model Instantiation ---
+        pytorch_model = TCN_clf(
+            num_feats=model_params['num_feats'], conv_params=model_params['conv_params'],
+            lstm_dropout=model_params['lstm_dropout'], masking=model_params['masking'],
+            triplet=model_params.get('triplet', False), classification=model_params.get('classification', True),
+            clf_neurons=model_params['clf_neurons'], num_classes=num_classes_for_model
+        )
+
+        # After loading the model with the pretrained weights
+        checkpoint_path = model_params["pretrained_model_path"]
+        best_model_path = get_average_k_fold_model_path(checkpoint_path)
+        pytorch_model.load_state_dict(torch.load(best_model_path))
+
+        # Define which keys are *excluded from training* (i.e., frozen)
+        excluded_pt_keys = model_params.get('excluded_pt_keys', [])
+
+        # Freeze only the layers you want
+        for name, param in pytorch_model.named_parameters():
+            if name in excluded_pt_keys:
+                param.requires_grad = False
+                # print(f"Froze: {name}")
+            else:
+                param.requires_grad = True  # Unfrozen by default
+
+        # Capture the initial state_dict *after freezing*
+        initial_state_dict = {k: v.clone().detach().cpu() for k, v in pytorch_model.state_dict().items()}
+    
     
     return pytorch_model, initial_state_dict
 
@@ -1804,10 +1929,13 @@ if __name__ == "__main__":
         "path_results": "./pretrained_models_Pytorch/",
 
         # TODO: Change based on if you want to continue to use the models from the previous K-fold
-        "fine_Tunning": True,  # Set to True if you want to fine-tune the previous K models
+        "fine_tunning": True,  # Set to True if you want to fine-tune the previous K models
+        
+        # TODO: Change based on if you want to use the K-folds models
+        "average_k_fold": True,  # Set to True if you want to average the results of the K-folds models
         
         # TODO: Change every time you switch to the next model
-        "model_name": "Models_Therapist_Classifier_Block_5_4_3_2_1_0",
+        "model_name": "Models_Therapist_Classifier_Block(joining_models)",
         # "model_name": "Models_Therapist_Classifier_Block_5_4_3_2_1_0_From_Zero",
 
         # TODO: Change every time you switch to the next model
@@ -1816,12 +1944,12 @@ if __name__ == "__main__":
         
         # TODO: Change every time you switch to the next model
         # Convert Keras parameters to PyTorch equivalents (Set True if The model you want to fine tune is in TensorFlow/Keras format)
-        "model_converter": False, # Set to True if you want to convert a Keras model to PyTorch
+        "model_converter": True, # Set to True if you want to convert a Keras model to PyTorch
         
         # TODO: Change every time you switch to the next model
         # Path to the pre-trained model in Pytorch format
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier_Block_5/0730_1921_model_1/weights/Best_Model-ep300-trainloss0.31293-f10.54116.pt",
-        "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier_Block_5_4_3_2_1",  # Path to the pre-trained model for Therapies dataset in Pytorch format
+        # "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier_Block",  # Path to the pre-trained model for Therapies dataset in Pytorch format
         
         # Path to the pre-trained model in TensorFlow/Keras format
         # "pretrained_model_path": "./ntu_benchmark_model/model",  # Path to the pre-trained model for NTU-120 one-shot benchmark
@@ -1844,32 +1972,32 @@ if __name__ == "__main__":
         # TODO: Change every time you switch to the next model
         # Define which keys are *excluded from training* (i.e., frozen)
         "excluded_pt_keys": [
-            # "encoder_net.encoder.0.residual_blocks.0.conv1.weight",
-            # "encoder_net.encoder.0.residual_blocks.0.conv1.bias",
-            # "encoder_net.encoder.0.residual_blocks.0.conv2.weight",
-            # "encoder_net.encoder.0.residual_blocks.0.conv2.bias",
-            # "encoder_net.encoder.0.residual_blocks.0.downsample.weight",
-            # "encoder_net.encoder.0.residual_blocks.0.downsample.bias",
-            # "encoder_net.encoder.0.residual_blocks.1.conv1.weight",
-            # "encoder_net.encoder.0.residual_blocks.1.conv1.bias",
-            # "encoder_net.encoder.0.residual_blocks.1.conv2.weight",
-            # "encoder_net.encoder.0.residual_blocks.1.conv2.bias",
-            # "encoder_net.encoder.0.residual_blocks.2.conv1.weight",
-            # "encoder_net.encoder.0.residual_blocks.2.conv1.bias",
-            # "encoder_net.encoder.0.residual_blocks.2.conv2.weight",
-            # "encoder_net.encoder.0.residual_blocks.2.conv2.bias",
-            # "encoder_net.encoder.0.residual_blocks.3.conv1.weight",
-            # "encoder_net.encoder.0.residual_blocks.3.conv1.bias",
-            # "encoder_net.encoder.0.residual_blocks.3.conv2.weight",
-            # "encoder_net.encoder.0.residual_blocks.3.conv2.bias",
-            # "encoder_net.encoder.0.residual_blocks.4.conv1.weight",
-            # "encoder_net.encoder.0.residual_blocks.4.conv1.bias",
-            # "encoder_net.encoder.0.residual_blocks.4.conv2.weight",
-            # "encoder_net.encoder.0.residual_blocks.4.conv2.bias",
-            # "encoder_net.encoder.0.residual_blocks.5.conv1.weight",
-            # "encoder_net.encoder.0.residual_blocks.5.conv1.bias",
-            # "encoder_net.encoder.0.residual_blocks.5.conv2.weight",
-            # "encoder_net.encoder.0.residual_blocks.5.conv2.bias",
+            "encoder_net.encoder.0.residual_blocks.0.conv1.weight",
+            "encoder_net.encoder.0.residual_blocks.0.conv1.bias",
+            "encoder_net.encoder.0.residual_blocks.0.conv2.weight",
+            "encoder_net.encoder.0.residual_blocks.0.conv2.bias",
+            "encoder_net.encoder.0.residual_blocks.0.downsample.weight",
+            "encoder_net.encoder.0.residual_blocks.0.downsample.bias",
+            "encoder_net.encoder.0.residual_blocks.1.conv1.weight",
+            "encoder_net.encoder.0.residual_blocks.1.conv1.bias",
+            "encoder_net.encoder.0.residual_blocks.1.conv2.weight",
+            "encoder_net.encoder.0.residual_blocks.1.conv2.bias",
+            "encoder_net.encoder.0.residual_blocks.2.conv1.weight",
+            "encoder_net.encoder.0.residual_blocks.2.conv1.bias",
+            "encoder_net.encoder.0.residual_blocks.2.conv2.weight",
+            "encoder_net.encoder.0.residual_blocks.2.conv2.bias",
+            "encoder_net.encoder.0.residual_blocks.3.conv1.weight",
+            "encoder_net.encoder.0.residual_blocks.3.conv1.bias",
+            "encoder_net.encoder.0.residual_blocks.3.conv2.weight",
+            "encoder_net.encoder.0.residual_blocks.3.conv2.bias",
+            "encoder_net.encoder.0.residual_blocks.4.conv1.weight",
+            "encoder_net.encoder.0.residual_blocks.4.conv1.bias",
+            "encoder_net.encoder.0.residual_blocks.4.conv2.weight",
+            "encoder_net.encoder.0.residual_blocks.4.conv2.bias",
+            "encoder_net.encoder.0.residual_blocks.5.conv1.weight",
+            "encoder_net.encoder.0.residual_blocks.5.conv1.bias",
+            "encoder_net.encoder.0.residual_blocks.5.conv2.weight",
+            "encoder_net.encoder.0.residual_blocks.5.conv2.bias",
             # "clf_out.weight",
             # "clf_out.bias",
         ],
@@ -2066,6 +2194,7 @@ if __name__ == "__main__":
     with open(os.path.join(metrics_save_dir, 'best_hyperparams.json'), 'w') as f:
         json.dump(best_params, f, indent=4)
     
+    
     # ----------------------------
     # Clean up unrelated files
     # ----------------------------
@@ -2075,20 +2204,18 @@ if __name__ == "__main__":
             continue  # Keep this file
         if filename == 'best_hyperparams.json':
             continue  # Keep the JSON too
-
         # Otherwise, delete it
         file_path = os.path.join(metrics_save_dir, filename)
         os.remove(file_path)
     # ----------------------------
     
+    
     # ----------------------------
     # Clean up old model folders
     # ----------------------------
     model_dir = os.path.join(static_params['path_results'], static_params['model_name'])
-
     for foldername in os.listdir(model_dir):        
         folder_path = os.path.join(model_dir, foldername)
-        
         # Only consider directories and ignore the best model folder
         if os.path.isdir(folder_path) and f"model_{get_best_model_number}" not in foldername:
             try:
@@ -2098,9 +2225,18 @@ if __name__ == "__main__":
                 print(f"Error deleting folder {folder_path}: {e}")
     # ----------------------------
     
-    # FOR LAST RUN
+    
+    # ----------------------------
+    # Save averaged K-fold model
+    # ----------------------------
+    checkpoint_path = static_params["pretrained_model_path"]
+    save_average_k_fold_model(checkpoint_path, model_class=TCN_clf, device='cuda')
+    # ----------------------------
+
     
     """     
+    # FOR LAST RUN
+    
     # Set the best F1 score and K for the model parameters
     static_params["best_val_f1"] = study.best_value
     static_params["K"] = None
