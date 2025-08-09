@@ -390,7 +390,7 @@ def get_k_fold_model_path(model_path_or_folder, fold=None):
     else:
         raise FileNotFoundError(f"No valid model found for fold {fold} in {model_subdir}")
 
-def save_average_k_fold_model(checkpoint_path, model_class, save_name_prefix="average_k_fold", device="cpu"):
+def save_average_k_fold_model(model_params, weights_save_path, model_class, save_name_prefix="average_k_fold", device="cpu"):
     """
     Averages all .pt models in all 'weights' folders under checkpoint_path and saves the result.
 
@@ -402,14 +402,10 @@ def save_average_k_fold_model(checkpoint_path, model_class, save_name_prefix="av
     """
     pt_paths = []
 
-    # 1. Traverse subfolders and collect .pt model paths
-    for subdir in os.listdir(checkpoint_path):
-        weights_dir = os.path.join(checkpoint_path, subdir, "weights")
-        if not os.path.isdir(weights_dir):
-            continue
-        for filename in os.listdir(weights_dir):
-            if filename.endswith(".pt"):
-                pt_paths.append(os.path.join(weights_dir, filename))
+    # 1. Traverse weights folder and collect .pt model paths
+    for filename in os.listdir(weights_save_path):
+        if filename.endswith(".pt"):
+            pt_paths.append(os.path.join(weights_save_path, filename))
 
     if not pt_paths:
         raise FileNotFoundError("No .pt model files found in any weights subfolder.")
@@ -434,17 +430,25 @@ def save_average_k_fold_model(checkpoint_path, model_class, save_name_prefix="av
     for k in avg_state_dict:
         avg_state_dict[k] /= len(pt_paths)
 
-    # 3. Create averaged model
-    model = model_class()
-    model.load_state_dict(avg_state_dict)
+    # 3. Create averaged model from the first saved model
+    model = model_class(
+        num_feats=model_params['num_feats'], conv_params=model_params['conv_params'],
+        lstm_dropout=model_params['lstm_dropout'], masking=model_params['masking'],
+        triplet=model_params.get('triplet', False), classification=model_params.get('classification', True),
+        clf_neurons=model_params['clf_neurons'], num_classes=model_params['num_classes']
+    )
+    model.load_state_dict(avg_state_dict)  # replace with averaged weights
     model.to(device)
 
-    # 4. Save model with F1 in name
+    # 4. Save model with F1 in name inside weights folder
     avg_f1 = sum(f1_scores) / len(f1_scores) if f1_scores else 0.0
     save_name = f"{save_name_prefix}-f1{avg_f1:.5f}.pt"
-    save_path = os.path.join(checkpoint_path, save_name)
+
+    # Full save path inside weights folder
+    save_path = os.path.join(weights_save_path, save_name)
 
     torch.save(model.state_dict(), save_path)
+    print(f"\nAveraged model saved to: {save_path}")
 
 def get_average_k_fold_model_path(model_path_or_folder):
     """
@@ -1549,14 +1553,23 @@ def main(model_params):
             
             # 3. Save arrays with this filename
             np.savez(os.path.join(metrics_save_dir, filename),
-                    train_losses=np.array(train_losses),
-                    val_losses=np.array(val_losses),
-                    val_f1_scores=np.array(val_f1_scores),
-                    val_auc_scores=np.array(val_auc_scores),
-                    )
+                train_losses=np.array(train_losses),
+                val_losses=np.array(val_losses),
+                val_f1_scores=np.array(val_f1_scores),
+                val_auc_scores=np.array(val_auc_scores),
+            )
+        
         # Save the mean of the best F1 scores across folds
         # in order to report the overall performance
         mean_best_val_f1 = np.mean(fold_val_f1_scores)
+        
+        # ----------------------------
+        # Save averaged K-fold model
+        # ----------------------------
+        model_dir = os.path.join(model_params['path_results'], model_params['model_name'])
+        save_average_k_fold_model(model_params=model_params, weights_save_path=weights_save_path, model_class=TCN_clf, device='cuda')
+        # ----------------------------
+        
     else:
         # --- Only Training for the best Hyperparameters using all the data ---
         print("\n--- Training with all data (no K-Fold) ---")
@@ -1916,11 +1929,11 @@ if __name__ == "__main__":
     static_params = {
         "best_val_f1": 0,  # Best F1 score from the study
         "best_model_number": 0,  # Best model number from the study
-        "K": 5,  # Number of folds for cross-validation
         "joints_num": 25, # 24 for MP
         "num_classes": 14, # Number of classes for classification (NTU-120 has 120, MP has 12 and Therapies has 14)
 
         "epochs": 300, # Number of training epochs
+        "K": 5,  # Number of folds for cross-validation
         "n_trials": 40,  # Number of trials for Optuna
 
         # Set to 0 for no training logs, 1 for basic logs, >1 for more detailed logs
@@ -2209,7 +2222,6 @@ if __name__ == "__main__":
         os.remove(file_path)
     # ----------------------------
     
-    
     # ----------------------------
     # Clean up old model folders
     # ----------------------------
@@ -2224,15 +2236,6 @@ if __name__ == "__main__":
             except Exception as e:
                 print(f"Error deleting folder {folder_path}: {e}")
     # ----------------------------
-    
-    
-    # ----------------------------
-    # Save averaged K-fold model
-    # ----------------------------
-    checkpoint_path = static_params["pretrained_model_path"]
-    save_average_k_fold_model(checkpoint_path, model_class=TCN_clf, device='cuda')
-    # ----------------------------
-
     
     """     
     # FOR LAST RUN
