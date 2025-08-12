@@ -469,7 +469,7 @@ def get_average_k_fold_model_path(model_path_or_folder):
 
         for filename in os.listdir(weights_dir):
             if "average_k_fold" in filename and filename.endswith(".pt"):
-                match = re.search(r"f1([0-9.]+)", filename)
+                match = re.search(r"f1([0-9]+\.[0-9]+)(?=\.|_|$)", filename)
                 if match:
                     f1 = float(match.group(1))
                     if f1 > best_f1:
