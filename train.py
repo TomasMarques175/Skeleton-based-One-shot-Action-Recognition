@@ -1055,71 +1055,77 @@ def Get_Confusion_Matrix(model_params, all_clf_preds_val, all_clf_labels_val, mo
     plt.savefig(png_path)
     plt.close()
 
-def evaluate_model_on_all_data(model, full_df, video_skels, model_params, device=None):
+def evaluate_model_on_all_data(model, full_eval_data, video_skels, model_params, device, fold,save_path):
 
-    # Set device
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
     model.eval()
 
-    # Create dataset
-    full_dataset = TherapyDataset(
-        full_df,
-        video_skels,
-        in_memory=model_params.get('in_memory_generator_val', False),
-        validation=True,
-        **model_params
-    )
-
-    # Create DataLoader
-    full_loader = DataLoader(
-        full_dataset,
-        batch_size=model_params.get('batch_size', 32),
-        shuffle=False,
-        num_workers=model_params.get('num_workers', 4),
-        drop_last=False,
-        collate_fn=collate_fn_classification_pre_pad
-    )
-
-    # Create a mapping from action names to indices
-    all_actions = actions_data['action'].unique()
+    # Create action mapping
+    all_actions = full_eval_data['action'].unique()
     action_to_idx = {action: idx for idx, action in enumerate(sorted(all_actions))}
-    labels = actions_data['action'].map(action_to_idx).values
 
-    # Inference
-    all_preds, all_labels = [], []
-    with torch.no_grad():
-        for batch in full_loader:
-            inputs, labels = batch
-            inputs = inputs.to(device)
+    # Prepare role-based subsets
+    subsets = {
+        "all": full_eval_data,
+        "children": full_eval_data[full_eval_data['role'] == 'child'],
+        "therapists": full_eval_data[full_eval_data['role'] == 'therapist']
+    }
 
-            outputs = model(inputs)
-            preds = torch.argmax(outputs, dim=1)
+    for group_name, subset_df in subsets.items():
+        if subset_df.empty:
+            print(f"Skipping {group_name}: no samples.")
+            continue
 
-            all_preds.extend(preds.cpu().numpy())
-            all_labels.extend(labels.cpu().numpy())
+        # Dataset & DataLoader
+        dataset = TherapyDataset(
+            subset_df,
+            video_skels,
+            in_memory=model_params.get('in_memory_generator_val', False),
+            validation=True,
+            **model_params
+        )
+        loader = DataLoader(
+            dataset,
+            batch_size=model_params.get('batch_size', 32),
+            shuffle=False,
+            num_workers=model_params.get('num_workers', 4),
+            drop_last=False,
+            collate_fn=collate_fn_classification_pre_pad
+        )
 
-    # Report
-    print("\n--- Classification Report ---")
-    print(classification_report(all_labels, all_preds))
+        # Inference
+        all_preds, all_labels = [], []
+        with torch.no_grad():
+            for inputs, labels in loader:
+                inputs = inputs.to(device)
+                outputs = model(inputs)
+                preds = torch.argmax(outputs, dim=1)
 
-    # Confusion Matrix
-    conf_mat = confusion_matrix(all_labels, all_preds)
-    plt.figure(figsize=(10, 8))
-    sns.heatmap(conf_mat, annot=True, fmt='d', cmap='Blues')
-    plt.xlabel("Predicted")
-    plt.ylabel("Actual")
-    plt.title("Confusion Matrix on Full Dataset")
-    plt.tight_layout()
+                all_preds.extend(preds.cpu().numpy())
+                all_labels.extend(labels.cpu().numpy())
 
-    # Save to Final validation/<model_name>/
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    save_dir = os.path.join(base_dir, 'Final validation', model_name)
-    os.makedirs(save_dir, exist_ok=True)
-    save_path = os.path.join(save_dir, 'conf_matrix_full_data.png')
-    plt.savefig(save_path)
-    print(f"Confusion matrix saved to: {save_path}")
+        # Report
+        print(f"\n--- Classification Report ({group_name}) ---")
+        print(classification_report(all_labels, all_preds))
+
+        # Confusion Matrix
+        conf_mat = confusion_matrix(all_labels, all_preds)
+        plt.figure(figsize=(10, 8))
+        sns.heatmap(conf_mat, annot=True, fmt='d', cmap='Blues')
+        plt.xlabel("Predicted")
+        plt.ylabel("Actual")
+        plt.title(f"Confusion Matrix ({group_name})")
+        plt.tight_layout()
+
+        # Save per group
+        group_save_path = os.path.join(
+            os.path.dirname(save_path),
+            f"{os.path.splitext(os.path.basename(save_path))[0]}_fold{fold}_{group_name}.png"
+        )
+        plt.savefig(group_save_path)
+        print(f"Confusion matrix saved to: {save_path}")
 
 def main(model_params):
     train_verbose = model_params.get('train_verbose', 1)
@@ -1283,10 +1289,22 @@ def main(model_params):
     # action_counts = actions_data['action'].value_counts()
     # print(f"Action counts:\n{action_counts}")
     
+    # --- Prepare data ---
     # Create a mapping from action names to indices
     all_actions = actions_data['action'].unique()
     action_to_idx = {action: idx for idx, action in enumerate(sorted(all_actions))}
     labels = actions_data['action'].map(action_to_idx).values
+
+    # === Make a copy of the full dataset for later evaluation ===
+    full_eval_data = actions_data.copy()
+
+    # Separate into children and therapist subsets (assuming you have a 'role' column or similar)
+    """children_data = full_eval_data[full_eval_data['role'] == 'child']
+    therapist_data = full_eval_data[full_eval_data['role'] == 'therapist']
+
+    # If you want labels for these too:
+    children_labels = children_data['action'].map(action_to_idx).values
+    therapist_labels = therapist_data['action'].map(action_to_idx).values"""
     
     # --- Cross-Validation Setup ---
     if model_params.get("K", None) is not None:
@@ -1558,6 +1576,9 @@ def main(model_params):
                 val_f1_scores=np.array(val_f1_scores),
                 val_auc_scores=np.array(val_auc_scores),
             )
+            
+            # Evaluate on all data
+            evaluate_model_on_all_data(pytorch_model, full_eval_data, video_skels, model_params, device, fold, os.path.join(metrics_save_dir, filename))
         
         # Save the mean of the best F1 scores across folds
         # in order to report the overall performance
@@ -1945,10 +1966,10 @@ if __name__ == "__main__":
         "fine_tunning": True,  # Set to True if you want to fine-tune the previous K models
         
         # TODO: Change based on if you want to use the K-folds models
-        "average_k_fold": True,  # Set to True if you want to average the results of the K-folds models
+        "average_k_fold": False,  # Set to True if you want to average the results of the K-folds models
         
         # TODO: Change every time you switch to the next model
-        "model_name": "Models_Therapist_Classifier_Block_5(average_k_fold)",
+        "model_name": "Models_Therapist_Classifier_Block(k_fold_separated_c_th_comp)",
         # "model_name": "Models_Therapist_Classifier_Block_5_4_3_2_1_0_From_Zero",
 
         # TODO: Change every time you switch to the next model
@@ -1962,11 +1983,11 @@ if __name__ == "__main__":
         # TODO: Change every time you switch to the next model
         # Path to the pre-trained model in Pytorch format
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier_Block_5/0730_1921_model_1/weights/Best_Model-ep300-trainloss0.31293-f10.54116.pt",
-        "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier_Block(average_k_fold)",  # Path to the pre-trained model for Therapies dataset in Pytorch format
+        # "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier_Block(k_fold_separated_c_th_comp)",  # Path to the pre-trained model for Therapies dataset in Pytorch format
         
         # Path to the pre-trained model in TensorFlow/Keras format
         # "pretrained_model_path": "./ntu_benchmark_model/model",  # Path to the pre-trained model for NTU-120 one-shot benchmark
-        # "pretrained_model_path": "./therapies_model_7/model",   # Path to the pre-trained model for the therapies dataset
+        "pretrained_model_path": "./therapies_model_7/model",   # Path to the pre-trained model for the therapies dataset
 
         # TODO: Change every time you switch to the next model
         # # NTU-120 Data sets to optimize the therapy data
@@ -2007,10 +2028,10 @@ if __name__ == "__main__":
             "encoder_net.encoder.0.residual_blocks.4.conv1.bias",
             "encoder_net.encoder.0.residual_blocks.4.conv2.weight",
             "encoder_net.encoder.0.residual_blocks.4.conv2.bias",
-            #"encoder_net.encoder.0.residual_blocks.5.conv1.weight",
-            #"encoder_net.encoder.0.residual_blocks.5.conv1.bias",
-            #"encoder_net.encoder.0.residual_blocks.5.conv2.weight",
-            #"encoder_net.encoder.0.residual_blocks.5.conv2.bias",
+            "encoder_net.encoder.0.residual_blocks.5.conv1.weight",
+            "encoder_net.encoder.0.residual_blocks.5.conv1.bias",
+            "encoder_net.encoder.0.residual_blocks.5.conv2.weight",
+            "encoder_net.encoder.0.residual_blocks.5.conv2.bias",
             # "clf_out.weight",
             # "clf_out.bias",
         ],
