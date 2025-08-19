@@ -1070,8 +1070,8 @@ def evaluate_model_on_all_data(model, full_eval_data, video_skels, model_params,
     # Prepare role-based subsets
     subsets = {
         "all": full_eval_data,
-        "children": full_eval_data[full_eval_data['role'] == 'child'],
-        "therapists": full_eval_data[full_eval_data['role'] == 'therapist']
+        "children": full_eval_data[full_eval_data['is_therapist'] == 'n'],
+        "therapists": full_eval_data[full_eval_data['is_therapist'] == 'y']
     }
 
     for group_name, subset_df in subsets.items():
