@@ -21,6 +21,7 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torchinfo import summary
 import re
+import pandas as pd
 
 # --- Utility imports ---
 from scipy.special import comb  # Used by get_num_feats
