@@ -1587,7 +1587,6 @@ def main(model_params):
         # ----------------------------
         # Save averaged K-fold model
         # ----------------------------
-        model_dir = os.path.join(model_params['path_results'], model_params['model_name'])
         save_average_k_fold_model(model_params=model_params, weights_save_path=weights_save_path, model_class=TCN_clf, device='cuda')
         # ----------------------------
         
@@ -1955,7 +1954,7 @@ if __name__ == "__main__":
 
         "epochs": 300, # Number of training epochs
         "K": 5,  # Number of folds for cross-validation
-        "n_trials": 20,  # Number of trials for Optuna
+        "n_trials": 40,  # Number of trials for Optuna
 
         # Set to 0 for no training logs, 1 for basic logs, >1 for more detailed logs
         "train_verbose": 1,
@@ -1978,7 +1977,7 @@ if __name__ == "__main__":
         
         # TODO: Change every time you switch to the next model
         # Convert Keras parameters to PyTorch equivalents (Set True if The model you want to fine tune is in TensorFlow/Keras format)
-        "model_converter": False, # Set to True if you want to convert a Keras model to PyTorch
+        "model_converter": True, # Set to True if you want to convert a Keras model to PyTorch
         
         # TODO: Change every time you switch to the next model
         # Path to the pre-trained model in Pytorch format
