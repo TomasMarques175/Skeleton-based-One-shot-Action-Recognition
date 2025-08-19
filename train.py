@@ -1896,7 +1896,7 @@ def objective(trial, static_params):
     # Define hyperparameter search space
     optuna_params = {        
         # Training-related
-        "init_lr": trial.suggest_float("init_lr", 1e-6, 1e-5, log=True),
+        "init_lr": trial.suggest_float("init_lr", 1e-5, 1e-3, log=True),
         "batch_size": trial.suggest_categorical("batch_size", [8, 16, 32, 64]),
 
         # LSTM
@@ -1905,13 +1905,13 @@ def objective(trial, static_params):
 
         # ReduceLROnPlateau
         "lr_min_delta": trial.suggest_float("lr_min_delta", 1e-5, 1e-2, log=True),
-        "lr_factor": trial.suggest_float("lr_factor", 0.1, 0.3),
-        "lr_patience": trial.suggest_int("lr_patience", 10, 20),
+        "lr_factor": trial.suggest_float("lr_factor", 0.1, 0.9),
+        "lr_patience": trial.suggest_int("lr_patience", 2, 10),
         "min_lr": trial.suggest_float("min_lr", 1e-7, 1e-4, log=True),
 
         # EarlyStopping
         "early_stopping_min_delta": trial.suggest_float("early_stopping_min_delta", 1e-5, 1e-2, log=True),
-        "es_patience": trial.suggest_int("es_patience", 10, 20),
+        "es_patience": trial.suggest_int("es_patience", 3, 12),
     }
     
     # Combine the two
