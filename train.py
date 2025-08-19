@@ -1263,7 +1263,9 @@ def main(model_params):
     
     actions_data = actions_data.sort_values(by=['patient', 'session', 'video', 'ex_num'])
     
-    print(actions_data.head())
+    # Show the full DataFrame without truncation
+    with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', None):
+        print(actions_data)
 
     """ actions_data, actions_data_final_val = train_test_split(
         actions_data,
