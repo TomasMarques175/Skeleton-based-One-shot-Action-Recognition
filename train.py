@@ -17,7 +17,6 @@ import json
 # import torch.nn.functional as F # TCN_classifier might use it
 import torch.optim as optim
 # Dataset is imported from pytorch_dataset
-from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torchinfo import summary
 import re
@@ -1156,8 +1155,18 @@ def evaluate_model_on_all_data(model, full_eval_data, video_skels, model_params,
                 all_labels.extend(labels.cpu().numpy())
 
         # Report
+        report = classification_report(all_labels, all_preds)
         print(f"\n--- Classification Report ({group_name}) ---")
-        print(classification_report(all_labels, all_preds))
+        print(report)
+
+        # Save report to file
+        report_save_path = os.path.join(
+            os.path.dirname(save_path),
+            f"{os.path.splitext(os.path.basename(save_path))[0]}_fold{fold}_{group_name}_report.txt"
+        )
+        with open(report_save_path, "w", encoding="utf-8") as f:
+            f.write(report)
+        print(f"Classification report saved to: {report_save_path}")
 
         # Confusion Matrix
         conf_mat = confusion_matrix(all_labels, all_preds)
@@ -1418,8 +1427,6 @@ def main(model_params):
         print(f"Labels shape: {labels.shape}")
         print(f"Unique classes in dataset: {np.unique(labels)}")
         print(f"Full dataset labels: {labels}")
-
-        exit(0)
         
         # --- Training Loop ---
         fold_val_f1_scores = []
@@ -1428,7 +1435,13 @@ def main(model_params):
         # for fold, (train_idx, val_idx) in enumerate(skf.split(actions_data, labels)):
         for fold, (train_idx, val_idx) in enumerate(skf.split(range(len(full_dataset)), labels)):
 
-
+            # --- PyTorch Model Instantiation ---
+            pytorch_model, initial_state_dict = create_pytorch_model(model_params, fold)
+            
+            # --- Model Summary ---
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            pytorch_model.to(device)
+            
             # --- Create subsets (Therapist) ---
             # train_data = actions_data.iloc[train_idx].reset_index(drop=True)
             # val_data = actions_data.iloc[val_idx].reset_index(drop=True)
@@ -1458,13 +1471,6 @@ def main(model_params):
                 drop_last=False
             )
             
-            # --- PyTorch Model Instantiation ---
-            pytorch_model, initial_state_dict = create_pytorch_model(model_params, fold)
-            
-            # --- Model Summary ---
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            pytorch_model.to(device)
-
             # --- PyTorch Optimizer and Loss (Mimicking Keras printouts) ---
             active_losses, loss_weights_pytorch_pt, optimizer = Setup_optimizer_and_loss(pytorch_model, model_params, device, train_subset)
             
@@ -2086,7 +2092,7 @@ if __name__ == "__main__":
         "best_val_f1": 0,  # Best F1 score from the study
         "best_model_number": 0,  # Best model number from the study
         "joints_num": 25, # 25 for Kinect 24 for MP
-        "num_classes": 12, # Number of classes for classification (NTU-120 has 120, MP has 12 and Therapies has 14)
+        "num_classes": 14, # Number of classes for classification (NTU-120 has 120, MP has 12 and Therapies has 14)
 
         "epochs": 300, # Number of training epochs
         "K": 5,  # Number of folds for cross-validation
