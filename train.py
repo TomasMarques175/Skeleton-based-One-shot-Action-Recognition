@@ -300,21 +300,35 @@ def Setup_optimizer_and_loss(pytorch_model, model_params, device, train_dataset=
     active_losses = {}
     loss_weights_pytorch_pt = {}
     if model_params.get('classification', True):
-        # Get inverse frequency weights
-                # Extract all labels from the training dataset
+        # Extract all labels from the training dataset
         train_labels_from_dataset = [label for _, label in train_dataset]
         # Convert tensors to integers if needed
         train_labels_from_dataset = [label.item() if torch.is_tensor(label) else label for label in train_labels_from_dataset]
-        counts = Counter(train_labels_from_dataset)
-        num_classes = len(counts)
-        total = sum(counts.values())
-        weights = [total / (num_classes * counts[i]) for i in range(num_classes)]
-        weights_tensor = torch.tensor(weights, dtype=torch.float32).to(device)
+
+        # Infer number of classes from dataset
+        num_classes_model = model_params['num_classes']  # full size, e.g. 14
+
+        # Count samples per class
+        counts = np.bincount(train_labels_from_dataset, minlength=num_classes_model)
+        total = counts.sum()
+
+        # Compute inverse-frequency weights (avoid divide by zero)
+        weights = []
+        for i in range(num_classes_model):
+            if counts[i] > 0:
+                weights.append(total / (num_classes_model * counts[i]))
+            else:
+                weights.append(0.0)
+
+        # Convert to tensor directly on device
+        weights_tensor = torch.tensor(weights, dtype=torch.float32, device=device)
+
+        # Use in loss function
         criterion_clf = nn.CrossEntropyLoss(weight=weights_tensor)
         active_losses['classification'] = criterion_clf
-        # Match Keras loss_weights['output_1'] = 0.4 if classification is the primary/first output
-        loss_weights_pytorch_pt['classification'] = model_params.get(
-            'clf_loss_weight', 0.4)
+
+        # Match keras loss_weights['output_1'] = 0.4 if classification is the primary/first output
+        loss_weights_pytorch_pt['classification'] = model_params.get('clf_loss_weight', 0.4)
     if model_params.get('triplet', False):  # If you also had triplet loss in Keras
         criterion_triplet_pt = nn.TripletMarginLoss(
             margin=model_params.get('triplet_margin', 1.0))
@@ -491,7 +505,9 @@ def create_pytorch_model(model_params, fold=None):
     initial_state_dict = None  # Initialize to None, will be set later
     
         # If the model is in TensorFlow/Keras format, we will convert it to PyTorch.
-    if model_params.get('model_converter', False):
+    if model_params.get('model_converter', False) and \
+        not model_params.get('model_is_pytorch', False):
+        
         # --- PyTorch Model Instantiation ---
         pytorch_model = TCN_clf(
             num_feats=model_params['num_feats'], conv_params=model_params['conv_params'],
@@ -595,6 +611,66 @@ def create_pytorch_model(model_params, fold=None):
         
         initial_state_dict = copy.deepcopy(pytorch_model.state_dict())
 
+    if model_params.get('model_converter', False) and \
+        model_params.get('model_is_pytorch', False) and \
+            model_params.get("use_pretrained_model", False) and \
+                model_params.get('fine_tunning', False) and \
+                    not model_params.get('average_k_fold', False):
+        
+        checkpoint_path = model_params["pretrained_model_path"]
+        fold_model_path = get_k_fold_model_path(checkpoint_path, fold)
+        
+        # Load old model checkpoint
+        old_model = TCN_clf(
+            423, conv_params=model_params['conv_params'],
+            lstm_dropout=model_params['lstm_dropout'], masking=model_params['masking'],
+            triplet=model_params.get('triplet', False), classification=model_params.get('classification', True),
+            clf_neurons=model_params['clf_neurons'], num_classes=num_classes_for_model
+        )
+        # Use the original params used to train it
+        old_model.load_state_dict(torch.load(fold_model_path), strict=False)
+
+        # Load new model
+        pytorch_model = TCN_clf(
+            num_feats=model_params['num_feats'], conv_params=model_params['conv_params'],
+            lstm_dropout=model_params['lstm_dropout'], masking=model_params['masking'],
+            triplet=model_params.get('triplet', False), classification=model_params.get('classification', True),
+            clf_neurons=model_params['clf_neurons'], num_classes=num_classes_for_model
+        )
+
+        for (name_old, param_old), (name_new, param_new) in zip(old_model.named_parameters(), pytorch_model.named_parameters()):
+            if param_old.shape != param_new.shape:
+                print(f"Layer {name_old} changed: old {param_old.shape}, new {param_new.shape}")
+
+        # Load compatible weights
+        old_dict = old_model.state_dict()
+        new_dict = pytorch_model.state_dict()
+        filtered_dict = {}
+
+        for k, v in old_dict.items():
+            if k in new_dict and v.shape == new_dict[k].shape:
+                filtered_dict[k] = v
+            else:
+                print(f"Skipping {k}: checkpoint {v.shape} vs new model {new_dict[k].shape}")
+
+        # Update new model's state_dict
+        new_dict.update(filtered_dict)
+        pytorch_model.load_state_dict(new_dict)
+        
+        # Define which keys are *excluded from training* (i.e., frozen)
+        excluded_pt_keys = model_params.get('excluded_pt_keys', [])
+
+        # Freeze only the layers you want
+        for name, param in pytorch_model.named_parameters():
+            if name in excluded_pt_keys:
+                param.requires_grad = False
+                print(f"Froze: {name}")
+            else:
+                param.requires_grad = True  # Unfrozen by default
+
+        # Capture the initial state_dict *after freezing*
+        initial_state_dict = {k: v.clone().detach().cpu() for k, v in pytorch_model.state_dict().items()}
+
     # If not converting or using a pre-trained model, initialize a new model
     if not model_params.get('model_converter', False) and \
         not model_params.get("use_pretrained_model", False):
@@ -666,7 +742,6 @@ def create_pytorch_model(model_params, fold=None):
         for name, param in pytorch_model.named_parameters():
             if name in excluded_pt_keys:
                 param.requires_grad = False
-                # print(f"Froze: {name}")
             else:
                 param.requires_grad = True  # Unfrozen by default
 
@@ -2091,7 +2166,7 @@ if __name__ == "__main__":
     static_params = {
         "best_val_f1": 0,  # Best F1 score from the study
         "best_model_number": 0,  # Best model number from the study
-        "joints_num": 25, # 25 for Kinect 24 for MP
+        "joints_num": 24, # 25 for Kinect 24 for MP
         "num_classes": 14, # Number of classes for classification (NTU-120 has 120, MP has 12 and Therapies has 14)
 
         "epochs": 300, # Number of training epochs
@@ -2119,7 +2194,8 @@ if __name__ == "__main__":
         
         # TODO: Change every time you switch to the next model
         # Convert Keras parameters to PyTorch equivalents (Set True if The model you want to fine tune is in TensorFlow/Keras format)
-        "model_converter": False, # Set to True if you want to convert a Keras model to PyTorch
+        "model_converter": True, # Set to True if you want to convert a Keras model to PyTorch
+        "model_is_pytorch": True, # Set to True if the Model is in PyTorch format or False if it is in TensorFlow/Keras format
         
         # TODO: Change every time you switch to the next model
         # Path to the pre-trained model in Pytorch format
