@@ -2275,7 +2275,7 @@ if __name__ == "__main__":
         "average_k_fold": False,  # Set to True if you want to average the results of the K-folds models
         
         # TODO: Change every time you switch to the next model
-        "model_name": "Models_MP_Block_0_1(k_fold_separated_c_th_comp)",
+        "model_name": "Models_MP_Block_0_1_2(k_fold_separated_c_th_comp)",
         # "model_name": "Models_Therapist_Classifier_Block_5_4_3_2_1_0_From_Zero",
 
         # TODO: Change every time you switch to the next model
@@ -2290,7 +2290,7 @@ if __name__ == "__main__":
         # TODO: Change every time you switch to the next model
         # Path to the pre-trained model in Pytorch format
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier_Block_5/0730_1921_model_1/weights/Best_Model-ep300-trainloss0.31293-f10.54116.pt",
-        "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_Block_0(k_fold_separated_c_th_comp)",  # Path to the pre-trained model for Therapies dataset in Pytorch format
+        "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_Block_0_1(k_fold_separated_c_th_comp)",  # Path to the pre-trained model for Therapies dataset in Pytorch format
         
         # Path to the pre-trained model in TensorFlow/Keras format
         # "pretrained_model_path": "./ntu_benchmark_model/model",  # Path to the pre-trained model for NTU-120 one-shot benchmark
@@ -2323,10 +2323,10 @@ if __name__ == "__main__":
             # "encoder_net.encoder.0.residual_blocks.1.conv1.bias",
             # "encoder_net.encoder.0.residual_blocks.1.conv2.weight",
             # "encoder_net.encoder.0.residual_blocks.1.conv2.bias",
-            "encoder_net.encoder.0.residual_blocks.2.conv1.weight",
-            "encoder_net.encoder.0.residual_blocks.2.conv1.bias",
-            "encoder_net.encoder.0.residual_blocks.2.conv2.weight",
-            "encoder_net.encoder.0.residual_blocks.2.conv2.bias",
+            # "encoder_net.encoder.0.residual_blocks.2.conv1.weight",
+            # "encoder_net.encoder.0.residual_blocks.2.conv1.bias",
+            # "encoder_net.encoder.0.residual_blocks.2.conv2.weight",
+            # "encoder_net.encoder.0.residual_blocks.2.conv2.bias",
             "encoder_net.encoder.0.residual_blocks.3.conv1.weight",
             "encoder_net.encoder.0.residual_blocks.3.conv1.bias",
             "encoder_net.encoder.0.residual_blocks.3.conv2.weight",
