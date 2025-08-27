@@ -664,7 +664,7 @@ def create_pytorch_model(model_params, fold=None):
         for name, param in pytorch_model.named_parameters():
             if name in excluded_pt_keys:
                 param.requires_grad = False
-                print(f"Froze: {name}")
+                # print(f"Froze: {name}")
             else:
                 param.requires_grad = True  # Unfrozen by default
 
@@ -1260,6 +1260,96 @@ def evaluate_model_on_all_data(model, full_eval_data, video_skels, model_params,
         plt.savefig(group_save_path)
         print(f"Confusion matrix saved to: {save_path}")
 
+def evaluate_model_on_all_data_mp(model, full_dataset, model_params, device, fold, save_path):
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+    model.eval()
+
+    # Child dataset
+    child_dataset = TripletPoseDataset(
+        pose_annotations_file="./datasets_annotations/mp_childs_val.txt",
+        validation_mode=False,
+        in_memory=model_params['in_memory_generator_train'],
+        **model_params
+    )
+
+    # Therapist dataset
+    therapist_dataset = TripletPoseDataset(
+        pose_annotations_file="./datasets_annotations/mp_therapists_val.txt",
+        validation_mode=False,
+        in_memory=model_params['in_memory_generator_train'],
+        **model_params
+    )
+
+    # Dataloaders
+    loaders = {
+        "full": DataLoader(full_dataset,
+                           batch_size=model_params.get('batch_size', 32),
+                           shuffle=False,
+                           num_workers=model_params.get('num_workers', 0),
+                           pin_memory=True if device.type == 'cuda' else False,
+                           drop_last=False),
+        "child": DataLoader(child_dataset,
+                            batch_size=model_params.get('batch_size', 32),
+                            shuffle=False,
+                            num_workers=model_params.get('num_workers', 0),
+                            pin_memory=True if device.type == 'cuda' else False,
+                            drop_last=False),
+        "therapist": DataLoader(therapist_dataset,
+                                batch_size=model_params.get('batch_size', 32),
+                                shuffle=False,
+                                num_workers=model_params.get('num_workers', 0),
+                                pin_memory=True if device.type == 'cuda' else False,
+                                drop_last=False)
+    }
+
+    # Evaluate each group
+    for group_name, loader in loaders.items():
+        all_preds, all_labels = [], []
+        with torch.no_grad():
+            for inputs, labels in loader:
+                inputs = inputs.to(device)
+                labels = labels.to(device).long()
+                outputs = model(inputs)
+                preds = torch.argmax(outputs, dim=1)
+
+                all_preds.extend(preds.cpu().numpy())
+                all_labels.extend(labels.cpu().numpy())
+
+        # Report
+        report = classification_report(all_labels, all_preds)
+        print(f"\n--- Classification Report ({group_name}) ---")
+        print(report)
+
+        # Save report
+        report_save_path = os.path.join(
+            os.path.dirname(save_path),
+            f"{os.path.splitext(os.path.basename(save_path))[0]}_fold{fold}_{group_name}_report.txt"
+        )
+        with open(report_save_path, "w", encoding="utf-8") as f:
+            f.write(report)
+        print(f"Classification report saved to: {report_save_path}")
+
+        # Confusion Matrix
+        conf_mat = confusion_matrix(all_labels, all_preds)
+        plt.figure(figsize=(10, 8))
+        sns.heatmap(conf_mat, annot=True, fmt='d', cmap='Blues')
+        plt.xlabel("Predicted")
+        plt.ylabel("Actual")
+        plt.title(f"Confusion Matrix ({group_name})")
+        plt.tight_layout()
+
+        # Save matrix
+        group_save_path = os.path.join(
+            os.path.dirname(save_path),
+            f"{os.path.splitext(os.path.basename(save_path))[0]}_fold{fold}_{group_name}.png"
+        )
+        plt.savefig(group_save_path)
+        plt.close()
+        print(f"Confusion matrix saved to: {group_save_path}")
+
+
 def main(model_params):
     train_verbose = model_params.get('train_verbose', 1)
     log_interval = model_params.get('log_interval', 10)
@@ -1795,7 +1885,7 @@ def main(model_params):
             )
             
             # Evaluate on all data
-            evaluate_model_on_all_data(pytorch_model, full_eval_data, video_skels, model_params, device, fold, os.path.join(metrics_save_dir, filename))
+            evaluate_model_on_all_data_mp(pytorch_model, full_dataset, model_params, device, fold, os.path.join(metrics_save_dir, filename))
         
         # Save the mean of the best F1 scores across folds
         # in order to report the overall performance
