@@ -2290,7 +2290,7 @@ if __name__ == "__main__":
         # TODO: Change every time you switch to the next model
         # Path to the pre-trained model in Pytorch format
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier_Block_5/0730_1921_model_1/weights/Best_Model-ep300-trainloss0.31293-f10.54116.pt",
-        "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp)",  # Path to the pre-trained model for Therapies dataset in Pytorch format
+        "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp)",  # Path to the pre-trained model for Therapies dataset in Pytorch format
         
         # Path to the pre-trained model in TensorFlow/Keras format
         # "pretrained_model_path": "./ntu_benchmark_model/model",  # Path to the pre-trained model for NTU-120 one-shot benchmark
@@ -2394,9 +2394,10 @@ if __name__ == "__main__":
     else:
         static_params['effective_seq_len'] = static_params['max_seq_len']
 
-    """ # Check if model is overfitting
 
 
+    # --- Model Verification on unseen data ---
+    
     # --- Path and Feature Calculation (Cleaned Up) ---
     # print("--- Initializing Parameters and Paths ---")
     static_params['path_model'] = train_utils.create_model_folder(
@@ -2476,23 +2477,34 @@ if __name__ == "__main__":
 
     model_params = {**static_params, **best_params}
 
-    # --- Data Loading Therapist ---
-    # Load your raw data
-    raw_data_path = './datasets/therapies_dataset/'
-    actions_data = pickle.load(open(os.path.join(raw_data_path, 'actions_data_v2.pckl'), 'rb'))
-    video_skels = pickle.load(open(os.path.join(raw_data_path, 'video_skels_v2.pckl'), 'rb'))
-
-    # Filter out unwanted actions (same as your TF code)
-    actions_data = actions_data[~actions_data.action.isin(['no', 'si'])]
-    print(f"Loaded actions_data with {len(actions_data)} entries and video_skels with {len(video_skels)} videos.")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    actions_data = actions_data.sort_values(by=['patient', 'session', 'video', 'ex_num'])
+    
+    # --- Data Loading Therapist ---
+    # Load the validation dataset once
+    val_dataset = TripletPoseDataset(
+        
+        #
+        pose_annotations_file=,
+        #
+        
+        validation_mode=False,
+        in_memory=model_params['in_memory_generator_train'],
+        **model_params
+    )
 
-    # Create a mapping from action names to indices
-    all_actions = actions_data['action'].unique()
-    action_to_idx = {action: idx for idx, action in enumerate(sorted(all_actions))}
-    labels = actions_data['action'].map(action_to_idx).values
+    # Create DataLoaders for this Data ---
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=model_params['batch_size'],
+        shuffle=True,
+        num_workers=model_params.get('num_workers', 0),
+        pin_memory=True if device.type == 'cuda' else False,
+        drop_last=True
+    )
 
+
+    # --- Model Initialization ---
     pytorch_model = TCN_clf(
         num_feats=model_params['num_feats'], conv_params=model_params['conv_params'],
         lstm_dropout=model_params['lstm_dropout'], masking=model_params['masking'],
@@ -2504,10 +2516,28 @@ if __name__ == "__main__":
     checkpoint_path = model_params["pretrained_model_path"]
     best_model_path = get_best_model_path(checkpoint_path)
     pytorch_model.load_state_dict(torch.load(best_model_path))
+    pytorch_model.eval()
+    pytorch_model.to(device)
+    
+    all_embs = []
 
-    evaluate_model_on_all_data(pytorch_model, actions_data, video_skels, model_params, None)
+    # Collect all embeddings
+    with torch.no_grad():
+        for batch_x, _ in val_loader:
+            batch_x = batch_x.to(device)
+            emb = pytorch_model.get_embedding(batch_x)  # (batch_size, embedding_dim)
+            all_embs.append(emb.cpu())  # keep on CPU to save GPU memory
+
+    all_embs = torch.cat(all_embs, dim=0)  # (N, embedding_dim)
+
+    # Compute cosine similarity for consecutive pairs
+    for i in range(0, all_embs.shape[0], 2):
+        if i+1 < all_embs.shape[0]:
+            sim = F.cosine_similarity(all_embs[i].unsqueeze(0), all_embs[i+1].unsqueeze(0))
+            print(f"Similarity between {i} and {i+1}: {sim.item():.4f}")
 
     exit(0)
+    
     """
 
     # Create Optuna study
