@@ -932,9 +932,7 @@ class TripletPoseDataset(Dataset):
             dummy_features = torch.zeros(_seq_len, _num_feats, dtype=torch.float32)
             dummy_label = torch.tensor(0, dtype=torch.long) # Default label
             return dummy_features, dummy_label
-
         body_selected = get_body_skel(raw_data_sample, self.is_validation, mode=self.model_params.get('get_body_skel_mode', 'var'))
-        
         if body_selected is None or body_selected.shape[0] == 0:
             print(f"Warning: Failed to select a valid body skeleton for sample {file_path}. Returning dummy data.")
             _seq_len = abs(self.model_params.get('max_seq_len', 32))

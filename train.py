@@ -59,6 +59,7 @@ from pytorch_dataset import TripletPoseDataset, TherapyDataset # Your PyTorch Da
 from collections import Counter
 import optuna
 from functools import partial
+import torch.nn.functional as F
 
 # --- Framework-agnostic or to-be-adapted utility imports ---
 # Ensure these functions do not have hard TensorFlow dependencies.
@@ -2300,6 +2301,7 @@ if __name__ == "__main__":
         # # NTU-120 Data sets to optimize the therapy data
         "train_annotations": "./datasets_annotations/mp_train.txt",
         "val_annotations": "./datasets_annotations/mp_val.txt",
+        "final_validation_annotations": "./datasets_annotations/val_dataset.txt",
         # "eval_therapies": True,  # Therapy data needed for its evaluation
         "h_flip": True,
         "skip_frames": [2, 3],
@@ -2480,14 +2482,18 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     
+    data = np.load("./datasets/val_dataset/therapist_Felice_0.npy", allow_pickle=True)
+    print(type(data))
+    if isinstance(data, dict):
+        print(data.keys())
+    elif isinstance(data, np.ndarray):
+        print(data.shape, data.dtype)
+    
+    
     # --- Data Loading Therapist ---
     # Load the validation dataset once
     val_dataset = TripletPoseDataset(
-        
-        #
-        pose_annotations_file=,
-        #
-        
+        pose_annotations_file=model_params['final_validation_annotations'],
         validation_mode=False,
         in_memory=model_params['in_memory_generator_train'],
         **model_params
@@ -2497,13 +2503,13 @@ if __name__ == "__main__":
     val_loader = DataLoader(
         val_dataset,
         batch_size=model_params['batch_size'],
-        shuffle=True,
+        shuffle=False,
         num_workers=model_params.get('num_workers', 0),
         pin_memory=True if device.type == 'cuda' else False,
-        drop_last=True
+        drop_last=False
     )
 
-
+    """ 
     # --- Model Initialization ---
     pytorch_model = TCN_clf(
         num_feats=model_params['num_feats'], conv_params=model_params['conv_params'],
@@ -2514,8 +2520,8 @@ if __name__ == "__main__":
 
     # After loading the model with the pretrained weights
     checkpoint_path = model_params["pretrained_model_path"]
-    best_model_path = get_best_model_path(checkpoint_path)
-    pytorch_model.load_state_dict(torch.load(best_model_path))
+    fold_model_path = get_k_fold_model_path(checkpoint_path, fold)
+    pytorch_model.load_state_dict(torch.load(fold_model_path))
     pytorch_model.eval()
     pytorch_model.to(device)
     
@@ -2534,7 +2540,93 @@ if __name__ == "__main__":
     for i in range(0, all_embs.shape[0], 2):
         if i+1 < all_embs.shape[0]:
             sim = F.cosine_similarity(all_embs[i].unsqueeze(0), all_embs[i+1].unsqueeze(0))
-            print(f"Similarity between {i} and {i+1}: {sim.item():.4f}")
+            print(f"Similarity between {i} and {i+1}: {sim.item():.4f}")"""
+
+    all_fold_preds = []  # store predictions from each fold
+    all_fold_labels = []  # store labels from each fold
+    all_fold_sims = []  # store similarities from each fold
+    all_fold_embs = []  # store embeddings from each fold
+    
+    for fold in range(5):  # 5 folds
+        print(f"\n===== Fold {fold} =====")
+        # --- Init model for this fold ---
+        pytorch_model = TCN_clf(
+            num_feats=model_params['num_feats'],
+            conv_params=model_params['conv_params'],
+            lstm_dropout=model_params['lstm_dropout'],
+            masking=model_params['masking'],
+            triplet=model_params.get('triplet', False),
+            classification=model_params.get('classification', True),
+            clf_neurons=model_params['clf_neurons'],
+            num_classes=14
+        )
+
+        checkpoint_path = model_params["pretrained_model_path"]
+        fold_model_path = get_k_fold_model_path(checkpoint_path, fold)  # <- your helper
+        pytorch_model.load_state_dict(torch.load(fold_model_path))
+        pytorch_model.eval().to(device)
+
+        # --- Collect predictions instead of embeddings ---
+        all_preds = []
+        all_labels = []
+
+        with torch.no_grad():
+            for batch_x, batch_y in val_loader:
+                batch_x = batch_x.to(device)
+                batch_y = batch_y.to(device)
+
+                logits = pytorch_model(batch_x)        # (B, num_classes)
+                preds = torch.argmax(logits, dim=1)    # (B,)
+
+                all_preds.append(preds.cpu())
+                all_labels.append(batch_y.cpu())
+
+        # Concatenate across batches
+        all_preds = torch.cat(all_preds, dim=0)   # (N,)
+        all_labels = torch.cat(all_labels, dim=0) # (N,)
+
+        # Save fold results
+        all_fold_preds.append(all_preds)
+        all_fold_labels.append(all_labels)
+
+        # --- Collect embeddings ---
+        all_embs = []
+        with torch.no_grad():
+            for batch_x, _ in val_loader:
+                print("Batch shape:", batch_x.shape)   # <- add this
+                batch_x = batch_x.to(device)
+                emb = pytorch_model.get_embedding(batch_x)  # (B, D)
+                print("Embedding shape:", emb.shape)        # <- add this
+                all_embs.append(emb.cpu())
+        all_embs = torch.cat(all_embs, dim=0)  # (N, D)
+
+        # --- Compute similarities pairwise ---
+        sims = []
+        for i in range(0, all_embs.shape[0], 2):
+            if i + 1 < all_embs.shape[0]:
+                sim = F.cosine_similarity(
+                    all_embs[i].unsqueeze(0), all_embs[i+1].unsqueeze(0)
+                )
+                sims.append(sim.item())
+        
+        # Store for later averaging
+        all_fold_embs.append(all_embs)
+        all_fold_sims.append(sims)
+
+        # 🔍 Show results for this fold
+        print(f"Fold {fold} similarities ({len(sims)} pairs): {sims}")
+        
+        print("Predictions:", all_preds.tolist())
+        print("True labels:", all_labels.tolist())
+    
+    # --- Aggregate results at the end ---
+    all_fold_sims = torch.tensor(all_fold_sims)  # shape (num_folds, num_pairs)
+    mean_sims = all_fold_sims.mean(dim=0)        # average per pair across folds
+    overall_mean = mean_sims.mean().item()       # global average
+
+    print("\n===== Final Averages =====")
+    print("Per-pair mean similarity across folds:", mean_sims.tolist())
+    print(f"Overall mean similarity: {overall_mean:.4f}")
 
     exit(0)
     
@@ -2621,8 +2713,8 @@ if __name__ == "__main__":
     
     print("\n--- Training script finished ---")
     
-    """ TODO: Create an if function based on what param you want to load to train a new model
-    # # Determine folder one level up in order to save the best hyperparameters
+    # TODO: Create an if function based on what param you want to load to train a new model
+    # Determine folder one level up in order to save the best hyperparameters
     # current_dir = os.path.dirname(os.path.abspath(__file__))
     # parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
     # model_name = static_params['model_name']
@@ -2645,3 +2737,4 @@ if __name__ == "__main__":
     # 
     # exit(0)
     """
+    
