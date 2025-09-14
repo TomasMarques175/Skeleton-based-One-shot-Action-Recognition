@@ -2201,7 +2201,7 @@ def objective(trial, static_params):
     # Define hyperparameter search space
     optuna_params = {        
         # Training-related
-        "init_lr": trial.suggest_float("init_lr", 1e-6, 1e-5, log=True),
+        "init_lr": trial.suggest_float("init_lr", 1e-5, 1e-3, log=True),
         "batch_size": trial.suggest_categorical("batch_size", [8, 16, 32, 64]),
 
         # LSTM
@@ -2210,13 +2210,13 @@ def objective(trial, static_params):
 
         # ReduceLROnPlateau
         "lr_min_delta": trial.suggest_float("lr_min_delta", 1e-5, 1e-2, log=True),
-        "lr_factor": trial.suggest_float("lr_factor", 0.1, 0.3),
-        "lr_patience": trial.suggest_int("lr_patience", 10, 20),
+        "lr_factor": trial.suggest_float("lr_factor", 0.1, 0.9),
+        "lr_patience": trial.suggest_int("lr_patience", 2, 10),
         "min_lr": trial.suggest_float("min_lr", 1e-7, 1e-4, log=True),
 
         # EarlyStopping
         "early_stopping_min_delta": trial.suggest_float("early_stopping_min_delta", 1e-5, 1e-2, log=True),
-        "es_patience": trial.suggest_int("es_patience", 10, 20),
+        "es_patience": trial.suggest_int("es_patience", 3, 12),
     }
     
     # Combine the two
@@ -2262,7 +2262,7 @@ if __name__ == "__main__":
 
         "epochs": 300, # Number of training epochs
         "K": 5,  # Number of folds for cross-validation
-        "n_trials": 20,  # Number of trials for Optuna
+        "n_trials": 40,  # Number of trials for Optuna
 
         # Set to 0 for no training logs, 1 for basic logs, >1 for more detailed logs
         "train_verbose": 1,
@@ -2276,8 +2276,15 @@ if __name__ == "__main__":
         "average_k_fold": False,  # Set to True if you want to average the results of the K-folds models
         
         # TODO: Change every time you switch to the next model
-        "model_name": "Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp)",
         # "model_name": "Models_Therapist_Classifier_Block_5_4_3_2_1_0_From_Zero",
+        #"model_name": "Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp)",
+        "model_name": "Models_MP_Block_0(k_fold_separated_c_th_comp_NEW)",
+
+        # TODO: Change every time you switch to the next model
+        # Path to the pre-trained model in Pytorch format
+        # "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier_Block_5/0730_1921_model_1/weights/Best_Model-ep300-trainloss0.31293-f10.54116.pt",
+        # "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp)",  # Path to the pre-trained model for Therapies dataset in Pytorch format
+        "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier_Block_5_4_3_2_1_0(k_fold_separated_c_th_comp)",  # Path to the pre-trained model for Therapies dataset in Pytorch format
 
         # TODO: Change every time you switch to the next model
         # Use a pre-trained model (Set True if you want to use a pre-trained model)
@@ -2287,11 +2294,6 @@ if __name__ == "__main__":
         # Convert Keras parameters to PyTorch equivalents (Set True if The model you want to fine tune is in TensorFlow/Keras format)
         "model_converter": False, # Set to True if you want to convert a Keras model to PyTorch
         "model_is_pytorch": True, # Set to True if the Model is in PyTorch format or False if it is in TensorFlow/Keras format
-        
-        # TODO: Change every time you switch to the next model
-        # Path to the pre-trained model in Pytorch format
-        # "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier_Block_5/0730_1921_model_1/weights/Best_Model-ep300-trainloss0.31293-f10.54116.pt",
-        "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp)",  # Path to the pre-trained model for Therapies dataset in Pytorch format
         
         # Path to the pre-trained model in TensorFlow/Keras format
         # "pretrained_model_path": "./ntu_benchmark_model/model",  # Path to the pre-trained model for NTU-120 one-shot benchmark
@@ -2321,28 +2323,28 @@ if __name__ == "__main__":
             # "encoder_net.encoder.0.residual_blocks.0.conv2.bias",
             # "encoder_net.encoder.0.residual_blocks.0.downsample.weight",
             # "encoder_net.encoder.0.residual_blocks.0.downsample.bias",
-            # "encoder_net.encoder.0.residual_blocks.1.conv1.weight",
-            # "encoder_net.encoder.0.residual_blocks.1.conv1.bias",
-            # "encoder_net.encoder.0.residual_blocks.1.conv2.weight",
-            # "encoder_net.encoder.0.residual_blocks.1.conv2.bias",
-            # "encoder_net.encoder.0.residual_blocks.2.conv1.weight",
-            # "encoder_net.encoder.0.residual_blocks.2.conv1.bias",
-            # "encoder_net.encoder.0.residual_blocks.2.conv2.weight",
-            # "encoder_net.encoder.0.residual_blocks.2.conv2.bias",
-            # "encoder_net.encoder.0.residual_blocks.3.conv1.weight",
-            # "encoder_net.encoder.0.residual_blocks.3.conv1.bias",
-            # "encoder_net.encoder.0.residual_blocks.3.conv2.weight",
-            # "encoder_net.encoder.0.residual_blocks.3.conv2.bias",
-            # "encoder_net.encoder.0.residual_blocks.4.conv1.weight",
-            # "encoder_net.encoder.0.residual_blocks.4.conv1.bias",
-            # "encoder_net.encoder.0.residual_blocks.4.conv2.weight",
-            # "encoder_net.encoder.0.residual_blocks.4.conv2.bias",
-            # "encoder_net.encoder.0.residual_blocks.5.conv1.weight",
-            # "encoder_net.encoder.0.residual_blocks.5.conv1.bias",
-            # "encoder_net.encoder.0.residual_blocks.5.conv2.weight",
-            # "encoder_net.encoder.0.residual_blocks.5.conv2.bias",
-            # "clf_out.weight",
-            # "clf_out.bias",
+            "encoder_net.encoder.0.residual_blocks.1.conv1.weight",
+            "encoder_net.encoder.0.residual_blocks.1.conv1.bias",
+            "encoder_net.encoder.0.residual_blocks.1.conv2.weight",
+            "encoder_net.encoder.0.residual_blocks.1.conv2.bias",
+            "encoder_net.encoder.0.residual_blocks.2.conv1.weight",
+            "encoder_net.encoder.0.residual_blocks.2.conv1.bias",
+            "encoder_net.encoder.0.residual_blocks.2.conv2.weight",
+            "encoder_net.encoder.0.residual_blocks.2.conv2.bias",
+            "encoder_net.encoder.0.residual_blocks.3.conv1.weight",
+            "encoder_net.encoder.0.residual_blocks.3.conv1.bias",
+            "encoder_net.encoder.0.residual_blocks.3.conv2.weight",
+            "encoder_net.encoder.0.residual_blocks.3.conv2.bias",
+            "encoder_net.encoder.0.residual_blocks.4.conv1.weight",
+            "encoder_net.encoder.0.residual_blocks.4.conv1.bias",
+            "encoder_net.encoder.0.residual_blocks.4.conv2.weight",
+            "encoder_net.encoder.0.residual_blocks.4.conv2.bias",
+            "encoder_net.encoder.0.residual_blocks.5.conv1.weight",
+            "encoder_net.encoder.0.residual_blocks.5.conv1.bias",
+            "encoder_net.encoder.0.residual_blocks.5.conv2.weight",
+            "encoder_net.encoder.0.residual_blocks.5.conv2.bias",
+            "clf_out.weight",
+            "clf_out.bias",
         ],
         
         # Define which keys are replaced with new ones (i.e., re-initialized)
@@ -2481,15 +2483,8 @@ if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    
-    data = np.load("./datasets/val_dataset/therapist_Felice_0.npy", allow_pickle=True)
-    print(type(data))
-    if isinstance(data, dict):
-        print(data.keys())
-    elif isinstance(data, np.ndarray):
-        print(data.shape, data.dtype)
-    
-    
+
+    """    
     # --- Data Loading Therapist ---
     # Load the validation dataset once
     val_dataset = TripletPoseDataset(
@@ -2508,39 +2503,6 @@ if __name__ == "__main__":
         pin_memory=True if device.type == 'cuda' else False,
         drop_last=False
     )
-
-    """ 
-    # --- Model Initialization ---
-    pytorch_model = TCN_clf(
-        num_feats=model_params['num_feats'], conv_params=model_params['conv_params'],
-        lstm_dropout=model_params['lstm_dropout'], masking=model_params['masking'],
-        triplet=model_params.get('triplet', False), classification=model_params.get('classification', True),
-        clf_neurons=model_params['clf_neurons'], num_classes=14
-    )
-
-    # After loading the model with the pretrained weights
-    checkpoint_path = model_params["pretrained_model_path"]
-    fold_model_path = get_k_fold_model_path(checkpoint_path, fold)
-    pytorch_model.load_state_dict(torch.load(fold_model_path))
-    pytorch_model.eval()
-    pytorch_model.to(device)
-    
-    all_embs = []
-
-    # Collect all embeddings
-    with torch.no_grad():
-        for batch_x, _ in val_loader:
-            batch_x = batch_x.to(device)
-            emb = pytorch_model.get_embedding(batch_x)  # (batch_size, embedding_dim)
-            all_embs.append(emb.cpu())  # keep on CPU to save GPU memory
-
-    all_embs = torch.cat(all_embs, dim=0)  # (N, embedding_dim)
-
-    # Compute cosine similarity for consecutive pairs
-    for i in range(0, all_embs.shape[0], 2):
-        if i+1 < all_embs.shape[0]:
-            sim = F.cosine_similarity(all_embs[i].unsqueeze(0), all_embs[i+1].unsqueeze(0))
-            print(f"Similarity between {i} and {i+1}: {sim.item():.4f}")"""
 
     all_fold_preds = []  # store predictions from each fold
     all_fold_labels = []  # store labels from each fold
@@ -2607,7 +2569,7 @@ if __name__ == "__main__":
                 sim = F.cosine_similarity(
                     all_embs[i].unsqueeze(0), all_embs[i+1].unsqueeze(0)
                 )
-                sims.append(sim.item())
+                sims.append(round(sim.item(), 2))
         
         # Store for later averaging
         all_fold_embs.append(all_embs)
@@ -2619,18 +2581,33 @@ if __name__ == "__main__":
         print("Predictions:", all_preds.tolist())
         print("True labels:", all_labels.tolist())
     
+        # 🔍 Pairwise correctness
+        pair_correct = 0
+        for i in range(0, len(all_preds), 2):
+            if i + 1 < len(all_preds):
+                if (all_preds[i] == all_labels[i]) and (all_preds[i+1] == all_labels[i+1]):
+                    pair_correct += 1
+
+        num_pairs = len(all_preds) // 2
+        print(f"Pairs correct: {pair_correct}/{num_pairs}")
+
+        # 🔍 Individual correctness
+        ind_correct = (all_preds == all_labels).sum().item()
+        print(f"Individual correct: {ind_correct}/{len(all_preds)}")
+
     # --- Aggregate results at the end ---
     all_fold_sims = torch.tensor(all_fold_sims)  # shape (num_folds, num_pairs)
-    mean_sims = all_fold_sims.mean(dim=0)        # average per pair across folds
-    overall_mean = mean_sims.mean().item()       # global average
+    mean_sims = all_fold_sims.mean(dim=0)
+    mean_sims_rounded = (mean_sims * 100).round() / 100   # 2 decimals
+    overall_mean = round(mean_sims.mean().item(), 2)
 
     print("\n===== Final Averages =====")
-    print("Per-pair mean similarity across folds:", mean_sims.tolist())
-    print(f"Overall mean similarity: {overall_mean:.4f}")
-
-    exit(0)
+    print("Per-pair mean similarity across folds:", [f"{x:.2f}" for x in mean_sims])
+    print(f"Overall mean similarity: {overall_mean:.2f}")
     
+    exit(0)
     """
+    
 
     # Create Optuna study
     study = optuna.create_study(direction="maximize")  # Or "minimize" for loss
@@ -2735,6 +2712,4 @@ if __name__ == "__main__":
     # 
     # main(model_params)
     # 
-    # exit(0)
-    """
-    
+    # exit(0)    
