@@ -2399,7 +2399,7 @@ if __name__ == "__main__":
         static_params['effective_seq_len'] = static_params['max_seq_len']
 
 
-
+    """
     # --- Model Verification on unseen data ---
     
     # --- Path and Feature Calculation (Cleaned Up) ---
@@ -2483,8 +2483,6 @@ if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-
-    """    
     # --- Data Loading Therapist ---
     # Load the validation dataset once
     val_dataset = TripletPoseDataset(
