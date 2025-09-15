@@ -505,7 +505,7 @@ def create_pytorch_model(model_params, fold=None):
         'actual_num_classes', model_params['num_classes'])
     initial_state_dict = None  # Initialize to None, will be set later
     
-        # If the model is in TensorFlow/Keras format, we will convert it to PyTorch.
+    # If the model is in TensorFlow/Keras format, we will convert it to PyTorch.
     if model_params.get('model_converter', False) and \
         not model_params.get('model_is_pytorch', False):
         
@@ -2292,7 +2292,7 @@ if __name__ == "__main__":
         
         # TODO: Change every time you switch to the next model
         # Convert Keras parameters to PyTorch equivalents (Set True if The model you want to fine tune is in TensorFlow/Keras format)
-        "model_converter": False, # Set to True if you want to convert a Keras model to PyTorch
+        "model_converter": False, # Set to True if you want to convert a Keras model to PyTorch or in case this is the 1st layer for MP
         "model_is_pytorch": True, # Set to True if the Model is in PyTorch format or False if it is in TensorFlow/Keras format
         
         # Path to the pre-trained model in TensorFlow/Keras format
