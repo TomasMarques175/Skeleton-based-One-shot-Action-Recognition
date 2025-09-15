@@ -1,0 +1,10 @@
+./datasets/val_dataset/therapist_Felice_0.npy 9
+./datasets/val_dataset/child_Felice_1.npy 9
+./datasets/val_dataset/therapist_Ciao_2.npy 5
+./datasets/val_dataset/child_Ciao_3.npy 5
+./datasets/val_dataset/therapist_Arrabbiato_4.npy 2
+./datasets/val_dataset/child_Arrabbiato_5.npy 2
+./datasets/val_dataset/therapist_Arrabbiato_6.npy 2
+./datasets/val_dataset/child_Arrabbiato_7.npy 2
+./datasets/val_dataset/therapist_Felice_8.npy 9
+./datasets/val_dataset/child_Felice_9.npy 9
