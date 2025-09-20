@@ -21,6 +21,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
 import time
+import pandas as pd
 
 flip_correspondences_left = [4, 5, 6, 7,   12, 13, 14, 15, 21, 22]
 flip_correspondences_right = [8, 9, 10, 11, 16, 17, 18, 19, 23, 24]
@@ -775,23 +776,96 @@ def triplet_data_generator(pose_annotations_file,
 
 # %%
 
-def ther_data_generator(video_skels, model_params):
-    scaler = None
+def therapy_data_generator(actions_data, video_skels, pose_annotations_file,
+                           batch_size,
+                           max_seq_len, joints_num, joints_dim, num_jcd_feats,
+                           scale_data, in_memory_generator,
+                           decoder, reverse_decoder,
+                           center_skels, h_flip, scale_by_torso,
+                           temporal_scale, validation,
+                           triplet,
+                           classification, num_classes,
 
-    print(' *** ', ther_data_generator)
-    for vid, skels in tqdm(video_skels.items()):
-        # Load skel
-        if model_params['average_wrong_skels']: skels = average_wrong_frame_skels(skels)
-        print('Processing video:', vid, 'with', len(skels), 'frames')
-        print('Skel shape:', skels.shape)
-        print('Skel first frame:', skels[0])
-        # Process skel data
-        t = time.time()
-        motion_data = get_pose_data_v2(body=skels, scaler=scaler, validation=True, **model_params)
-        motion_len = len(motion_data)
-        motion_data = np.expand_dims(motion_data, axis=0)
-        t = time.time() - t
-        print('Processed video:', vid, 'in', t, 'seconds')
-        print('Motion data shape:', motion_data.shape, 'Motion length:', motion_len)
+                           use_jcd_features, use_speeds,
+                           use_coords_raw, use_coords, use_jcd_diff,
+                           use_bone_angles,
+                           use_bone_angles_cent,
+                           num_feats,
 
-        yield t, motion_len, motion_data
+                           skip_frames=[],
+                           average_wrong_skels=True,
+                           is_tcn=False,
+                           K=4,
+                           **kwargs):
+    
+    if classification:
+        total_labels = sorted(actions_data['action'].unique())
+        labels_dict = {label: idx for idx, label in enumerate(total_labels)}
+        print('Total labels:', len(total_labels), 'Labels dict:', labels_dict)
+        
+    while True:
+        X = []
+        y = []
+
+
+        batch_labels = []
+        batch_samples = []
+        
+        if classification:
+            y_clf = []
+
+        shuffled_actions = actions_data.sample(frac=1).reset_index(drop=True)
+
+        for _, row in shuffled_actions.iterrows():
+            
+            filename = row['preds_filename']
+            action = row['action']
+            start = row['preds_init']
+            end = row['preds_end']
+            
+            if classification:
+                label_index = labels_dict[action]
+                label_cat = to_categorical(label_index, num_classes=num_classes)
+            
+            if filename not in video_skels:
+                print(f"⚠️ Missing file: {filename}")
+                continue
+            
+            entry = video_skels[filename]
+
+            timestamps, frame_indices, skeletons = entry
+
+            skel_clip = skeletons[start:end+1]
+            
+            scaler = None
+            sample = get_pose_data_v2(skel_clip, max_seq_len, joints_num, joints_dim,
+                                        center_skels, h_flip, scale_by_torso,
+                                        temporal_scale, scaler, validation,
+                                        use_jcd_features, use_speeds,
+                                        use_coords_raw, use_coords, use_jcd_diff,
+                                        use_bone_angles, use_bone_angles_cent,
+                                        skip_frames=skip_frames,
+                                    )
+            
+            batch_samples.append(sample)
+            batch_labels.append(action)
+            
+            if classification:
+                y_clf.append(label_cat)
+            
+            if len(batch_samples) >= batch_size:
+                break
+
+        if classification:
+            y_clf = np.stack(y_clf).astype(
+                'int')              # for classification
+
+        X, Y, sample_weights = [], [], {}
+
+        X = pad_sequences(batch_samples, padding='pre', dtype='float32')
+
+        if classification:
+            Y = y_clf
+
+        yield X, Y, sample_weights
+    

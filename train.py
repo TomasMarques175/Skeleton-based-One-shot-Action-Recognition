@@ -21,7 +21,7 @@ from demo_speed import ther_batch_iterator
 
 import json
 
-from data_generator import triplet_data_generator, get_scaler_filename, get_num_feats, ther_data_generator
+from data_generator import triplet_data_generator, get_scaler_filename, get_num_feats, therapy_data_generator
 from train_callbacks import get_lr_metric  # eval_one_shot_callback, eval_one_shot_therapies_callback, 
 import train_utils
 from shutil import copyfile
@@ -33,7 +33,14 @@ from dataset_scripts.ntu120_utils.triplet_ntu_callback import eval_ntu_one_shot_
 from dataset_scripts.therapies.triplet_therapies_callback import eval_therapies_triplet_callback
 
 from remove_suboptimal_weights import remove_path_weights
+from evaluation_metrics import get_therapies_metrics, get_video_distances
+from sklearn.model_selection import StratifiedShuffleSplit
+from datetime import datetime
+from sklearn.utils import resample
+import pandas as pd
 
+# Format: MM_DD_HH_MM (month_day_hour_minute)
+timestamp = datetime.now().strftime('%m_%d_%H_%M_%S')
 
 SEED = 123
 random.seed(SEED)
@@ -93,6 +100,28 @@ class BatchLossLogger(tf.keras.callbacks.Callback):
         with open(self.filename, 'w') as f:
             json.dump(self.batch_losses, f)
 
+def balance_classes(df, target_col='action', method='oversample', random_state=42):
+    classes = df[target_col].unique()
+    grouped = [df[df[target_col] == cls] for cls in classes]
+
+    if method == 'oversample':
+        max_size = max(len(g) for g in grouped)
+        balanced = [
+            resample(g, replace=True, n_samples=max_size, random_state=random_state)
+            if len(g) < max_size else g
+            for g in grouped
+        ]
+    elif method == 'undersample':
+        min_size = min(len(g) for g in grouped)
+        balanced = [
+            resample(g, replace=False, n_samples=min_size, random_state=random_state)
+            if len(g) > min_size else g
+            for g in grouped
+        ]
+    else:
+        raise ValueError("method must be 'oversample' or 'undersample'")
+
+    return pd.concat(balanced).sample(frac=1, random_state=random_state).reset_index(drop=True)
 
 
 def main(model_params):
@@ -112,14 +141,13 @@ def main(model_params):
     else:
         with open(model_params['val_annotations'], 'r') as f: num_val_files = len(f.read().splitlines())
     print(num_train_files, num_val_files)
-    
     if model_params['scale_data']:
         scaler_filename = get_scaler_filename(**model_params)
         copyfile(scaler_filename, model_params['path_model'] + '/scaler.pckl')    
     
     current_dir = os.path.dirname(os.path.abspath(__file__))
     parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
-    metrics_save_dir = os.path.join(parent_dir, 'Conversion comparison')
+    metrics_save_dir = os.path.join(parent_dir, f'Conversion comparison {timestamp}')
     os.makedirs(metrics_save_dir, exist_ok=True)
 
     # Set model parameters
@@ -195,7 +223,9 @@ def main(model_params):
                                              monitor=monitor, save_weights_only=True, 
                                              save_best_only=True, save_freq='epoch'),
                     ReduceLROnPlateau(monitor=monitor, min_delta=0.001, factor=0.1, patience=3, verbose=1, min_lr=1e-7),
+                    # ReduceLROnPlateau(monitor=monitor, min_delta=0.001, factor=0.1, patience=3, verbose=1, min_lr=1e-5),
                     EarlyStopping(monitor=monitor, min_delta=0.001, patience=6, verbose=1),
+                    # EarlyStopping(monitor=monitor, min_delta=0.001, patience=10, verbose=1, restore_best_weights=True),
                 ]
 
     file_writer = tf.summary.create_file_writer(model_params['path_model'] + "/metrics")
@@ -230,66 +260,112 @@ def main(model_params):
     print('\n\n')
     print(' * Model saved to:', model_params['path_model'] + 'model')
     
-    # TODO: change everything back to normal and not deterministic
-    # train_gen = triplet_data_generator(pose_annotations_file=model_params['train_annotations'], 
-    #                         validation=False, 
-    #                         in_memory_generator=model_params['in_memory_generator_train'],
-    #                         **model_params)
+    train_gen = triplet_data_generator(pose_annotations_file=model_params['train_annotations'], 
+                            validation=False, 
+                            in_memory_generator=model_params['in_memory_generator_train'],
+                            **model_params)
     
-    # Deterministic Batches
     # train_gen = triplet_data_generator(pose_annotations_file=model_params['train_annotations'], 
     #                             validation=False, 
     #                             in_memory_generator=model_params['in_memory_generator_train'],
     #                             **model_params)
 
-    raw_data_path = './datasets/therapies_dataset/'
-    video_skels = pickle.load(open(os.path.join(raw_data_path, 'video_skels_v2.pckl'), 'rb'))
-    video_skels = { k:v[2] for k,v in video_skels.items() }
+    if model_params['val_annotations'] == '': val_gen = None
+    else:
+        print(' * Creating validation data generator')
+        val_gen = triplet_data_generator(pose_annotations_file=model_params['val_annotations'], 
+                        validation=True, 
+                        in_memory_generator=model_params['in_memory_generator_val'],
+                        **model_params)
     
-    train_gen = ther_data_generator(video_skels, model_params)
+    
+    ## Get therapy data
+    #print(' * Getting therapy data')
+    #raw_data_path = './datasets/therapies_dataset/'
+    #
+    #actions_data = pickle.load(
+    #    open(os.path.join(raw_data_path, 'actions_data_v2.pckl'), 'rb'))
+    #actions_data = actions_data[~actions_data.action.isin(['no', 'si'])]
+    #actions_data = actions_data.sort_values(
+    #    by=['patient', 'session', 'video', 'ex_num'])
+    #
+    #video_skels = pickle.load(
+    #    open(os.path.join(raw_data_path, 'video_skels_v2.pckl'), 'rb'))
+    #
+    ## Split while keeping action label balance
+    #splitter = StratifiedShuffleSplit(n_splits=1, test_size=0.25, random_state=42)
+
+    #for train_idx, val_idx in splitter.split(actions_data, actions_data['action']):
+    #    train_data = actions_data.iloc[train_idx].reset_index(drop=True)
+    #    val_data = actions_data.iloc[val_idx].reset_index(drop=True)
 
 
-    # if model_params['val_annotations'] == '': val_gen = None
-    # else:
-    # print(' * Creating validation data generator')
-    #     val_gen = triplet_data_generator(pose_annotations_file=model_params['val_annotations'], 
-    #                     validation=True, 
-    #                     in_memory_generator=model_params['in_memory_generator_val'],
-    #                     **model_params)
-    
-    
-    print("\n========== First 2 batches from train_gen ==========")
-    for i in range(2):
-        print(f"\n--- Train Batch {i+1} ---")
-        X_train, Y_train, sample_weights_train = next(train_gen)
-        print(f"Input shape: {X_train.shape}")
-        print(f"Labels shape: {Y_train.shape}")
-        
-        # # Print all feature values per sample
-        # for sample_idx in range(min(3, X_train.shape[0])):  # limit to 3 samples
-        #     print(f"\nSample {sample_idx} features:")
-        #     for t in range(X_train.shape[1]):
-        #         for f in range(X_train.shape[2]):
-        #             print(f"[{t},{f}]: {X_train[sample_idx, t, f]}")
-        #     print(f"Label: {Y_train[sample_idx]}")
-        # # Optional: show sample weights
-        # if sample_weights_train is not None:
-        #     print("Sample weights:")
-        #     for i in range(min(3, len(sample_weights_train))):
-        #         print(f"{i}: {sample_weights_train[i]}")
+    #num_train_files = len(train_data)
+    #print(f"\nNumber of training files: {num_train_files}")
+    ## Check class distributions
+    #print("Balanced train class distribution:")
+    #print(train_data['action'].value_counts().sort_index())
 
-    exit(0)  # Debugging exit
-    
+    #balanced_train_data = balance_classes(train_data, method='oversample')
+
+    #num_train_files = len(balanced_train_data)
+    #print(f"\nNumber of training files: {num_train_files}")
+    ## Check class distributions
+    #print("Balanced train class distribution:")
+    #print(balanced_train_data['action'].value_counts().sort_index())
+
+    #num_val_files = len(val_data)
+    #print(f"\nNumber of validation files: {num_val_files}")
+    #print("\nValidation class distribution:")
+    #print(val_data['action'].value_counts().sort_index())
+
+    #exit()
+    ## Create data generators
+    #train_gen = therapy_data_generator(balanced_train_data, video_skels, pose_annotations_file=None, 
+    #                                validation=False,
+    #                                in_memory_generator=model_params['in_memory_generator_train'],
+    #                                **model_params)
+
+    #val_gen = therapy_data_generator(val_data, video_skels, pose_annotations_file=None, 
+    #                                validation=True,
+    #                                in_memory_generator=model_params['in_memory_generator_val'],
+    #                                **model_params)
+    #
+    #print("\n========== First 2 batches from train_gen ==========")
+    #for i in range(2):
+    #    print(f"\n--- Train Batch {i+1} ---")
+    #    X_train, Y_train, sample_weights_train = next(train_gen)
+    #    print(f"Input shape: {X_train.shape}")
+    #    print(f"Labels shape: {Y_train.shape}")
+    #    
+    ## Therapy data Obtained
+    #print(' * Therapy data obtained')
+
+
+    # if val_gen is not None:
+    #     # Assume you already created val_gen and have model_params, etc.
+    #     val_steps = len(val_data) // model_params['batch_size']  # or use your own logic to define validation_steps
+    #     print(' * Validation steps:', val_steps)
+    #     metrics_logger = MetricsLogger(
+    #             validation_steps=val_steps,
+    #             val_data=val_data,
+    #             metrics_save_dir=metrics_save_dir,  # change this path as needed
+    #             in_memory_generator=model_params['in_memory_generator_val'],
+    #             model_params=model_params,
+    #             validation_generator=val_gen 
+    #         )
+    #     callbacks.append(metrics_logger)
+
     if val_gen is not None:
         validation_steps = None if num_val_files == 0 else num_val_files//model_params['batch_size']
         print(' * Validation steps:', validation_steps)
         metrics_logger = MetricsLogger(validation_steps=validation_steps, pose_annotations_file=model_params['val_annotations'], 
-                                       metrics_save_dir=metrics_save_dir, 
-                                       in_memory_generator=model_params['in_memory_generator_val'], 
-                                       model_params=model_params,
-                                       validation_generator=val_gen)
+                                        metrics_save_dir=metrics_save_dir, 
+                                        in_memory_generator=model_params['in_memory_generator_val'], 
+                                        model_params=model_params,
+                                        validation_generator=val_gen)
         callbacks.append(metrics_logger)
-    
+
     # Print the labels for the first 2 batches
     # for i in range(2):
     #     X_train, Y_train, sample_weights_train = next(train_gen)
@@ -302,11 +378,6 @@ def main(model_params):
     #         print(f"Validation Batch {i+1} Labels Shape:", Y_val.shape)
     #         print(f"\nSample Weights Validation {i+1} Labels:", sample_weights_val)
 
-    # batch_loss_logger = BatchLossLogger(filename='batch_losses.json')
-    
-    # batch = next(iter(train_gen))  # or your generator
-    # print(type(batch), len(batch))
-    # TODO: Check why batch len is 4 instead of 3
     
     steps_per_epoch = num_train_files//model_params['batch_size']
     print(' * Steps per epoch:', steps_per_epoch)
@@ -318,7 +389,7 @@ def main(model_params):
             validation_data = val_gen,
             steps_per_epoch = num_train_files//model_params['batch_size'],
             validation_steps = None if num_val_files == 0 else num_val_files//model_params['batch_size'],
-            epochs = 100,
+            epochs = 300,
             # epochs = 50, 
             # epochs = 300, 
             # steps_per_epoch = 10,         # num_val_files//model_params['batch_size'],
@@ -333,14 +404,15 @@ def main(model_params):
     #del callbacks
 
     # Remove suboptimal weights
-    remove_path_weights(model_params['path_model'], model_params['monitor'], model_params['min_monitor'])
+    # remove_path_weights(model_params['path_model'], model_params['monitor'], model_params['min_monitor'])
 
 
 if __name__ == "__main__":
 
     model_params = {
+        #"path_results": "./therapist_pretrained_models/",
         "path_results": "./pretrained_models/",
-
+        
         # # NTU-120 Data sets to optimize the therapy data
         "train_annotations": "./ntu_annotations/one_shot_aux_set_train_full8.txt",
         "val_annotations": "./ntu_annotations/one_shot_aux_set_val_full8.txt",
@@ -368,24 +440,35 @@ if __name__ == "__main__":
         # "eval_ntu_one_shot_eval_anchors_file": "./ntu_annotations/one_shot_eval_anchors.txt",
         # "eval_ntu_one_shot_eval_set_file": "./ntu_annotations/one_shot_eval_set.txt",
 
+        # "batch_size": 3,       
+        # "init_lr": 0.0001,
+        # "init_lr": 0.001,
+        # "lstm_recurrent_dropout": 0.0,
+        # "lstm_dropout": 0.2,
+
+        "batch_size": 64,       
+        "init_lr": 0.0001,
+        # "init_lr": 0.001,
+        "lstm_recurrent_dropout": 0.0,
+        "lstm_dropout": 0.2,
+
         "joints_num": 25,
         "joints_dim": 3,
-        "init_lr": 0.0001,
         "max_seq_len": -32,
 
         # Set True to use a fitted data scaler. The one from the pre-trained models can also be used
         "scale_data": False,       
-        "lstm_recurrent_dropout": 0.0,
-        "lstm_dropout": 0.2,
         "num_layers": 2,
         "num_neurons": 256,
-        "batch_size": 64,       
         "masking": True,
         "center_skels": True,
         "scale_by_torso": True,
         "temporal_scale": [0.8, 1.2],
-        "classification": True, "triplet": False, "decoder": False, "reverse_decoder": False,
-        "num_classes": 120,
+        "classification": True, 
+        "triplet": False, 
+        "decoder": False, 
+        "reverse_decoder": False,
+        "num_classes": 14,
         "clf_neurons": 0,
 
         "model_name": "train_TCN",
@@ -399,6 +482,7 @@ if __name__ == "__main__":
         "use_bone_angles": True,
         "use_bone_angles_cent": False,
         "average_wrong_skels": True,
+        
         }
     
     main(model_params)

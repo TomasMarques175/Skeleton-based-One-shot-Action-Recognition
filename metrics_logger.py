@@ -144,3 +144,111 @@ class MetricsLogger(tf.keras.callbacks.Callback):
             print(f"[MetricsLogger] Saved confusion matrix (.npy and .png) to {confusion_matrix_dir}")
         print(f"[MetricsLogger] Epoch {epoch+1} - Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, Val F1: {f1:.4f}, Val AUC: {auc:.4f}")
 
+""" class MetricsLogger(tf.keras.callbacks.Callback):
+    def __init__(self, validation_steps, val_data, metrics_save_dir, 
+                 in_memory_generator, model_params, validation_generator=None):
+        super().__init__()
+        self.in_memory_generator = in_memory_generator
+        self.model_params = model_params
+        self.validation_steps = validation_steps
+        self.metrics_save_dir = metrics_save_dir
+        self.val_data = val_data
+        self.train_losses = []
+        self.val_losses = []
+        self.val_f1_scores = []
+        self.val_auc_scores = []
+        self.validation_generator = validation_generator
+
+    def on_epoch_end(self, epoch, logs=None):
+        logs = logs or {}
+
+        train_loss = logs.get("loss")
+        val_loss = logs.get("val_loss")
+        self.train_losses.append(train_loss)
+        self.val_losses.append(val_loss)
+
+        if self.validation_generator is None:
+            print("[MetricsLogger] No validation generator provided.")
+            return
+
+        print(f"[MetricsLogger] Running validation predictions for {self.validation_steps} steps...")
+        y_pred = self.model.predict(self.validation_generator, steps=self.validation_steps)
+
+        if isinstance(y_pred, list):
+            print(f"[MetricsLogger] y_pred is list, using y_pred[0] with shape: {y_pred[0].shape}")
+            y_pred = y_pred[0]
+            print(f"[MetricsLogger] y_pred shape: {y_pred.shape}")
+
+        # Get ground truth from val_data
+        labels = self.val_data['action'].values
+        # Use the global class list from training
+        class_names = sorted(self.val_data['action'].unique())  # Only valid if same as training!
+        label_to_idx = {label: idx for idx, label in enumerate(class_names)}
+        y_true = np.array([label_to_idx[label] for label in self.val_data['action'].values])
+        y_pred_classes = np.argmax(y_pred, axis=1)
+
+        print(f"[MetricsLogger] y_pred shape: {y_pred.shape}, y_true shape: {y_true.shape}")
+        print(f"[MetricsLogger] Labels shape: {labels.shape}, sample: {labels[:5]}")
+        # print(f"[MetricsLogger] Label to index mapping: {label_to_idx}")
+        print(f"[MetricsLogger] y_true shape: {y_true.shape}, sample: {y_true[:5]}")
+        print(f"[MetricsLogger] y_pred_classes shape: {y_pred_classes.shape}, sample: {y_pred_classes[:5]}")
+
+        # print("Label to index mapping:", label_to_idx)
+        # print("Sample true:", y_true[:5])
+        # print("Sample pred:", y_pred_classes[:5])
+
+        # Ensure lengths match
+        if len(y_pred_classes) != len(y_true):
+            min_len = min(len(y_pred_classes), len(y_true))
+            print(f"⚠️ Length mismatch: truncating to {min_len}")
+            y_pred_classes = y_pred_classes[:min_len]
+            y_true = y_true[:min_len]
+
+        f1 = f1_score(y_true, y_pred_classes, average="macro")
+        self.val_f1_scores.append(f1)
+
+        try:
+            auc = roc_auc_score(y_true, y_pred, multi_class="ovo")
+        except Exception as e:
+            print(f"[MetricsLogger] AUC error: {e}")
+            auc = np.nan
+        self.val_auc_scores.append(auc)
+
+        # Save metrics
+        os.makedirs(self.metrics_save_dir, exist_ok=True)
+        np.savez(
+            os.path.join(self.metrics_save_dir, "tensorflow_train_loss_val_loss_val_f1_val_auc.npz"),
+            train_losses=np.array(self.train_losses),
+            val_losses=np.array(self.val_losses),
+            val_f1_scores=np.array(self.val_f1_scores),
+            val_auc_scores=np.array(self.val_auc_scores),
+        )
+
+        print(f"[MetricsLogger] Epoch {epoch+1} - Train Loss: {train_loss:.4f}, "
+              f"Val Loss: {val_loss:.4f}, Val F1: {f1:.4f}, Val AUC: {auc:.4f}")
+
+        # Save confusion matrix every 10 epochs
+        if epoch == 0 or (epoch + 1) % 10 == 0:
+            conf_mat = confusion_matrix(y_true, y_pred_classes)
+
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
+            cm_dir = os.path.join(parent_dir, 'Conversion comparison')
+            os.makedirs(cm_dir, exist_ok=True)
+
+            np.save(os.path.join(cm_dir, f'conf_matrix_epoch_{epoch+1:03d}.npy'), conf_mat)
+
+            plt.figure(figsize=(40, 30))
+            sns.heatmap(conf_mat, annot=True, fmt='d', cmap='Blues',
+                        annot_kws={"size": 5}, cbar=True)
+            plt.xlabel("Predicted")
+            plt.ylabel("Actual")
+            plt.title(f"Confusion Matrix - Epoch {epoch+1}")
+            plt.xticks(rotation=90, fontsize=5)
+            plt.yticks(fontsize=5)
+            plt.tight_layout()
+            plt.savefig(os.path.join(cm_dir, f'conf_matrix_epoch_{epoch+1:03d}.png'))
+            plt.close()
+
+            print(f"[MetricsLogger] Confusion matrix saved to {cm_dir}")
+ """

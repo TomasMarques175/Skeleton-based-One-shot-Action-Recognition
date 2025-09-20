@@ -37,7 +37,6 @@ DETS_COLORS = {'med': '#F77800', 'good': '#ffcc66', 'excel': '#00cc66'}
 # =============================================================================
 # Get metric thresholds
 # =============================================================================
-
 def get_metric_thr(path_model, metrics=['cos', 'js'], mode='_bgnd'):
     tb_file = path_model + '/metrics/' + \
         os.listdir(path_model + '/metrics')[-1]
@@ -84,7 +83,7 @@ def get_video_distances(pf, actions_data, video_skels, model, model_params, batc
         # anchors_skels = np.expand_dims(anchors_skels, axis=0)
         # anchor_preds = np.array(model.get_embedding(anchors_skels))[0]
         anchors_y_true = [any((anchors.init_frame < num_frame) & (anchors.end_frame > num_frame))
-                          for num_frame in anchors_num_frames]
+                        for num_frame in anchors_num_frames]
 
         # anchors_ids = [ any((anchors.init_frame < num_frame) & (anchors.end_frame > num_frame)) \
         # for num_frame in anchors_num_frames ]

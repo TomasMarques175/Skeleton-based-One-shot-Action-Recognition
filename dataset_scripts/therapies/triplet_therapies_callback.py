@@ -27,7 +27,6 @@ sys.path.append('../..')
 # =============================================================================
 # Predictions in the full video
 # =============================================================================
-
 def get_therapies_triplet_distances(model, model_params, triplets, triplets_bgnd, video_skels,
                                     in_memory_callback, cached_videos):
 

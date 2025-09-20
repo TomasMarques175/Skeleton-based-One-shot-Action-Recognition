@@ -41,3 +41,4 @@ env/
 .old_env/
 */.venv/
 */.env/
+therapist_pretrained_models/
