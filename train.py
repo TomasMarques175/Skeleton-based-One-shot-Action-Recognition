@@ -1261,7 +1261,7 @@ def evaluate_model_on_all_data(model, full_eval_data, video_skels, model_params,
         plt.savefig(group_save_path)
         print(f"Confusion matrix saved to: {save_path}")
 
-def evaluate_model_on_all_data_mp(model, full_dataset, model_params, device, fold, save_path):
+def evaluate_model_on_all_data_mp(model, model_number, full_dataset, model_params, device, fold, save_path):
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
@@ -1323,10 +1323,12 @@ def evaluate_model_on_all_data_mp(model, full_dataset, model_params, device, fol
         print(f"\n--- Classification Report ({group_name}) ---")
         print(report)
 
-        # Save report
+        base_filename = os.path.splitext(os.path.basename(save_path))[0]
+
+        # Report save path
         report_save_path = os.path.join(
             os.path.dirname(save_path),
-            f"{os.path.splitext(os.path.basename(save_path))[0]}_fold{fold}_{group_name}_report.txt"
+            f"model_{model_number}_{base_filename}_fold{fold}_{group_name}_report.txt"
         )
         with open(report_save_path, "w", encoding="utf-8") as f:
             f.write(report)
@@ -1341,10 +1343,10 @@ def evaluate_model_on_all_data_mp(model, full_dataset, model_params, device, fol
         plt.title(f"Confusion Matrix ({group_name})")
         plt.tight_layout()
 
-        # Save matrix
+        # Confusion Matrix save path
         group_save_path = os.path.join(
             os.path.dirname(save_path),
-            f"{os.path.splitext(os.path.basename(save_path))[0]}_fold{fold}_{group_name}.png"
+            f"model_{model_number}_{base_filename}_fold{fold}_{group_name}.png"
         )
         plt.savefig(group_save_path)
         plt.close()
@@ -1886,7 +1888,7 @@ def main(model_params):
             )
             
             # Evaluate on all data
-            evaluate_model_on_all_data_mp(pytorch_model, full_dataset, model_params, device, fold, os.path.join(metrics_save_dir, filename))
+            evaluate_model_on_all_data_mp(pytorch_model, model_number, full_dataset, model_params, device, fold, os.path.join(metrics_save_dir, filename))
         
         # Save the mean of the best F1 scores across folds
         # in order to report the overall performance
@@ -2201,7 +2203,7 @@ def objective(trial, static_params):
     # Define hyperparameter search space
     optuna_params = {        
         # Training-related
-        "init_lr": trial.suggest_float("init_lr", 1e-6, 1e-5, log=True),
+        "init_lr": trial.suggest_float("init_lr", 1e-5, 1e-3, log=True),
         "batch_size": trial.suggest_categorical("batch_size", [8, 16, 32, 64]),
 
         # LSTM
@@ -2210,13 +2212,13 @@ def objective(trial, static_params):
 
         # ReduceLROnPlateau
         "lr_min_delta": trial.suggest_float("lr_min_delta", 1e-5, 1e-2, log=True),
-        "lr_factor": trial.suggest_float("lr_factor", 0.1, 0.3),
-        "lr_patience": trial.suggest_int("lr_patience", 10, 20),
+        "lr_factor": trial.suggest_float("lr_factor", 0.1, 0.9),
+        "lr_patience": trial.suggest_int("lr_patience", 2, 10),
         "min_lr": trial.suggest_float("min_lr", 1e-7, 1e-4, log=True),
 
         # EarlyStopping
         "early_stopping_min_delta": trial.suggest_float("early_stopping_min_delta", 1e-5, 1e-2, log=True),
-        "es_patience": trial.suggest_int("es_patience", 10, 20),
+        "es_patience": trial.suggest_int("es_patience", 3, 12),
     }
     
     # Combine the two
@@ -2262,7 +2264,7 @@ if __name__ == "__main__":
 
         "epochs": 300, # Number of training epochs
         "K": 5,  # Number of folds for cross-validation
-        "n_trials": 20,  # Number of trials for Optuna
+        "n_trials": 40,  # Number of trials for Optuna
 
         # Set to 0 for no training logs, 1 for basic logs, >1 for more detailed logs
         "train_verbose": 1,
@@ -2276,15 +2278,17 @@ if __name__ == "__main__":
         "average_k_fold": False,  # Set to True if you want to average the results of the K-folds models
         
         # TODO: Change every time you switch to the next model
-        # "model_name": "Models_Therapist_Classifier_Block_5_4_3_2_1_0_From_Zero",
-        #"model_name": "Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp)",
-        "model_name": "Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp_NEW)",
+        "model_name": "Models_MP_Therapist_APPDA_Block_0",
+        # "model_name": "Models_Therapist_Classifier_Block_5_4_3_2_1_0",
+        # "model_name": "Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp)",
+        # "model_name": "Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp_NEW)",
 
         # TODO: Change every time you switch to the next model
         # Path to the pre-trained model in Pytorch format
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier_Block_5/0730_1921_model_1/weights/Best_Model-ep300-trainloss0.31293-f10.54116.pt",
+        "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier_Block_5_4_3_2_1_0(k_fold_separated_c_th_comp))/",
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp)",  # Path to the pre-trained model for Therapies dataset in Pytorch format
-        "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp_NEW)",  # Path to the pre-trained model for Therapies dataset in Pytorch format
+        # "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp_NEW)",  # Path to the pre-trained model for Therapies dataset in Pytorch format
 
         # TODO: Change every time you switch to the next model
         # Use a pre-trained model (Set True if you want to use a pre-trained model)
@@ -2292,7 +2296,7 @@ if __name__ == "__main__":
         
         # TODO: Change every time you switch to the next model
         # Convert Keras parameters to PyTorch equivalents (Set True if The model you want to fine tune is in TensorFlow/Keras format)
-        "model_converter": False, # Set to True if you want to convert a Keras model to PyTorch or in case this is the 1st layer for MP
+        "model_converter": True, # Set to True if you want to convert a Keras model to PyTorch or in case you want to change the 1st layer size
         "model_is_pytorch": True, # Set to True if the Model is in PyTorch format or False if it is in TensorFlow/Keras format
         
         # Path to the pre-trained model in TensorFlow/Keras format
@@ -2300,10 +2304,11 @@ if __name__ == "__main__":
         # "pretrained_model_path": "./therapies_model_7/model",   # Path to the pre-trained model for the therapies dataset
 
         # TODO: Change every time you switch to the next model
-        # # NTU-120 Data sets to optimize the therapy data
-        "train_annotations": "./datasets_annotations/mp_train.txt",
-        "val_annotations": "./datasets_annotations/mp_val.txt",
+        "train_annotations": "./datasets_annotations/therapies_APPDA_MP_annotations.txt",
+        
+        "val_annotations": "./datasets_annotations/mp_val.txt", # Set in case you don't use K-Fold Cross Validation
         "final_validation_annotations": "./datasets_annotations/val_dataset.txt",
+        
         # "eval_therapies": True,  # Therapy data needed for its evaluation
         "h_flip": True,
         "skip_frames": [2, 3],
@@ -2323,28 +2328,28 @@ if __name__ == "__main__":
             # "encoder_net.encoder.0.residual_blocks.0.conv2.bias",
             # "encoder_net.encoder.0.residual_blocks.0.downsample.weight",
             # "encoder_net.encoder.0.residual_blocks.0.downsample.bias",
-            # "encoder_net.encoder.0.residual_blocks.1.conv1.weight",
-            # "encoder_net.encoder.0.residual_blocks.1.conv1.bias",
-            # "encoder_net.encoder.0.residual_blocks.1.conv2.weight",
-            # "encoder_net.encoder.0.residual_blocks.1.conv2.bias",
-            # "encoder_net.encoder.0.residual_blocks.2.conv1.weight",
-            # "encoder_net.encoder.0.residual_blocks.2.conv1.bias",
-            # "encoder_net.encoder.0.residual_blocks.2.conv2.weight",
-            # "encoder_net.encoder.0.residual_blocks.2.conv2.bias",
-            # "encoder_net.encoder.0.residual_blocks.3.conv1.weight",
-            # "encoder_net.encoder.0.residual_blocks.3.conv1.bias",
-            # "encoder_net.encoder.0.residual_blocks.3.conv2.weight",
-            # "encoder_net.encoder.0.residual_blocks.3.conv2.bias",
-            # "encoder_net.encoder.0.residual_blocks.4.conv1.weight",
-            # "encoder_net.encoder.0.residual_blocks.4.conv1.bias",
-            # "encoder_net.encoder.0.residual_blocks.4.conv2.weight",
-            # "encoder_net.encoder.0.residual_blocks.4.conv2.bias",
-            # "encoder_net.encoder.0.residual_blocks.5.conv1.weight",
-            # "encoder_net.encoder.0.residual_blocks.5.conv1.bias",
-            # "encoder_net.encoder.0.residual_blocks.5.conv2.weight",
-            # "encoder_net.encoder.0.residual_blocks.5.conv2.bias",
-            # "clf_out.weight",
-            # "clf_out.bias",
+            "encoder_net.encoder.0.residual_blocks.1.conv1.weight",
+            "encoder_net.encoder.0.residual_blocks.1.conv1.bias",
+            "encoder_net.encoder.0.residual_blocks.1.conv2.weight",
+            "encoder_net.encoder.0.residual_blocks.1.conv2.bias",
+            "encoder_net.encoder.0.residual_blocks.2.conv1.weight",
+            "encoder_net.encoder.0.residual_blocks.2.conv1.bias",
+            "encoder_net.encoder.0.residual_blocks.2.conv2.weight",
+            "encoder_net.encoder.0.residual_blocks.2.conv2.bias",
+            "encoder_net.encoder.0.residual_blocks.3.conv1.weight",
+            "encoder_net.encoder.0.residual_blocks.3.conv1.bias",
+            "encoder_net.encoder.0.residual_blocks.3.conv2.weight",
+            "encoder_net.encoder.0.residual_blocks.3.conv2.bias",
+            "encoder_net.encoder.0.residual_blocks.4.conv1.weight",
+            "encoder_net.encoder.0.residual_blocks.4.conv1.bias",
+            "encoder_net.encoder.0.residual_blocks.4.conv2.weight",
+            "encoder_net.encoder.0.residual_blocks.4.conv2.bias",
+            "encoder_net.encoder.0.residual_blocks.5.conv1.weight",
+            "encoder_net.encoder.0.residual_blocks.5.conv1.bias",
+            "encoder_net.encoder.0.residual_blocks.5.conv2.weight",
+            "encoder_net.encoder.0.residual_blocks.5.conv2.bias",
+            "clf_out.weight",
+            "clf_out.bias",
         ],
         
         # Define which keys are replaced with new ones (i.e., re-initialized)
@@ -2399,7 +2404,7 @@ if __name__ == "__main__":
         static_params['effective_seq_len'] = static_params['max_seq_len']
 
 
-    """
+    """"
     # --- Model Verification on unseen data ---
     
     # --- Path and Feature Calculation (Cleaned Up) ---
@@ -2604,8 +2609,8 @@ if __name__ == "__main__":
     print(f"Overall mean similarity: {overall_mean:.2f}")
     
     exit(0)
-    """
     
+    """
 
     # Create Optuna study
     study = optuna.create_study(direction="maximize")  # Or "minimize" for loss
