@@ -2512,7 +2512,15 @@ if __name__ == "__main__":
     all_fold_labels = []  # store labels from each fold
     all_fold_sims = []  # store similarities from each fold
     all_fold_embs = []  # store embeddings from each fold
-    
+
+    full_dataset = TripletPoseDataset(
+        pose_annotations_file="./datasets_annotations/mp_train.txt",
+        validation_mode=False,
+        in_memory=model_params['in_memory_generator_train'],
+        **model_params
+    )
+
+
     for fold in range(5):  # 5 folds
         print(f"\n===== Fold {fold} =====")
         # --- Init model for this fold ---
@@ -2532,7 +2540,7 @@ if __name__ == "__main__":
         pytorch_model.load_state_dict(torch.load(fold_model_path))
         pytorch_model.eval().to(device)
 
-        evaluate_model_on_all_data_mp(pytorch_model, 12, val_dataset, model_params, device, fold, metrics_save_dir)
+        evaluate_model_on_all_data_mp(pytorch_model, 12, full_dataset, model_params, device, fold, metrics_save_dir)
         continue  # Skip the rest for now
     
         # --- Collect predictions instead of embeddings ---
