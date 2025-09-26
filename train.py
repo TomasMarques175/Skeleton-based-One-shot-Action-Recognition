@@ -2278,7 +2278,7 @@ if __name__ == "__main__":
         "average_k_fold": False,  # Set to True if you want to average the results of the K-folds models
         
         # TODO: Change every time you switch to the next model
-        "model_name": "Models_MP_Classifier1_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp_NEW_after_MP_Therapist_APPDA)",  # Name of the model for saving and loading
+        "model_name": "Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp_NEW_after_MP_Therapist_APPDA)",  # Name of the model for saving and loading
         # "model_name": "Models_Therapist_Classifier_Block_5_4_3_2_1_0",
         # "model_name": "Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp)",
         # "model_name": "Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp_NEW)",
@@ -2405,7 +2405,7 @@ if __name__ == "__main__":
         static_params['effective_seq_len'] = static_params['max_seq_len']
 
 
-    """"
+    
     # --- Model Verification on unseen data ---
     
     # --- Path and Feature Calculation (Cleaned Up) ---
@@ -2611,7 +2611,7 @@ if __name__ == "__main__":
     
     exit(0)
     
-    """
+    
 
     # Create Optuna study
     study = optuna.create_study(direction="maximize")  # Or "minimize" for loss
