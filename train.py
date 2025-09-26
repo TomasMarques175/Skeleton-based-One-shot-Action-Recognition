@@ -2532,6 +2532,9 @@ if __name__ == "__main__":
         pytorch_model.load_state_dict(torch.load(fold_model_path))
         pytorch_model.eval().to(device)
 
+        evaluate_model_on_all_data_mp(pytorch_model, 12, val_dataset, model_params, device, fold, metrics_save_dir)
+        continue  # Skip the rest for now
+    
         # --- Collect predictions instead of embeddings ---
         all_preds = []
         all_labels = []
