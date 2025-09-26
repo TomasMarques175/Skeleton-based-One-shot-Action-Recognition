@@ -1888,7 +1888,7 @@ def main(model_params):
             )
             
             # Evaluate on all data
-            evaluate_model_on_all_data_mp(pytorch_model, model_number, full_dataset, model_params, device, fold, os.path.join(metrics_save_dir, filename))
+            evaluate_model_on_all_data_mp(pytorch_model, model_number, full_dataset, model_params, device, fold, metrics_save_dir)
         
         # Save the mean of the best F1 scores across folds
         # in order to report the overall performance
