@@ -49,5 +49,7 @@ datasets/MP_CADDIn22/
 ntu_benchmark_model/
 datasets/
 therapies_APPDA_MP/
+animations_APPDA_MP/
+animations_CADIN_MP/
 
 torch_training_data.npzs

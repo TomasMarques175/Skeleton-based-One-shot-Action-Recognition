@@ -158,63 +158,82 @@ def animate_first_sample_skeleton_3d(annotations_file, model_params):
     features, label = None, None
     for i in range(len(dataset)):
         f, l = dataset[i]
-        if l == 1: # Looking for label 1
+        if l != 0: # Looking for label 1
             features, label = f, l
             print(f"Found sample with label 0 at index {i}")
-            break
+            # break
 
-    if features is None:
-        raise ValueError("No sample with label 0 found in dataset!")
+        if features is None:
+            raise ValueError("No sample with label 0 found in dataset!")
 
-    print(f"Features shape: {features.shape}, label: {label}")
+        print(f"Features shape: {features.shape}, label: {label}")
 
-    offset = 46  # Start of keypoints
-    joints_num = model_params.get("joints_num", 24)
-    coords_dim = model_params.get("joints_dim", 3)
+        offset = 46  # Start of keypoints
+        joints_num = model_params.get("joints_num", 24)
+        coords_dim = model_params.get("joints_dim", 3)
 
-    # Define skeleton edges
-    edges = [
-        (1, 0), (1, 2), (2, 14), (3, 14), (3, 4), (4, 5),
-        (14, 16), (15, 16), (12, 15), (6, 7), (7, 8), (8, 12),
-        (9, 12), (9, 10), (10, 11), (12, 17), (17, 18), (18, 19),
-        (13, 19), (21, 23), (19, 21), (19, 20), (20, 22)
-    ]
+        # Define skeleton edges
+        edges = [
+            (1, 0), (1, 2), (2, 14), (3, 14), (3, 4), (4, 5),
+            (14, 16), (15, 16), (12, 15), (6, 7), (7, 8), (8, 12),
+            (9, 12), (9, 10), (10, 11), (12, 17), (17, 18), (18, 19),
+            (13, 19), (21, 23), (19, 21), (19, 20), (20, 22)
+        ]
 
-    # Setup plot
-    fig = plt.figure(figsize=(8, 8))
-    ax = fig.add_subplot(111, projection='3d')
-    ax.set_title("3D Skeleton Animation (First Sample)")
-    ax.set_xlim(-0.3, 0.1); ax.set_ylim(-0.1, 0.1); ax.set_zlim(-0.15, 0.1)
-    ax.set_xlabel("X"); ax.set_ylabel("Y"); ax.set_zlabel("Z")
+        # Setup plot
+        fig = plt.figure(figsize=(8, 8))
+        ax = fig.add_subplot(111, projection='3d')
+        ax.set_title("3D Skeleton Animation (First Sample)")
+        ax.set_xlim(-0.3, 0.1); ax.set_ylim(-0.1, 0.1); ax.set_zlim(-0.15, 0.1)
+        ax.set_xlabel("X"); ax.set_ylabel("Y"); ax.set_zlabel("Z")
 
-    scatter = ax.scatter([], [], [], c="blue", s=40)
-    lines = [ax.plot([], [], [], c='black')[0] for _ in edges]
+        scatter = ax.scatter([], [], [], c="blue", s=40)
+        lines = [ax.plot([], [], [], c='black')[0] for _ in edges]
 
-    def init():
-        scatter._offsets3d = (np.array([]), np.array([]), np.array([]))
-        for line in lines:
-            line.set_data(np.zeros(2), np.zeros(2))
-            line.set_3d_properties(np.zeros(2))
-        return [scatter] + lines
+        def init():
+            scatter._offsets3d = (np.array([]), np.array([]), np.array([]))
+            for line in lines:
+                line.set_data(np.zeros(2), np.zeros(2))
+                line.set_3d_properties(np.zeros(2))
+            return [scatter] + lines
 
-    def update(frame_idx):
-        frame = features[frame_idx].numpy()
-        coords = frame[offset: offset + 72].reshape(joints_num, coords_dim)
-        xs, ys, zs = coords[:, 0], coords[:, 1], coords[:, 2]
-        scatter._offsets3d = (xs, ys, zs)
+        def update(frame_idx):
+            frame = features[frame_idx].numpy()
+            coords = frame[offset: offset + 72].reshape(joints_num, coords_dim)
+            xs, ys, zs = coords[:, 0], coords[:, 1], coords[:, 2]
+            scatter._offsets3d = (xs, ys, zs)
 
-        for k, (i, j) in enumerate(edges):
-            x_vals = np.array([coords[i, 0], coords[j, 0]])
-            y_vals = np.array([coords[i, 1], coords[j, 1]])
-            z_vals = np.array([coords[i, 2], coords[j, 2]])
+            for k, (i, j) in enumerate(edges):
+                x_vals = np.array([coords[i, 0], coords[j, 0]])
+                y_vals = np.array([coords[i, 1], coords[j, 1]])
+                z_vals = np.array([coords[i, 2], coords[j, 2]])
 
-            lines[k].set_data(x_vals, y_vals)
-            lines[k].set_3d_properties(z_vals)
-        return [scatter] + lines
+                lines[k].set_data(x_vals, y_vals)
+                lines[k].set_3d_properties(z_vals)
+            return [scatter] + lines
 
-    ani = animation.FuncAnimation(fig, update, frames=features.shape[0],
-                                  init_func=init, blit=True, interval=1000)
-    plt.show()
+        ani = animation.FuncAnimation(fig, update, frames=features.shape[0],
+                                    init_func=init, blit=True, interval=1000)
+
+        # Create folder if it doesn't exist
+        save_dir = "animations"
+        os.makedirs(save_dir, exist_ok=True)
+        
+        same_has = "gif"
+
+        if same_has == "mp4":
+            print("Saving animation as MP4...")
+            save_path = os.path.join(save_dir, f"skeleton_animation_sample_{i}_label_{label-1}.mp4")
+            ani.save(save_path, writer="ffmpeg", fps=10)
+
+        elif same_has == "gif":
+            print("Saving animation as GIF...")
+            save_path = os.path.join(save_dir, f"skeleton_animation_sample_{i}_label_{label-1}.gif")
+            ani.save(save_path, writer="pillow", fps=10)
+
+        print(f"Animation saved to {save_path}")
+
+        # plt.show()
 
 def visualize_first_sample_skeleton_3d(annotations_file, model_params):
     """
@@ -2779,7 +2798,7 @@ if __name__ == "__main__":
     # export_dataset_to_txt(model_params['train_compare_2'], model_params, "full_dataset_2_converted.txt")
 
     # visualize_pose_dataset_2d(model_params['train_compare_1'], model_params['train_compare_2'], model_params, max_samples=2000, method="pca")
-    animate_first_sample_skeleton_3d(model_params['train_compare_1'], model_params)
+    animate_first_sample_skeleton_3d(model_params['train_compare_2'], model_params)
     exit(0)
     
     
