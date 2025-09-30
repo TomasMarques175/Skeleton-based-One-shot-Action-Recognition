@@ -6,60 +6,62 @@ Created on Sat Apr 18 18:10:29 2020
 @author: asabater
 """
 
-# --- Imports ---
-import os
-import random
-import torch
-import torch.nn as nn
-import sys
-import json
-
-# import torch.nn.functional as F # TCN_classifier might use it
-import torch.optim as optim
-# Dataset is imported from pytorch_dataset
-from torch.utils.tensorboard import SummaryWriter
-from torchinfo import summary
-import re
-import pandas as pd
-
-# --- Utility imports ---
-from scipy.special import comb  # Used by get_num_feats
-import numpy as np
-import json
-from shutil import copyfile
-import glob  # For file searching if adapting remove_suboptimal_weights
-import time  # For timing epochs
-from sklearn.metrics import f1_score
-from sklearn.metrics import confusion_matrix
-import seaborn as sns
-from matplotlib import pyplot as plt
-from sklearn.metrics import roc_auc_score
+# --- Standard library imports ---
 import argparse
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import label_binarize
-from sklearn.model_selection import StratifiedKFold
-from sklearn.metrics import classification_report, confusion_matrix
-import shutil
-
-# --- PyTorch specific imports ---
-from models.TCN_classifier import TCN_clf  # Your PyTorch model
-from pytorch_dataset import TripletPoseDataset, get_num_feats, get_scaler_filename # Your PyTorch Dataset
-
-# --- TensorFlow imports ---
-import tensorflow as tf
 import copy
-
-# --- PyTorch Dataset imports ---
-from torch.utils.data import DataLoader, WeightedRandomSampler # Dataset is imported from pytorch_dataset
+import glob
+import json
 import os
 import pickle
-from sklearn.model_selection import StratifiedShuffleSplit
-from pytorch_dataset import TripletPoseDataset, TherapyDataset # Your PyTorch Dataset
-
+import random
+import re
+import shutil
+import sys
+import time
 from collections import Counter
-import optuna
 from functools import partial
+from shutil import copyfile
+
+# --- Third-party imports ---
+import numpy as np
+import optuna
+import pandas as pd
+import seaborn as sns
+import tensorflow as tf
+import torch
+import torch.nn as nn
 import torch.nn.functional as F
+import torch.optim as optim
+from matplotlib import (
+    pyplot as plt,
+    animation
+)
+from scipy.special import comb
+from sklearn.decomposition import PCA
+from sklearn.metrics import (
+    classification_report,
+    confusion_matrix,
+    f1_score,
+    roc_auc_score,
+)
+from sklearn.model_selection import (
+    StratifiedKFold,
+    StratifiedShuffleSplit,
+    train_test_split,
+)
+from sklearn.preprocessing import label_binarize
+from torch.utils.data import DataLoader, WeightedRandomSampler
+from torch.utils.tensorboard import SummaryWriter
+from torchinfo import summary
+
+# --- Local project imports ---
+from models.TCN_classifier import TCN_clf
+from pytorch_dataset import (
+    TripletPoseDataset,
+    TherapyDataset,
+    get_num_feats,
+    get_scaler_filename,
+)
 
 # --- Framework-agnostic or to-be-adapted utility imports ---
 # Ensure these functions do not have hard TensorFlow dependencies.
@@ -103,6 +105,252 @@ np.random.seed(SEED)
 
 torch.backends.cudnn.benchmark = False
 
+def export_dataset_to_txt(annotations_file, model_params, output_file="dataset_dump.txt", max_samples=None):
+    """
+    Export the dataset features + labels to a .txt file.
+
+    Args:
+        annotations_file (str): Path to dataset annotations.
+        model_params (dict): Dict with dataset/model params.
+        output_file (str): Where to save the .txt file.
+        max_samples (int): Limit number of samples (None = full dataset).
+    """
+    dataset = TripletPoseDataset(
+        pose_annotations_file=annotations_file,
+        validation_mode=False,
+        in_memory=model_params.get("in_memory_generator_train", False),
+        **model_params
+    )
+
+    with open(output_file, "w") as f:
+        for i, (features, label) in enumerate(dataset):
+            # Convert to numpy for easy saving
+            features_np = features.numpy()
+            label_val = int(label.item())
+
+            f.write(f"Sample {i}, Label {label_val}\n")
+
+            # Save each frame in the sequence
+            for frame in features_np:
+                line = " ".join(map(str, frame.tolist()))
+                f.write(line + "\n")
+
+            f.write("\n")  # Blank line between samples
+
+            if max_samples and i + 1 >= max_samples:
+                break
+
+    print(f"✅ Dataset exported to {output_file}")
+
+def animate_first_sample_skeleton_3d(annotations_file, model_params):
+    """
+    Animate the 3D skeleton for all frames of the first sample.
+    """
+    # Load dataset
+    dataset = TripletPoseDataset(
+        pose_annotations_file=annotations_file,
+        validation_mode=False,
+        in_memory=model_params.get('in_memory_generator_train', False),
+        **model_params
+    )
+
+    # Find the first sample with label 0
+    features, label = None, None
+    for i in range(len(dataset)):
+        f, l = dataset[i]
+        if l == 1: # Looking for label 1
+            features, label = f, l
+            print(f"Found sample with label 0 at index {i}")
+            break
+
+    if features is None:
+        raise ValueError("No sample with label 0 found in dataset!")
+
+    print(f"Features shape: {features.shape}, label: {label}")
+
+    offset = 46  # Start of keypoints
+    joints_num = model_params.get("joints_num", 24)
+    coords_dim = model_params.get("joints_dim", 3)
+
+    # Define skeleton edges
+    edges = [
+        (1, 0), (1, 2), (2, 14), (3, 14), (3, 4), (4, 5),
+        (14, 16), (15, 16), (12, 15), (6, 7), (7, 8), (8, 12),
+        (9, 12), (9, 10), (10, 11), (12, 17), (17, 18), (18, 19),
+        (13, 19), (21, 23), (19, 21), (19, 20), (20, 22)
+    ]
+
+    # Setup plot
+    fig = plt.figure(figsize=(8, 8))
+    ax = fig.add_subplot(111, projection='3d')
+    ax.set_title("3D Skeleton Animation (First Sample)")
+    ax.set_xlim(-0.3, 0.1); ax.set_ylim(-0.1, 0.1); ax.set_zlim(-0.15, 0.1)
+    ax.set_xlabel("X"); ax.set_ylabel("Y"); ax.set_zlabel("Z")
+
+    scatter = ax.scatter([], [], [], c="blue", s=40)
+    lines = [ax.plot([], [], [], c='black')[0] for _ in edges]
+
+    def init():
+        scatter._offsets3d = (np.array([]), np.array([]), np.array([]))
+        for line in lines:
+            line.set_data(np.zeros(2), np.zeros(2))
+            line.set_3d_properties(np.zeros(2))
+        return [scatter] + lines
+
+    def update(frame_idx):
+        frame = features[frame_idx].numpy()
+        coords = frame[offset: offset + 72].reshape(joints_num, coords_dim)
+        xs, ys, zs = coords[:, 0], coords[:, 1], coords[:, 2]
+        scatter._offsets3d = (xs, ys, zs)
+
+        for k, (i, j) in enumerate(edges):
+            x_vals = np.array([coords[i, 0], coords[j, 0]])
+            y_vals = np.array([coords[i, 1], coords[j, 1]])
+            z_vals = np.array([coords[i, 2], coords[j, 2]])
+
+            lines[k].set_data(x_vals, y_vals)
+            lines[k].set_3d_properties(z_vals)
+        return [scatter] + lines
+
+    ani = animation.FuncAnimation(fig, update, frames=features.shape[0],
+                                  init_func=init, blit=True, interval=1000)
+    plt.show()
+
+def visualize_first_sample_skeleton_3d(annotations_file, model_params):
+    """
+    Visualize the 3D skeleton joints for the first frame of the first sample.
+    Assumes coordinates start after the first 47 features.
+    """
+
+    # 1. Load dataset
+    dataset = TripletPoseDataset(
+        pose_annotations_file=annotations_file,
+        validation_mode=False,
+        in_memory=model_params.get('in_memory_generator_train', False),
+        **model_params
+    )
+
+    # 2. Get first sample
+    features, label = dataset[39]  # (seq_len, num_feats)
+    print(f"Features shape: {features.shape}, label: {label}")
+
+    first_frame = features[12].numpy()
+
+    print(f"First frame shape: {first_frame.shape}")
+    print(f"First frame data (first 72 values): {first_frame[:72]}")
+    
+    # 3. Extract coordinates (start after 47 features)
+    offset = 46
+    joints_num = model_params.get("joints_num", 24)
+    coords_dim = model_params.get("joints_dim", 3)
+
+    # 4. Plot all frames in sequence
+    fig = plt.figure(figsize=(8, 8))
+    ax = fig.add_subplot(111, projection="3d")
+    ax.set_title("3D Skeleton Joints (All Frames, First Sample)")
+    ax.set_xlim(-0.3, 0.1)
+    ax.set_ylim(-0.1, 0.1)
+    ax.set_zlim(-0.15, 0.1)
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.set_zlabel("Z")
+
+    # Skeleton edges (example, adjust to your dataset)
+    edges = [
+        (1, 0), (1, 2), (2, 14), (3, 14), (3, 4), (4, 5),
+        (14, 16), (15, 16), (12, 15), (6, 7), (7, 8), (8, 12),
+        (9, 12), (9, 10), (10, 11), (12, 17), (17, 18), (18, 19),
+        (13, 19), (21, 23), (19, 21), (19, 20), (20, 22)
+    ]
+    
+    # Loop over frames
+    coords = first_frame[offset : offset + 72].reshape(joints_num, coords_dim)
+    
+    # Scatter joints
+    ax.scatter(coords[:, 0], coords[:, 1], coords[:, 2], c="blue", s=20, alpha=0.5)
+    
+    # Draw skeleton lines
+    for i, j in edges:
+        if i < len(coords) and j < len(coords):
+            ax.plot([coords[i, 0], coords[j, 0]],
+                    [coords[i, 1], coords[j, 1]],
+                    [coords[i, 2], coords[j, 2]],
+                    c="black", alpha=0.3)
+
+    plt.show()
+
+def visualize_pose_dataset_2d(annotations_file_1, annotations_file_2, model_params, max_samples=2000, method="pca"):
+    """
+    Compare two pose datasets by projecting their features into 2D using PCA or t-SNE.
+
+    annotations_file_1 / annotations_file_2 : str
+        Paths to annotation files for each dataset.
+    model_params : dict
+        Dictionary of model parameters passed to TripletPoseDataset.
+    max_samples : int
+        Maximum number of samples to visualize across both datasets.
+    method : str
+        "pca" or "tsne" for dimensionality reduction.
+    """
+    
+    # 1. Load datasets
+    dataset1 = TripletPoseDataset(
+        pose_annotations_file=annotations_file_1,
+        validation_mode=False,
+        in_memory=model_params.get('in_memory_generator_train', False),
+        **model_params
+    )
+    dataset2 = TripletPoseDataset(
+        pose_annotations_file=annotations_file_2,
+        validation_mode=False,
+        in_memory=model_params.get('in_memory_generator_train', False),
+        **model_params
+    )
+
+    loader1 = torch.utils.data.DataLoader(dataset1, batch_size=32, shuffle=True)
+    loader2 = torch.utils.data.DataLoader(dataset2, batch_size=32, shuffle=True)
+
+    # 2. Collect features
+    def collect_features(loader, label_value, limit):
+        features_list, labels_list = [], []
+        total = 0
+        for features, _ in loader:
+            pooled = features.mean(dim=1).numpy()  # mean pooling
+            features_list.append(pooled)
+            labels_list.append(np.full(pooled.shape[0], label_value))
+            total += pooled.shape[0]
+            if total >= limit:
+                break
+        return np.vstack(features_list), np.concatenate(labels_list)
+
+    half_samples = max_samples // 2
+    X1, y1 = collect_features(loader1, label_value=0, limit=half_samples)
+    X2, y2 = collect_features(loader2, label_value=1, limit=half_samples)
+
+    all_features = np.vstack([X1, X2])
+    all_labels = np.concatenate([y1, y2])
+
+    # 3. Dimensionality reduction
+    if method == "pca":
+        reducer = PCA(n_components=2)
+    elif method == "tsne":
+        reducer = TSNE(n_components=2, perplexity=30, random_state=42)
+    else:
+        raise ValueError("method must be 'pca' or 'tsne'")
+
+    features_2d = reducer.fit_transform(all_features)
+
+    # 4. Plot
+    plt.figure(figsize=(8, 6))
+    scatter = plt.scatter(
+        features_2d[:, 0], features_2d[:, 1],
+        c=all_labels, cmap="coolwarm", alpha=0.7
+    )
+    plt.colorbar(scatter, ticks=[0, 1], label="Dataset Origin")
+    plt.title(f"2D {method.upper()} Comparison of Two Pose Datasets")
+    plt.xlabel("Component 1")
+    plt.ylabel("Component 2")
+    plt.show()
 
 def copy_scaler_if_needed(model_params):
     """
@@ -2310,6 +2558,9 @@ if __name__ == "__main__":
         "val_annotations": "./datasets_annotations/mp_val.txt", # Set in case you don't use K-Fold Cross Validation
         "final_validation_annotations": "./datasets_annotations/val_dataset.txt",
         
+        "train_compare_1": "./datasets_annotations/therapies_APPDA_MP_annotations.txt",
+        "train_compare_2": "./datasets_annotations/mp_train.txt",
+
         # "eval_therapies": True,  # Therapy data needed for its evaluation
         "h_flip": True,
         "skip_frames": [2, 3],
@@ -2386,11 +2637,14 @@ if __name__ == "__main__":
         "conv_params": [256, 4, 2, True, "causal", [4]],
         "is_tcn": False,
         "use_jcd_features": True,
+        # "use_jcd_features": True,
         "use_speeds": False,
         "use_coords_raw": False,
         "use_coords": True,
+        # "use_coords": True,
         "use_jcd_diff": False,
         "use_bone_angles": True,
+        # "use_bone_angles": True,
         "use_bone_angles_cent": False,
         "average_wrong_skels": True,
         "average_wrong_skels_method": 'mean',
@@ -2521,6 +2775,14 @@ if __name__ == "__main__":
     )
 
 
+    # export_dataset_to_txt(model_params['train_compare_1'], model_params, "full_dataset_1_converted.txt")
+    # export_dataset_to_txt(model_params['train_compare_2'], model_params, "full_dataset_2_converted.txt")
+
+    # visualize_pose_dataset_2d(model_params['train_compare_1'], model_params['train_compare_2'], model_params, max_samples=2000, method="pca")
+    animate_first_sample_skeleton_3d(model_params['train_compare_1'], model_params)
+    exit(0)
+    
+    
     for fold in range(5):  # 5 folds
         print(f"\n===== Fold {fold} =====")
         # --- Init model for this fold ---
