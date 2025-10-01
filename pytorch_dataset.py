@@ -311,7 +311,7 @@ def flip_skeleton(skel, flip_axis=0):
 def scale_skel_by_torso(skel):
     if skel.shape[0] == 0: return skel
     if skel.shape[1] <= 20: # joints_num
-        print(f"Warning: scale_by_torso requires at least 21 joints, found {skel.shape[1]}. Skipping scaling.")
+        # print(f"Warning: scale_by_torso requires at least 21 joints, found {skel.shape[1]}. Skipping scaling.")
         return skel
 
     torso_dists = np.linalg.norm(skel[:, 20] - skel[:, 1], axis=1) + \
@@ -334,7 +334,7 @@ def matrix_unit_vector(matrix):
 
 def get_transformation_matrix_global(skel):
     if skel.shape[1] <= 20: # joints_num
-        print(f"Warning: get_transformation_matrix_global requires at least 21 joints. Returning identity.")
+        # print(f"Warning: get_transformation_matrix_global requires at least 21 joints. Returning identity.")
         return np.array([np.eye(4)] * skel.shape[0])
 
     # Origin: Midpoint between hips (indices 12 and 16 for NTU RGB+D)
