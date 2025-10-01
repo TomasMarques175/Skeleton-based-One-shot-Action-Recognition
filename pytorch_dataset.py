@@ -15,7 +15,7 @@ import scipy.ndimage.interpolation as inter # Used in helper zoom_to_target_len
 # These should be the same as in pytorch_dataset_py_01
 # Ensure they are reviewed for TF/Keras dependencies.
 # =============================================================================
-
+"""
 FLIP_CORRESPONDENCES_LEFT = [8, 7, 6, 2, 1, 0, 20, 21, 23]
 FLIP_CORRESPONDENCES_RIGHT = [9, 10, 11, 3, 4, 5, 17, 20, 22]
 
@@ -54,6 +54,34 @@ CONNECTING_JOINT = [
 # SPINE = [0, 1, 2, 3, 20]
 # CONNECTING_JOINT = [1, 0, 20, 2, 20, 4, 5, 6, 20, 8, 9,
 #                     10, 0, 12, 13, 14, 0, 16, 17, 18, 1, 7, 7, 11, 11] # Used in get_body_spherical_angles
+"""
+drop_joints = {0, 1, 2, 3, 4, 5, 13, 19, 20, 21, 22, 23}
+keep_indices = [j for j in range(24) if j not in drop_joints]
+old_to_new = {old: new for new, old in enumerate(keep_indices)}
+
+# --- Flip correspondences ---
+FLIP_CORRESPONDENCES_LEFT_OLD = [8, 7, 6, 2, 1, 0, 20, 21, 23]
+FLIP_CORRESPONDENCES_RIGHT_OLD = [9, 10, 11, 3, 4, 5, 17, 20, 22]
+
+FLIP_CORRESPONDENCES_LEFT = [old_to_new[j] for j in FLIP_CORRESPONDENCES_LEFT_OLD if j in old_to_new]
+FLIP_CORRESPONDENCES_RIGHT = [old_to_new[j] for j in FLIP_CORRESPONDENCES_RIGHT_OLD if j in old_to_new]
+
+# --- Spine joints ---
+SPINE_OLD = [12, 14, 15, 16, 17, 18]
+SPINE = [old_to_new[j] for j in SPINE_OLD if j in old_to_new]
+
+# --- Connecting joints ---
+CONNECTING_JOINT_OLD = [
+    1, 0, 1, 2, 2, 14, 3, 14, 3, 4, 4, 5,
+    14, 16, 15, 16, 12, 15, 6, 7, 7, 8, 8, 12,
+    9, 12, 9, 10, 10, 11, 12, 17, 17, 18, 18, 19,
+    13, 19, 21, 23, 19, 21, 19, 20, 20, 22
+]
+
+CONNECTING_JOINT = []
+for j in CONNECTING_JOINT_OLD:
+    if j in old_to_new:
+        CONNECTING_JOINT.append(old_to_new[j])
 
 # --- Helper Function Definitions (Copied from pytorch_dataset_py_01) ---
 
