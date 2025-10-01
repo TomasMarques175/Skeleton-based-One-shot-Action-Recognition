@@ -888,9 +888,10 @@ def create_pytorch_model(model_params, fold=None):
         checkpoint_path = model_params["pretrained_model_path"]
         fold_model_path = get_k_fold_model_path(checkpoint_path, fold)
         
+        print(f"\n Num features: {model_params['num_feats']}, num_classes_for_model: {num_classes_for_model}")
         # Load old model checkpoint
         old_model = TCN_clf(
-            423, conv_params=model_params['conv_params'],
+            num_feats=model_params['num_feats'], conv_params=model_params['conv_params'],
             lstm_dropout=model_params['lstm_dropout'], masking=model_params['masking'],
             triplet=model_params.get('triplet', False), classification=model_params.get('classification', True),
             clf_neurons=model_params['clf_neurons'], num_classes=num_classes_for_model
