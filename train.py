@@ -888,10 +888,9 @@ def create_pytorch_model(model_params, fold=None):
         checkpoint_path = model_params["pretrained_model_path"]
         fold_model_path = get_k_fold_model_path(checkpoint_path, fold)
         
-        print(f"\n Num features: {model_params['num_feats']}, num_classes_for_model: {num_classes_for_model}")
         # Load old model checkpoint
         old_model = TCN_clf(
-            num_feats=model_params['num_feats'], conv_params=model_params['conv_params'],
+            num_feats=model_params['old_model_input_feature_size'], conv_params=model_params['conv_params'],
             lstm_dropout=model_params['lstm_dropout'], masking=model_params['masking'],
             triplet=model_params.get('triplet', False), classification=model_params.get('classification', True),
             clf_neurons=model_params['clf_neurons'], num_classes=num_classes_for_model
@@ -2568,6 +2567,7 @@ if __name__ == "__main__":
         # TODO: Change every time you switch to the next model
         # Convert Keras parameters to PyTorch equivalents (Set True if The model you want to fine tune is in TensorFlow/Keras format)
         "model_converter": True, # Set to True if you want to convert a Keras model to PyTorch or in case you want to change the 1st layer size
+        "old_model_input_feature_size": 394, # Set to the number of input features that entered in the old model (e.g., 423 for Kinect, 394 for MP, 124 for upper body MP)
         "model_is_pytorch": True, # Set to True if the Model is in PyTorch format or False if it is in TensorFlow/Keras format
         
         # Path to the pre-trained model in TensorFlow/Keras format
