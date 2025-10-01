@@ -51,5 +51,6 @@ datasets/
 therapies_APPDA_MP/
 animations_APPDA_MP/
 animations_CADIN_MP/
+therapies_APPDA_upper_body_MP/
 
 torch_training_data.npzs
