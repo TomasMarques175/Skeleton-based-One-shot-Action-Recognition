@@ -1858,9 +1858,9 @@ def main(model_params):
         
         labels = np.array([s['class_id'] for s in full_dataset.samples])
         for i in range(len(full_dataset)):
-            x = full_dataset[i][0]
-            print(f"Sample {i} final shape: {x.shape}")
-
+            sample, label = full_dataset[i]
+            print(f"Sample {i} - Shape: {sample.shape}, Label: {label}")
+        
         print(f"Full dataset size: {len(full_dataset)} samples")
         print(f"Labels shape: {labels.shape}")
         print(f"Unique classes in dataset: {np.unique(labels)}")
