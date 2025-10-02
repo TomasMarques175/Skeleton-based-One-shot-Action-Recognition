@@ -1528,12 +1528,19 @@ def evaluate_model_on_all_data(model, full_eval_data, video_skels, model_params,
         plt.savefig(group_save_path)
         print(f"Confusion matrix saved to: {save_path}")
 
-def evaluate_model_on_all_data_mp(model, model_number, full_dataset, model_params, device, fold, save_path):
+def evaluate_model_on_all_data_mp(model, model_number, model_params, device, fold, save_path):
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
     model.eval()
 
+    full_dataset = TripletPoseDataset(
+        pose_annotations_file="./datasets_annotations/mp_train.txt",
+        validation_mode=False,
+        in_memory=model_params['in_memory_generator_train'],
+        **model_params
+    )
+    
     # Child dataset
     child_dataset = TripletPoseDataset(
         pose_annotations_file="./datasets_annotations/mp_childs_val.txt",
@@ -2158,7 +2165,7 @@ def main(model_params):
             )
             
             # Evaluate on all data
-            evaluate_model_on_all_data_mp(pytorch_model, model_number, full_dataset, model_params, device, fold, metrics_save_dir)
+            # evaluate_model_on_all_data_mp(pytorch_model, model_number, model_params, device, fold, metrics_save_dir)
         
         # Save the mean of the best F1 scores across folds
         # in order to report the overall performance
