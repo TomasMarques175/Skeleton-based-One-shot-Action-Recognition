@@ -60,25 +60,25 @@ drop_joints = {0, 1, 2, 3, 4, 5, 13, 19, 20, 21, 22, 23}
 keep_indices = [j for j in range(24) if j not in drop_joints]
 old_to_new = {old: new for new, old in enumerate(keep_indices)}
 
-print("Kept joints:", keep_indices)
-print("Old → New mapping:")
-for old, new in old_to_new.items():
-    print(f"  {old:2d} → {new:2d}")
+# print("Kept joints:", keep_indices)
+# print("Old → New mapping:")
+# for old, new in old_to_new.items():
+    # print(f"  {old:2d} → {new:2d}")
 
 
 # --- Remap flip correspondences ---
 FLIP_CORRESPONDENCES_LEFT = [old_to_new[j] for j in [8, 7, 6] if j in old_to_new]
 FLIP_CORRESPONDENCES_RIGHT = [old_to_new[j] for j in [9, 10, 11] if j in old_to_new]
 
-print("\nFlip correspondences:")
-for l, r in zip(FLIP_CORRESPONDENCES_LEFT, FLIP_CORRESPONDENCES_RIGHT):
-    print(f"  L {l} ↔ R {r}")
+# print("\nFlip correspondences:")
+# for l, r in zip(FLIP_CORRESPONDENCES_LEFT, FLIP_CORRESPONDENCES_RIGHT):
+    # print(f"  L {l} ↔ R {r}")
 
 
 
 # Example: keep only existing spine joints
 SPINE = [old_to_new[j] for j in [12, 14, 15, 16, 17, 18] if j in old_to_new]
-print("\nSpine joints (new indices):", SPINE)
+# print("\nSpine joints (new indices):", SPINE)
 
 # --- Connecting joints ---
 CONNECTING_JOINT_OLD = [
@@ -96,11 +96,11 @@ for i in range(0, len(CONNECTING_JOINT_OLD), 2):
         CONNECTING_JOINT.extend([old_to_new[j1], old_to_new[j2]])
         remap_pairs.append((j1, j2, old_to_new[j1], old_to_new[j2]))
 
-print("\nConnecting joints (old → new):")
-for old1, old2, new1, new2 in remap_pairs:
-    print(f"  ({old1:2d}, {old2:2d}) → ({new1:2d}, {new2:2d})")
+# print("\nConnecting joints (old → new):")
+# for old1, old2, new1, new2 in remap_pairs:
+#     print(f"  ({old1:2d}, {old2:2d}) → ({new1:2d}, {new2:2d})")
 
-print("\nFinal CONNECTING_JOINT:", CONNECTING_JOINT)
+# print("\nFinal CONNECTING_JOINT:", CONNECTING_JOINT)
 
 
 # --- Helper Function Definitions (Copied from pytorch_dataset_py_01) ---

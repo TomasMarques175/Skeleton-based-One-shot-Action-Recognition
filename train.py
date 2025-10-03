@@ -142,6 +142,136 @@ def export_dataset_to_txt(annotations_file, model_params, output_file="dataset_d
 
     print(f"✅ Dataset exported to {output_file}")
 
+def animate_first_sample_skeleton_3d_upper_body(annotations_file, model_params):
+    """
+    Animate the 3D skeleton for all frames of the first sample.
+    """
+    # Load dataset
+    dataset = TripletPoseDataset(
+        pose_annotations_file=annotations_file,
+        validation_mode=False,
+        in_memory=model_params.get('in_memory_generator_train', False),
+        **model_params
+    )
+
+        # Find the first sample with label 0
+    features, label = None, None
+    for i in range(len(dataset)):
+        f, l = dataset[i]
+        if l != 0: # Looking for label 1
+            features, label = f, l
+            print(f"Found sample with label 0 at index {i}")
+            # break
+
+        if features is None:
+            raise ValueError("No sample with label 0 found in dataset!")
+
+        print(f"Features shape: {features.shape}, label: {label}")
+
+        offset = 46  # Start of keypoints
+        joints_num = model_params.get("joints_num", 24)
+        coords_dim = model_params.get("joints_dim", 3)
+        
+        # Setup plot
+        fig = plt.figure(figsize=(8, 8))
+        ax = fig.add_subplot(111, projection='3d')
+        ax.set_title("3D Skeleton Animation (Upper Body)")
+
+        # Bones_upper_body after dropping joints 0–5 13 19-23 (reindexed)
+        drop_joints = {0, 1, 2, 3, 4, 5, 13, 19, 20, 21, 22, 23}
+
+        # Original bone list using original indices (0..23)
+        original_bones = [
+            (1,0),(1,2),(2,14),(3,14),(3,4),(4,5),(14,16),(15,16),
+            (12,15),(6,7),(7,8),(8,12),(9,12),(9,10),(10,11),(12,17),
+            (17,18),(18,19),(13,19),(21,23),(19,21),(19,20),(20,22)
+        ]
+
+        # Build keep list and old->new mapping
+        keep_indices = [j for j in range(24) if j not in drop_joints]
+        old_to_new = {old: new for new, old in enumerate(keep_indices)}
+
+        # Remap original bones to new indices, keeping only valid edges
+        edges = []
+        for a, b in original_bones:
+            if a in old_to_new and b in old_to_new:
+                edges.append((old_to_new[a], old_to_new[b]))
+
+        # Extract upper body coordinates for all frames
+        upper_coords = features.numpy()[:, offset:offset + 72].reshape(-1, 24, 3)[:, keep_indices, :]
+
+
+        # Apply remap: (oldZ → newX, oldX → newY, oldY → newZ)
+        xs = upper_coords[:, :, 1].flatten()
+        ys = upper_coords[:, :, 2].flatten()
+        zs = upper_coords[:, :, 0].flatten()
+
+        print("[DEBUG] New X (old Z) range:", xs.min(), xs.max())
+        print("[DEBUG] New Y (old X) range:", ys.min(), ys.max())
+        print("[DEBUG] New Z (old Y) range:", zs.min(), zs.max())
+
+        all_min = min(xs.min(), ys.min(), zs.min())
+        all_max = max(xs.max(), ys.max(), zs.max())
+
+        # ax.set_xlim(all_min, all_max)
+        # ax.set_ylim(all_min, all_max)
+        # ax.set_zlim(all_min, all_max)
+        
+        ax.set_xlim(-0.1, 0.1)   # now showing old Z
+        ax.set_ylim(-0.3, 0.1)    # now showing old X
+        ax.set_zlim(-0.3, 0.1)    # now showing old Y
+
+        ax.set_xlabel("Y")
+        ax.set_ylabel("Z")
+        ax.set_zlabel("X")
+
+        scatter = ax.scatter([], [], [], c="blue", s=40)
+        lines = [ax.plot([], [], [], c='black')[0] for _ in edges]
+
+        def init():
+            scatter._offsets3d = (np.array([]), np.array([]), np.array([]))
+            for line in lines:
+                line.set_data(np.zeros(2), np.zeros(2))
+                line.set_3d_properties(np.zeros(2))
+            return [scatter] + lines
+
+        def update(frame_idx):
+            coords = upper_coords[frame_idx]  # Already (12,3)
+            xs, ys, zs = coords[:, 1], coords[:, 2], coords[:, 0]  # remapped axes
+            scatter._offsets3d = (xs, ys, zs)
+
+            for k, (i, j) in enumerate(edges):
+                x_vals = np.array([coords[i, 1], coords[j, 1]])
+                y_vals = np.array([coords[i, 2], coords[j, 2]])
+                z_vals = np.array([coords[i, 0], coords[j, 0]])
+                lines[k].set_data(x_vals, y_vals)
+                lines[k].set_3d_properties(z_vals)
+
+            return [scatter] + lines
+
+        ani = animation.FuncAnimation(fig, update, frames=upper_coords.shape[0],
+                                    init_func=init, blit=True, interval=1000)
+
+        # Create folder if it doesn't exist
+        save_dir = "animations"
+        os.makedirs(save_dir, exist_ok=True)
+        
+        same_has = "gif"
+
+        if same_has == "mp4":
+            print("Saving animation as MP4...")
+            save_path = os.path.join(save_dir, f"skeleton_animation_sample_{i}_label_{label-1}.mp4")
+            ani.save(save_path, writer="ffmpeg", fps=10)
+
+        elif same_has == "gif":
+            print("Saving animation as GIF...")
+            save_path = os.path.join(save_dir, f"skeleton_animation_sample_{i}_label_{label-1}.gif")
+            ani.save(save_path, writer="pillow", fps=10)
+
+        print(f"Animation saved to {save_path}")
+
+        # plt.show()
+
 def animate_first_sample_skeleton_3d(annotations_file, model_params):
     """
     Animate the 3D skeleton for all frames of the first sample.
@@ -184,8 +314,32 @@ def animate_first_sample_skeleton_3d(annotations_file, model_params):
         fig = plt.figure(figsize=(8, 8))
         ax = fig.add_subplot(111, projection='3d')
         ax.set_title("3D Skeleton Animation (First Sample)")
-        ax.set_xlim(-0.3, 0.1); ax.set_ylim(-0.1, 0.1); ax.set_zlim(-0.15, 0.1)
-        ax.set_xlabel("X"); ax.set_ylabel("Y"); ax.set_zlabel("Z")
+        # Debug: check min/max ranges after remapping (Z, X, Y)
+        all_coords = features.numpy()[:, offset: offset + 72].reshape(-1, joints_num, coords_dim)
+
+        # Apply remap: (oldZ → newX, oldX → newY, oldY → newZ)
+        xs = all_coords[:, :, 1].flatten()
+        ys = all_coords[:, :, 2].flatten()
+        zs = all_coords[:, :, 0].flatten()
+
+        print("[DEBUG] New X (old Z) range:", xs.min(), xs.max())
+        print("[DEBUG] New Y (old X) range:", ys.min(), ys.max())
+        print("[DEBUG] New Z (old Y) range:", zs.min(), zs.max())
+
+        all_min = min(xs.min(), ys.min(), zs.min())
+        all_max = max(xs.max(), ys.max(), zs.max())
+
+        # ax.set_xlim(all_min, all_max)
+        # ax.set_ylim(all_min, all_max)
+        # ax.set_zlim(all_min, all_max)
+        
+        ax.set_xlim(-0.1, 0.1)   # now showing old Z
+        ax.set_ylim(-0.3, 0.1)    # now showing old X
+        ax.set_zlim(-0.3, 0.1)    # now showing old Y
+
+        ax.set_xlabel("Y")
+        ax.set_ylabel("Z")
+        ax.set_zlabel("X")
 
         scatter = ax.scatter([], [], [], c="blue", s=40)
         lines = [ax.plot([], [], [], c='black')[0] for _ in edges]
@@ -200,14 +354,14 @@ def animate_first_sample_skeleton_3d(annotations_file, model_params):
         def update(frame_idx):
             frame = features[frame_idx].numpy()
             coords = frame[offset: offset + 72].reshape(joints_num, coords_dim)
-            xs, ys, zs = coords[:, 0], coords[:, 1], coords[:, 2]
+            xs, ys, zs = coords[:, 1], coords[:, 2], coords[:, 0]  # your remapped X/Y/Z
             scatter._offsets3d = (xs, ys, zs)
 
             for k, (i, j) in enumerate(edges):
-                x_vals = np.array([coords[i, 0], coords[j, 0]])
-                y_vals = np.array([coords[i, 1], coords[j, 1]])
-                z_vals = np.array([coords[i, 2], coords[j, 2]])
-
+                x_vals = np.array([coords[i, 1], coords[j, 1]])
+                y_vals = np.array([coords[i, 2], coords[j, 2]])  # old Z → new Y
+                z_vals = np.array([coords[i, 0], coords[j, 0]])  # old Y → new Z
+                
                 lines[k].set_data(x_vals, y_vals)
                 lines[k].set_3d_properties(z_vals)
             return [scatter] + lines
@@ -1535,7 +1689,7 @@ def evaluate_model_on_all_data_mp(model, model_number, model_params, device, fol
     model.eval()
 
     full_dataset = TripletPoseDataset(
-        pose_annotations_file="./datasets_annotations/mp_train.txt",
+        pose_annotations_file="./datasets_annotations/CADDIN_Final_MP_upper_body.txt",
         validation_mode=False,
         in_memory=model_params['in_memory_generator_train'],
         **model_params
@@ -1543,7 +1697,7 @@ def evaluate_model_on_all_data_mp(model, model_number, model_params, device, fol
     
     # Child dataset
     child_dataset = TripletPoseDataset(
-        pose_annotations_file="./datasets_annotations/mp_childs_val.txt",
+        pose_annotations_file="./datasets_annotations/CADDIN_Final_MP_child_upper_body.txt",
         validation_mode=False,
         in_memory=model_params['in_memory_generator_train'],
         **model_params
@@ -1551,7 +1705,7 @@ def evaluate_model_on_all_data_mp(model, model_number, model_params, device, fol
 
     # Therapist dataset
     therapist_dataset = TripletPoseDataset(
-        pose_annotations_file="./datasets_annotations/mp_therapists_val.txt",
+        pose_annotations_file="./datasets_annotations/CADDIN_Final_MP_therapist_upper_body.txt",
         validation_mode=False,
         in_memory=model_params['in_memory_generator_train'],
         **model_params
@@ -2561,14 +2715,14 @@ if __name__ == "__main__":
         # "model_name": "Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp)",
         # "model_name": "Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp_NEW)",
         # "model_name": "Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp_NEW_after_MP_Therapist_APPDA)",
-        "model_name": "Models_MP_Therapist_APPDA_Block_0(upper_body)",
+        "model_name": "Models_MP_CADDIN_Upper_Body_Block_0(upper_body)",
 
         # TODO: Change every time you switch to the next model
         # Path to the pre-trained model in Pytorch format
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier_Block_5/0730_1921_model_1/weights/Best_Model-ep300-trainloss0.31293-f10.54116.pt",
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_Therapist_APPDA_Classifier_Block_0_1_2_3_4_5",
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp)",  # Path to the pre-trained model for Therapies dataset in Pytorch format
-        "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp_NEW)",  # Path to the pre-trained model for Therapies dataset in Pytorch format
+        "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_Therapist_APPDA_Block_0(upper_body)",  # Path to the pre-trained model for Therapies dataset in Pytorch format
 
         # TODO: Change every time you switch to the next model
         # Use a pre-trained model (Set True if you want to use a pre-trained model)
@@ -2576,7 +2730,7 @@ if __name__ == "__main__":
         
         # TODO: Change every time you switch to the next model
         # Convert Keras parameters to PyTorch equivalents (Set True if The model you want to fine tune is in TensorFlow/Keras format)
-        "model_converter": True, # Set to True if you want to convert a Keras model to PyTorch or in case you want to change the 1st layer size
+        "model_converter": False, # Set to True if you want to convert a Keras model to PyTorch or in case you want to change the 1st layer size
         "old_model_input_feature_size": 394, # Set to the number of input features that entered in the old model (e.g., 423 for Kinect, 394 for MP, 124 for upper body MP)
         
         "model_is_pytorch": True, # Set to True if the Model is in PyTorch format or False if it is in TensorFlow/Keras format
@@ -2588,11 +2742,13 @@ if __name__ == "__main__":
         # TODO: Change every time you switch to the next model
         # "train_annotations": "./datasets_annotations/therapies_APPDA_MP_annotations.txt",
         # "train_annotations": "./datasets_annotations/mp_train.txt",
-        "train_annotations": "./datasets_annotations/therapies_APPDA_MP_upper_body_annotations.txt",
+        # "train_annotations": "./datasets_annotations/therapies_APPDA_MP_upper_body_annotations.txt",
+        "train_annotations": "./datasets_annotations/CADDIN_MP_upper_body.txt",
         
-        "val_annotations": "./datasets_annotations/mp_val.txt", # Set in case you don't use K-Fold Cross Validation
-        "final_validation_annotations": "./datasets_annotations/val_dataset.txt",
-        
+        # "val_annotations": "./datasets_annotations/mp_val.txt", # Set in case you don't use K-Fold Cross Validation
+        # "final_validation_annotations": "./datasets_annotations/CADDIN_Final_MP_upper_body.txt",
+        "final_validation_annotations": "./datasets_annotations/CADDIN_Final_MP_upper_body.txt",
+
         "train_compare_1": "./datasets_annotations/therapies_APPDA_MP_annotations.txt",
         "train_compare_2": "./datasets_annotations/mp_train.txt",
 
@@ -2694,7 +2850,7 @@ if __name__ == "__main__":
         static_params['effective_seq_len'] = static_params['max_seq_len']
 
 
-    
+
     # --- Model Verification on unseen data ---
     """
     # --- Path and Feature Calculation (Cleaned Up) ---
@@ -2814,10 +2970,11 @@ if __name__ == "__main__":
     # export_dataset_to_txt(model_params['train_compare_2'], model_params, "full_dataset_2_converted.txt")
 
     # visualize_pose_dataset_2d(model_params['train_compare_1'], model_params['train_compare_2'], model_params, max_samples=2000, method="pca")
-    animate_first_sample_skeleton_3d(model_params['train_compare_2'], model_params)
-    exit(0)
+    # animate_first_sample_skeleton_3d(model_params['train_compare_2'], model_params)
+    # animate_first_sample_skeleton_3d_upper_body(model_params['train_annotations'], model_params)
+    # exit(0)
     
-    
+    print(f"num_feats: {model_params['num_feats']}, num_jcd_feats: {model_params.get('num_jcd_feats', 'N/A')}")
     for fold in range(5):  # 5 folds
         print(f"\n===== Fold {fold} =====")
         # --- Init model for this fold ---
@@ -2833,12 +2990,12 @@ if __name__ == "__main__":
         )
 
         checkpoint_path = model_params["pretrained_model_path"]
-        fold_model_path = get_k_fold_model_path(checkpoint_path, fold)  # <- your helper
+        fold_model_path = get_k_fold_model_path(checkpoint_path, fold)
         pytorch_model.load_state_dict(torch.load(fold_model_path))
         pytorch_model.eval().to(device)
 
-        evaluate_model_on_all_data_mp(pytorch_model, 12, full_dataset, model_params, device, fold, metrics_save_dir)
-        continue  # Skip the rest for now
+        # evaluate_model_on_all_data_mp(pytorch_model, 12, model_params, device, fold, metrics_save_dir)
+        # continue  # Skip the rest for now
     
         # --- Collect predictions instead of embeddings ---
         all_preds = []
@@ -2919,7 +3076,6 @@ if __name__ == "__main__":
     
     exit(0)
     """
-    
 
     # Create Optuna study
     study = optuna.create_study(direction="maximize")  # Or "minimize" for loss
