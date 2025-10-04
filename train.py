@@ -1685,19 +1685,24 @@ def evaluate_model_on_all_data(model, full_eval_data, video_skels, model_params,
 def evaluate_model_on_all_data_mp(model, model_number, model_params, device, fold, save_path):
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.to(device)
-    model.eval()
+    # model.to(device)
+    # model.eval()
 
     full_dataset = TripletPoseDataset(
-        pose_annotations_file="./datasets_annotations/CADDIN_Final_MP_upper_body.txt",
+        pose_annotations_file="./datasets_annotations/mp_train_upper_body.txt",
         validation_mode=False,
         in_memory=model_params['in_memory_generator_train'],
         **model_params
     )
-    
+
+    labels = np.array([s['class_id'] for s in full_dataset.samples])
+    for i in range(len(full_dataset)):
+        sample, label = full_dataset[i]
+        print(f"Sample {i} - Shape: {sample.shape}, Label: {label}")
+
     # Child dataset
     child_dataset = TripletPoseDataset(
-        pose_annotations_file="./datasets_annotations/CADDIN_Final_MP_child_upper_body.txt",
+        pose_annotations_file="./datasets_annotations/mp_train_child_upper_body.txt",
         validation_mode=False,
         in_memory=model_params['in_memory_generator_train'],
         **model_params
@@ -1705,7 +1710,7 @@ def evaluate_model_on_all_data_mp(model, model_number, model_params, device, fol
 
     # Therapist dataset
     therapist_dataset = TripletPoseDataset(
-        pose_annotations_file="./datasets_annotations/CADDIN_Final_MP_therapist_upper_body.txt",
+        pose_annotations_file="./datasets_annotations/mp_train_therapist_upper_body.txt",
         validation_mode=False,
         in_memory=model_params['in_memory_generator_train'],
         **model_params
@@ -2715,7 +2720,7 @@ if __name__ == "__main__":
         # "model_name": "Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp)",
         # "model_name": "Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp_NEW)",
         # "model_name": "Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp_NEW_after_MP_Therapist_APPDA)",
-        "model_name": "Models_MP_CADDIN_Upper_Body_Block_0(upper_body)",
+        "model_name": "Models_MP_Therapist_APPDA_Block_0(upper_body)",
 
         # TODO: Change every time you switch to the next model
         # Path to the pre-trained model in Pytorch format
@@ -2747,7 +2752,7 @@ if __name__ == "__main__":
         
         # "val_annotations": "./datasets_annotations/mp_val.txt", # Set in case you don't use K-Fold Cross Validation
         # "final_validation_annotations": "./datasets_annotations/CADDIN_Final_MP_upper_body.txt",
-        "final_validation_annotations": "./datasets_annotations/CADDIN_Final_MP_upper_body.txt",
+        "final_validation_annotations": "./datasets_annotations/CADDIN_Final_Validation_MP_upper_body.txt",
 
         "train_compare_1": "./datasets_annotations/therapies_APPDA_MP_annotations.txt",
         "train_compare_2": "./datasets_annotations/mp_train.txt",
@@ -2852,7 +2857,7 @@ if __name__ == "__main__":
 
 
     # --- Model Verification on unseen data ---
-    """
+    # """
     # --- Path and Feature Calculation (Cleaned Up) ---
     # print("--- Initializing Parameters and Paths ---")
     static_params['path_model'] = train_utils.create_model_folder(
@@ -2943,6 +2948,8 @@ if __name__ == "__main__":
         **model_params
     )
 
+    # import pdb; pdb.set_trace()
+
     # Create DataLoaders for this Data ---
     val_loader = DataLoader(
         val_dataset,
@@ -2957,14 +2964,6 @@ if __name__ == "__main__":
     all_fold_labels = []  # store labels from each fold
     all_fold_sims = []  # store similarities from each fold
     all_fold_embs = []  # store embeddings from each fold
-
-    full_dataset = TripletPoseDataset(
-        pose_annotations_file="./datasets_annotations/mp_train.txt",
-        validation_mode=False,
-        in_memory=model_params['in_memory_generator_train'],
-        **model_params
-    )
-
 
     # export_dataset_to_txt(model_params['train_compare_1'], model_params, "full_dataset_1_converted.txt")
     # export_dataset_to_txt(model_params['train_compare_2'], model_params, "full_dataset_2_converted.txt")
@@ -2994,8 +2993,8 @@ if __name__ == "__main__":
         pytorch_model.load_state_dict(torch.load(fold_model_path))
         pytorch_model.eval().to(device)
 
-        # evaluate_model_on_all_data_mp(pytorch_model, 12, model_params, device, fold, metrics_save_dir)
-        # continue  # Skip the rest for now
+        evaluate_model_on_all_data_mp(pytorch_model, 12, model_params, device, fold, metrics_save_dir)
+        continue  # Skip the rest for now
     
         # --- Collect predictions instead of embeddings ---
         all_preds = []
@@ -3003,8 +3002,13 @@ if __name__ == "__main__":
 
         with torch.no_grad():
             for batch_x, batch_y in val_loader:
+                # import pdb; pdb.set_trace()
+                
+                print("Batch shape:", batch_x.shape)   # <- add this
+                print("Batch y shape:", batch_y.shape)   # <- add this
+                
                 batch_x = batch_x.to(device)
-                batch_y = batch_y.to(device)
+                batch_y = batch_y.to(device)    
 
                 logits = pytorch_model(batch_x)        # (B, num_classes)
                 preds = torch.argmax(logits, dim=1)    # (B,)
@@ -3075,7 +3079,7 @@ if __name__ == "__main__":
     print(f"Overall mean similarity: {overall_mean:.2f}")
     
     exit(0)
-    """
+    # """
 
     # Create Optuna study
     study = optuna.create_study(direction="maximize")  # Or "minimize" for loss

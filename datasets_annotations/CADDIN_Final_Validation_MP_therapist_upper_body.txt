@@ -1,0 +1,5 @@
+./datasets/CADDIN_Final_Validation_MP_upper_body/therapist_Felice_0.npy 8
+./datasets/CADDIN_Final_Validation_MP_upper_body/therapist_Ciao_2.npy 4
+./datasets/CADDIN_Final_Validation_MP_upper_body/therapist_Arrabbiato_4.npy 1
+./datasets/CADDIN_Final_Validation_MP_upper_body/therapist_Arrabbiato_6.npy 1
+./datasets/CADDIN_Final_Validation_MP_upper_body/therapist_Felice_8.npy 8

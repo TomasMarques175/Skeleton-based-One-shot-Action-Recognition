@@ -1,5 +1,0 @@
-./datasets/selected_frames_by_action_upper_body/therapist_Felice_0.npy 8
-./datasets/selected_frames_by_action_upper_body/therapist_Ciao_2.npy 4
-./datasets/selected_frames_by_action_upper_body/therapist_Arrabbiato_4.npy 1
-./datasets/selected_frames_by_action_upper_body/therapist_Arrabbiato_6.npy 1
-./datasets/selected_frames_by_action_upper_body/therapist_Felice_8.npy 8

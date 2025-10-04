@@ -456,6 +456,7 @@ def get_bone_spherical_angles(v): # v is (num_frames, dims) or (dims) for a sing
 
 def get_body_spherical_angles(body_coords): # body_coords is (frames, joints, dims)
     num_frames = body_coords.shape[0]
+    print("num_frames in get_body_spherical_angles:", num_frames)
     if num_frames == 0:
         # Estimate number of bones from CONNECTING_JOINT. This is tricky.
         # Assuming CONNECTING_JOINT defines pairs or a sequence.
@@ -474,6 +475,7 @@ def get_body_spherical_angles(body_coords): # body_coords is (frames, joints, di
     # For now, using sequential bones based on the loop in Keras: body[:, bone_idx+1] - body[:, bone_idx]
     # This assumes joints are ordered to form meaningful sequential bones.
     num_joints = body_coords.shape[1]
+    print("num_joints in get_body_spherical_angles:", num_joints)
     for bone_idx in range(num_joints - 1): # Iterate through possible sequential bones
         # Check if both joints for the bone are within bounds
         if bone_idx < num_joints and (bone_idx + 1) < num_joints:
@@ -548,7 +550,6 @@ def get_pose_data_processed(body_raw, is_validation, model_params):
                         body = body_raw.copy()[0:1] # Fallback to first frame of original raw
                         print("Warning: Body became empty after skip_frames, using fallback.")
 
-
         if h_flip_enabled and np.random.rand() > 0.5:
             body = flip_skeleton(body)
 
@@ -606,23 +607,20 @@ def get_pose_data_processed(body_raw, is_validation, model_params):
         _num_feats_fallback = model_params.get('num_feats', 100)
         return np.zeros((1, _num_feats_fallback), dtype=np.float32)
 
-
     pose_features_list = []
 
     if model_params.get('use_bone_angles', False):
         # Use original body (before centering) for non-centered bone angles
-        # print(f"Extracting bone angles from body with shape {body.shape} for {num_frames_for_features} frames.")
         angles = get_body_spherical_angles(body)
-        # print(f"Extracted bone angles shape: {angles.shape} for {num_frames_for_features} frames.")
-        # exit(0) # Debugging exit point
         if angles.shape[0] == num_frames_for_features : pose_features_list.append(angles)
         elif angles.shape[0] > 0 : pose_features_list.append(zoom_to_target_len(angles.reshape(angles.shape[0], -1, 1), num_frames_for_features, angles.shape[1], 1).reshape(num_frames_for_features, -1))
-
+        print(f"Angles shape: {angles.shape}, num_frames_for_features: {num_frames_for_features}")
 
     if model_params.get('use_bone_angles_cent', False):
         angles_cent = get_body_spherical_angles(skels_to_process)
         if angles_cent.shape[0] == num_frames_for_features: pose_features_list.append(angles_cent)
         elif angles_cent.shape[0] > 0 : pose_features_list.append(zoom_to_target_len(angles_cent.reshape(angles_cent.shape[0], -1, 1), num_frames_for_features, angles_cent.shape[1], 1).reshape(num_frames_for_features, -1))
+        print(f"Angles_cent shape: {angles_cent.shape}, num_frames_for_features: {num_frames_for_features}")
 
 
     if model_params.get('use_coords_raw', False):
@@ -630,11 +628,12 @@ def get_pose_data_processed(body_raw, is_validation, model_params):
             coords_raw_reshaped = body_uncentered_for_raw_coords.reshape(body_uncentered_for_raw_coords.shape[0], -1)
             if coords_raw_reshaped.shape[0] == num_frames_for_features: pose_features_list.append(coords_raw_reshaped)
             elif coords_raw_reshaped.shape[0] > 0 : pose_features_list.append(zoom_to_target_len(coords_raw_reshaped.reshape(coords_raw_reshaped.shape[0], -1, 1), num_frames_for_features, coords_raw_reshaped.shape[1], 1).reshape(num_frames_for_features, -1))
+            print(f"Raw coords shape: {coords_raw_reshaped.shape}, num_frames_for_features: {num_frames_for_features}")
 
     if model_params.get('use_coords', True): # Default to True if not specified
         coords_reshaped = skels_to_process.reshape(num_frames_for_features, -1)
         pose_features_list.append(coords_reshaped)
-
+        print(f"Coords shape: {coords_reshaped.shape}, num_frames_for_features: {num_frames_for_features}")
 
     jcd_calculated_feats = None
     if model_params.get('use_jcd_features', False) or model_params.get('use_jcd_diff', False):
@@ -642,7 +641,7 @@ def get_pose_data_processed(body_raw, is_validation, model_params):
         if model_params.get('use_jcd_features', False):
             if jcd_calculated_feats.shape[0] == num_frames_for_features: pose_features_list.append(jcd_calculated_feats)
             elif jcd_calculated_feats.shape[0] > 0 : pose_features_list.append(zoom_to_target_len(jcd_calculated_feats.reshape(jcd_calculated_feats.shape[0], -1, 1), num_frames_for_features, jcd_calculated_feats.shape[1], 1).reshape(num_frames_for_features, -1))
-
+            print(f"JCD features shape: {jcd_calculated_feats.shape}, num_frames_for_features: {num_frames_for_features}")
 
     if model_params.get('use_jcd_diff', False):
         num_jcd_comb = int(comb(joints_num, 2)) if joints_num >= 2 else 0
@@ -653,7 +652,7 @@ def get_pose_data_processed(body_raw, is_validation, model_params):
             jcd_diff_val = np.zeros((num_frames_for_features, num_jcd_comb), dtype=skels_to_process.dtype)
         if jcd_diff_val.shape[0] == num_frames_for_features : pose_features_list.append(jcd_diff_val)
         elif jcd_diff_val.shape[0] > 0 : pose_features_list.append(zoom_to_target_len(jcd_diff_val.reshape(jcd_diff_val.shape[0], -1, 1), num_frames_for_features, jcd_diff_val.shape[1], 1).reshape(num_frames_for_features, -1))
-
+        print(f"JCD diff shape: {jcd_diff_val.shape}, num_frames_for_features: {num_frames_for_features}")
 
     if model_params.get('use_speeds', False):
         if num_frames_for_features > 1:
@@ -663,6 +662,7 @@ def get_pose_data_processed(body_raw, is_validation, model_params):
         else:
             speed_feats_val = np.zeros((num_frames_for_features, joints_num * joints_dim), dtype=skels_to_process.dtype)
         pose_features_list.append(speed_feats_val)
+        print(f"Speed features shape: {speed_feats_val.shape}, num_frames_for_features: {num_frames_for_features}")
 
     if not pose_features_list:
         print("Warning: No features were extracted! Returning zeros.")
@@ -676,7 +676,8 @@ def get_pose_data_processed(body_raw, is_validation, model_params):
     # For now, assume they are all num_frames_for_features long.
 
     pose_features_final = np.concatenate(pose_features_list, axis=1).astype(np.float32)
-
+    print(f"Final concatenated features shape before scaling: {pose_features_final.shape}")
+    
     if scaler_obj is not None:
         try:
             pose_features_final = scaler_obj.transform(pose_features_final)
