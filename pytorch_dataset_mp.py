@@ -354,11 +354,16 @@ def get_transformation_matrix_global(skel):
 
     # Origin: Midpoint between hips (indices 12 and 16 for NTU RGB+D)
     # Original code used 12 and 16. Let's stick to that.
-    o = (skel[:, RIGHT_HIP, :] + skel[:, LEFT_HIP, :]) / 2.0
+    o = (skel[:, LEFT_HIP, :] + skel[:, RIGHT_HIP, :]) / 2.0
 
     # X-axis: From left hip (16) to right hip (12)
-    x_vec = skel[:, LEFT_HIP, :] - skel[:, RIGHT_HIP, :] # Vector from left hip to right hip
+    x_vec = skel[:, RIGHT_HIP, :] - skel[:, LEFT_HIP, :] # Vector from left hip to right hip
+    
+    print(f"x_vec sample: {x_vec}") # Debug print
+    
     x_axis = matrix_unit_vector(x_vec)
+
+    print(f"x_axis sample: {x_axis}") # Debug print
 
     # Y-axis: Approximate vertical axis. Vector from spine base (0) to neck (3) or mid-shoulders.
     # Original code used skel[:,20] - o for Z. Let's try to define Y as up.
@@ -372,6 +377,8 @@ def get_transformation_matrix_global(skel):
     # For simplicity, let's use the original Z-axis definition and derive Y.
     # Original Z axis: SpineChest (20) - Origin (mid-hip)
     z_approx_vec = skel[:,SPINE_CHEST,:] - o # Vector from mid-hip to spine/chest
+    
+    print(f"z_approx_vec sample: {z_approx_vec}") # Debug print
     
     # Y-axis: Orthogonal to X and Z_approx (cross product)
     # y_axis = np.cross(z_approx_vec, x_axis) # Order matters for right/left-handed system
@@ -491,12 +498,19 @@ def get_body_spherical_angles(body_coords): # body_coords is (frames, joints, di
     # This assumes joints are ordered to form meaningful sequential bones.
     num_joints = body_coords.shape[1]
     # print("num_joints in get_body_spherical_angles:", num_joints)
-    for bone_idx in range(num_joints - 1): # Iterate through possible sequential bones
-        # Check if both joints for the bone are within bounds
-        if bone_idx < num_joints and (bone_idx + 1) < num_joints:
-            bone_vectors = body_coords[:, bone_idx + 1, :] - body_coords[:, bone_idx, :] # Vector for each frame
-            if bone_vectors.shape[0] > 0: # Ensure there are frames
-                spherical_angles = get_bone_spherical_angles(bone_vectors) # (frames, 2)
+    # Iterate through defined bone connections (pairs of joints)
+    for i in range(0, len(CONNECTING_JOINT), 2):
+        joint_a = CONNECTING_JOINT[i]
+        joint_b = CONNECTING_JOINT[i + 1]
+
+        # Ensure indices are within bounds
+        if joint_a < num_joints and joint_b < num_joints:
+            # Compute bone vector (joint_b - joint_a) for all frames
+            bone_vectors = body_coords[:, joint_b, :] - body_coords[:, joint_a, :]
+
+            # Only process if there are frames
+            if bone_vectors.shape[0] > 0:
+                spherical_angles = get_bone_spherical_angles(bone_vectors)
                 all_bone_angles_list.append(spherical_angles)
 
     if not all_bone_angles_list:
