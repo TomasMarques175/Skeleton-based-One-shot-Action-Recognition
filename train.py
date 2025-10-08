@@ -56,12 +56,13 @@ from torchinfo import summary
 
 # --- Local project imports ---
 from models.TCN_classifier import TCN_clf
-from pytorch_dataset_mp import (
+from pytorch_dataset_kinect_therapist import (
     TripletPoseDataset,
     TherapyDataset,
     get_num_feats,
     get_scaler_filename,
 )
+
 
 # --- Framework-agnostic or to-be-adapted utility imports ---
 # Ensure these functions do not have hard TensorFlow dependencies.
@@ -336,7 +337,7 @@ def animate_first_sample_skeleton_3d(annotations_file, model_params):
         ax.set_title("3D Skeleton Animation (First Sample)")
         # Debug: check min/max ranges after remapping (Z, X, Y)
         all_coords = features.numpy()[:, offset: offset + 72].reshape(-1, joints_num, coords_dim)
-
+        
         # Apply remap: (oldZ → newX, oldX → newY, oldY → newZ)
         xs = all_coords[:, :, 1].flatten()
         ys = all_coords[:, :, 2].flatten()
@@ -363,7 +364,7 @@ def animate_first_sample_skeleton_3d(annotations_file, model_params):
 
         scatter = ax.scatter([], [], [], c="blue", s=40)
         lines = [ax.plot([], [], [], c='black')[0] for _ in edges]
-
+        
         def init():
             scatter._offsets3d = (np.array([]), np.array([]), np.array([]))
             for line in lines:
@@ -388,6 +389,9 @@ def animate_first_sample_skeleton_3d(annotations_file, model_params):
 
         ani = animation.FuncAnimation(fig, update, frames=features.shape[0],
                                     init_func=init, blit=True, interval=1000)
+        
+        # Show the animation in a window for preview
+        plt.show()   # <-- this will display the animated skeleton before saving
 
         # Create folder if it doesn't exist
         save_dir = "animations"
@@ -406,8 +410,144 @@ def animate_first_sample_skeleton_3d(annotations_file, model_params):
             ani.save(save_path, writer="pillow", fps=10)
 
         print(f"Animation saved to {save_path}")
-        # plt.show()
         exit(0)
+
+def animate_first_sample_skeleton_3d_Therapist(annotations_file, model_params):
+    """
+    Animate the 3D skeleton for all frames of the first sample.
+    """
+    raw_data_path = './datasets/therapies_dataset/'
+    actions_data = pickle.load(open(os.path.join(raw_data_path, 'actions_data_v2.pckl'), 'rb'))
+    video_skels = pickle.load(open(os.path.join(raw_data_path, 'video_skels_v2.pckl'), 'rb'))
+
+    actions_data = actions_data[~actions_data.action.isin(['no', 'si'])]
+    actions_data = actions_data.sort_values(by=['patient', 'session', 'video', 'ex_num'])
+    
+    # Load dataset
+    dataset = TherapyDataset(
+        actions_data,
+        video_skels,
+        pose_annotations_file=None,
+        in_memory_generator=False,
+        validation=False,
+        validation_mode=False,
+        in_memory=model_params.get('in_memory_generator_train', False),
+        **model_params
+    )
+
+    # Find the first sample with label 0
+    features, label = None, None
+    for i in range(len(dataset)):
+        f, l = dataset[i]
+        if l != 0: # Looking for label 1
+            features, label = f, l
+            print(f"Found sample with label 0 at index {i}")
+            # break
+
+        if features is None:
+            raise ValueError("No sample with label 0 found in dataset!")
+
+        print(f"Features shape: {features.shape}, label: {label}")
+        print("model_params.get('joints_num', 24):", model_params.get('joints_num', 24))
+        offset = model_params.get("joints_num", 24) + (model_params.get("joints_num", 24) - 1) - 1 # Start of keypoints
+        print("Offset:", offset)
+        num_keypoints = model_params.get("joints_num", 24) * 3
+        print("Num keypoints:", num_keypoints)
+        joints_num = model_params.get("joints_num", 24)
+        coords_dim = model_params.get("joints_dim", 3)
+
+        # Define skeleton edges
+        edges = [
+            (20, 4), (4, 5), (5, 6), (6, 7), (7, 21), (6, 22),
+            (1, 0), (20, 2), (2, 3), (1, 20),
+            (20, 8), (9, 10), (8, 9), (10, 24), (10, 11), (11, 23),
+            (0, 12), (12, 13), (13, 14), (14, 15),
+            (0, 16), (16, 17), (17, 18), (18, 19)
+        ]
+
+        # Setup plot
+        fig = plt.figure(figsize=(8, 8))
+        ax = fig.add_subplot(111, projection='3d')
+        ax.set_title("3D Skeleton Animation (First Sample)")
+        # Debug: check min/max ranges after remapping (Z, X, Y)
+        print("features.shape:", features.shape)
+        all_coords = features.numpy()[:, 48: 48 + num_keypoints].reshape(-1, joints_num, coords_dim)
+        # print("all_coords[1, :, :]:", all_coords[1, :, :])
+        
+        # Apply remap: (oldZ → newX, oldX → newY, oldY → newZ)
+        xs = all_coords[:, :, 1].flatten()
+        ys = all_coords[:, :, 2].flatten()
+        zs = all_coords[:, :, 0].flatten()
+
+        print("[DEBUG] New X (old Z) range:", xs.min(), xs.max())
+        print("[DEBUG] New Y (old X) range:", ys.min(), ys.max())
+        print("[DEBUG] New Z (old Y) range:", zs.min(), zs.max())
+
+        all_min = min(xs.min(), ys.min(), zs.min())
+        all_max = max(xs.max(), ys.max(), zs.max())
+
+        ax.set_xlim(all_min, all_max)
+        ax.set_ylim(all_min, all_max)
+        ax.set_zlim(all_min, all_max)
+        
+        # ax.set_xlim(-0.2, 0.2)   # now showing old Z
+        # ax.set_ylim(-0.6, 0.2)    # now showing old X
+        # ax.set_zlim(-0.6, 0.2)    # now showing old Y
+
+        ax.set_xlabel("Y")
+        ax.set_ylabel("Z")
+        ax.set_zlabel("X")
+
+        scatter = ax.scatter([], [], [], c="blue", s=40)
+        lines = [ax.plot([], [], [], c='black')[0] for _ in edges]
+
+        def init():
+            scatter._offsets3d = (np.array([]), np.array([]), np.array([]))
+            for line in lines:
+                line.set_data(np.zeros(2), np.zeros(2))
+                line.set_3d_properties(np.zeros(2))
+            return [scatter] + lines
+
+        def update(frame_idx):
+            frame = features[frame_idx].numpy()
+            print("frame.shape:", frame.shape)
+            coords = frame[48: 48 + num_keypoints].reshape(joints_num, coords_dim)
+            print("coords = frame[46: 46 + num_keypoints, :].reshape(joints_num, coords_dim):", coords)
+            xs, ys, zs = coords[:, 1], coords[:, 2], coords[:, 0]  # your remapped X/Y/Z
+            scatter._offsets3d = (xs, ys, zs)
+
+            for k, (i, j) in enumerate(edges):
+                x_vals = np.array([coords[i, 1], coords[j, 1]])
+                y_vals = np.array([coords[i, 2], coords[j, 2]])  # old Z → new Y
+                z_vals = np.array([coords[i, 0], coords[j, 0]])  # old Y → new Z
+                
+                lines[k].set_data(x_vals, y_vals)
+                lines[k].set_3d_properties(z_vals)
+            return [scatter] + lines
+
+        ani = animation.FuncAnimation(fig, update, frames=features.shape[0],
+                                    init_func=init, blit=True, interval=1000)
+        plt.show()   # <-- this will display the animated skeleton before saving
+        
+        # Create folder if it doesn't exist
+        save_dir = "animations"
+        os.makedirs(save_dir, exist_ok=True)
+        
+        same_has = "gif"
+
+        if same_has == "mp4":
+            print("Saving animation as MP4...")
+            save_path = os.path.join(save_dir, f"skeleton_animation_sample_{i}_label_{label-1}.mp4")
+            ani.save(save_path, writer="ffmpeg", fps=10)
+
+        elif same_has == "gif":
+            print("Saving animation as GIF...")
+            save_path = os.path.join(save_dir, f"skeleton_animation_sample_{i}_label_{label-1}.gif")
+            ani.save(save_path, writer="pillow", fps=10)
+
+        print(f"Animation saved to {save_path}")
+        # plt.show()
+    
 
 def visualize_first_sample_skeleton_3d(annotations_file, model_params):
     """
@@ -1871,7 +2011,8 @@ def main(model_params):
             f"Warning: Error reading annotation files: {e}. Counts might be inaccurate.")
 
 
-    """ # --- Keras-like Debugging Block ---
+    """ 
+    # --- Keras-like Debugging Block ---
     print('\n* Building model (PyTorch does not require explicit build)\n')
     # No model.build() in PyTorch, it's built on first forward pass or by knowing input shape
 
@@ -1960,7 +2101,7 @@ def main(model_params):
     
 
     # --- Data Loading Therapist ---
-    """
+    # """
     # Load your raw data
     raw_data_path = './datasets/therapies_dataset/'
     actions_data = pickle.load(open(os.path.join(raw_data_path, 'actions_data_v2.pckl'), 'rb'))
@@ -2711,7 +2852,7 @@ if __name__ == "__main__":
     static_params = {
         "best_val_f1": 0,  # Best F1 score from the study
         "best_model_number": 0,  # Best model number from the study
-        "joints_num": 24, # 25 for Kinect / 24 for MP / 12 for upper body MP CADDIN
+        "joints_num": 25, # 25 for Kinect / 24 for MP / 12 for upper body MP CADDIN
         "num_classes": 14, # Number of classes for classification (NTU-120 has 120, CADDIN has 12 and Therapies has 14)
 
         "epochs": 300, # Number of training epochs
@@ -2762,11 +2903,12 @@ if __name__ == "__main__":
 
         # TODO: Change every time you switch to the next model
         # "train_annotations": "./datasets_annotations/therapies_APPDA_MP_annotations.txt",
-        "train_annotations": "./datasets_annotations/mp_train.txt",
+        # "train_annotations": "./datasets_annotations/mp_train.txt",
         # "train_annotations": "./datasets_annotations/therapies_APPDA_MP_upper_body_annotations.txt",
         # "train_annotations": "./ntu_annotations/one_shot_aux_set.txt",
         # "train_annotations": "./datasets_annotations/CADDIN_Final_Validation_MP_upper_body.txt",  # Set True to split the training data into K folds
         # "train_annotations": "./datasets_annotations/mp_train_upper_body.txt",
+        "train_annotations": "./datasets_annotations/therapies_APPDA_MP_annotations.txt",
         
         # "val_annotations": "./datasets_annotations/mp_val.txt", # Set in case you don't use K-Fold Cross Validation
         # "final_validation_annotations": "./datasets_annotations/CADDIN_Final_MP_upper_body.txt",
@@ -2961,9 +3103,7 @@ if __name__ == "__main__":
 
     # visualize_pose_dataset_2d(model_params['train_compare_1'], model_params['train_compare_2'], model_params, max_samples=2000, method="pca")
     # animate_first_sample_skeleton_3d(model_params['train_compare_2'], model_params)
-    print(f"model_params['train_annotations']: {model_params['train_annotations']}")
-    animate_first_sample_skeleton_3d(model_params['train_annotations'], model_params)
-    exit(0)
+    animate_first_sample_skeleton_3d_Therapist(model_params['train_annotations'], model_params)
     
     # --- Data Loading Therapist ---
     # Load the validation dataset once

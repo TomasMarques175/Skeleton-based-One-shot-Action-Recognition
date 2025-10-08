@@ -16,63 +16,63 @@ import scipy.ndimage.interpolation as inter # Used in helper zoom_to_target_len
 # Ensure they are reviewed for TF/Keras dependencies.
 # =============================================================================
 
-FLIP_CORRESPONDENCES_LEFT = [8, 7, 6, 2, 1, 0, 20, 21, 23]
-FLIP_CORRESPONDENCES_RIGHT = [9, 10, 11, 3, 4, 5, 17, 20, 22]
-
-# Pelvis → Mid Spine → Upper Spine → Neck → Head → Top Head
-SPINE = [12, 14, 15, 16, 17, 18]
-TORSO_CONNECTING_JOINTS = [14, 12]
-# TORSO_CONNECTING_JOINTS = [14, 16, 
-#                            16, 15, 
-#                            15, 12]
-
-LEFT_HIP = 2 # Old index 12
-RIGHT_HIP = 3 # Old index 16
-SPINE_CHEST = 12 # Old index 20
-
-CONNECTING_JOINT = [
-    1, 0,       # Check CRMH skeleton
-    1, 2,       #
-    2, 14,      #
-    3, 14,      #
-    3, 4,       #
-    4, 5,       #
-    14, 16,     #
-    15, 16,     #
-    12, 15,     #
-    6, 7,       #
-    7, 8,       #
-    8, 12,      #
-    9, 12,      #
-    9, 10,      #
-    10, 11,     #
-    12, 17,     #
-    17, 18,     #
-    18, 19,     #
-    13, 19,     #
-    21, 23,     #
-    19, 21,     #
-    19, 20,     #
-    20, 22      #
-]
-
-# --- Constants (from Keras code) ---
-# FLIP_CORRESPONDENCES_LEFT = [4, 5, 6, 7, 12, 13, 14, 15, 21, 22]
-# FLIP_CORRESPONDENCES_RIGHT = [8, 9, 10, 11, 16, 17, 18, 19, 23, 24]
-# SPINE = [0, 1, 2, 3, 20]
-# CONNECTING_JOINT = [1, 0, 20, 2, 20, 4, 5, 6, 20, 8, 9,
-#                     10, 0, 12, 13, 14, 0, 16, 17, 18, 1, 7, 7, 11, 11] # Used in get_body_spherical_angles
+# FLIP_CORRESPONDENCES_LEFT = [8, 7, 6, 2, 1, 0, 20, 21, 23]
+# FLIP_CORRESPONDENCES_RIGHT = [9, 10, 11, 3, 4, 5, 17, 20, 22]
 # 
-# TORSO_CONNECTING_JOINTS = [20, 1,
-#                            1, 0]
-# 
+# # Pelvis → Mid Spine → Upper Spine → Neck → Head → Top Head
+# SPINE = [12, 14, 15, 16, 17, 18]
+# TORSO_CONNECTING_JOINTS = [14, 12]
 # # TORSO_CONNECTING_JOINTS = [14, 16, 
 # #                            16, 15, 
 # #                            15, 12]
 # 
-# LEFT_HIP = 12 # Old index 12
-# RIGHT_HIP = 16 # Old index 16
-# SPINE_CHEST = 20 # Old index 20
+# LEFT_HIP = 2 # Old index 12
+# RIGHT_HIP = 3 # Old index 16
+# SPINE_CHEST = 12 # Old index 20
+# 
+# CONNECTING_JOINT = [
+#     1, 0,       # Check CRMH skeleton
+#     1, 2,       #
+#     2, 14,      #
+#     3, 14,      #
+#     3, 4,       #
+#     4, 5,       #
+#     14, 16,     #
+#     15, 16,     #
+#     12, 15,     #
+#     6, 7,       #
+#     7, 8,       #
+#     8, 12,      #
+#     9, 12,      #
+#     9, 10,      #
+#     10, 11,     #
+#     12, 17,     #
+#     17, 18,     #
+#     18, 19,     #
+#     13, 19,     #
+#     21, 23,     #
+#     19, 21,     #
+#     19, 20,     #
+#     20, 22      #
+# ]
+
+# --- Constants (from Keras code) ---
+FLIP_CORRESPONDENCES_LEFT = [4, 5, 6, 7, 12, 13, 14, 15, 21, 22]
+FLIP_CORRESPONDENCES_RIGHT = [8, 9, 10, 11, 16, 17, 18, 19, 23, 24]
+SPINE = [0, 1, 2, 3, 20]
+CONNECTING_JOINT = [1, 0, 20, 2, 20, 4, 5, 6, 20, 8, 9,
+                    10, 0, 12, 13, 14, 0, 16, 17, 18, 1, 7, 7, 11, 11] # Used in get_body_spherical_angles
+
+TORSO_CONNECTING_JOINTS = [20, 1,
+                           1, 0]
+
+# TORSO_CONNECTING_JOINTS = [14, 16, 
+#                            16, 15, 
+#                            15, 12]
+
+LEFT_HIP = 12 # Old index 12
+RIGHT_HIP = 16 # Old index 16
+SPINE_CHEST = 20 # Old index 20
 
 """
 # --- Define dropped joints ---
@@ -512,8 +512,9 @@ def get_body_spherical_angles(body_coords): # body_coords is (frames, joints, di
     # For now, using sequential bones based on the loop in Keras: body[:, bone_idx+1] - body[:, bone_idx]
     # This assumes joints are ordered to form meaningful sequential bones.
     num_joints = body_coords.shape[1]
+    print("num_joints in get_body_spherical_angles:", num_joints)
     # Iterate through defined bone connections (pairs of joints)
-    for i in range(0, len(CONNECTING_JOINT), 2):
+    for i in range(0, len(CONNECTING_JOINT)-1):
         joint_a = CONNECTING_JOINT[i]
         joint_b = CONNECTING_JOINT[i + 1]
 
@@ -525,6 +526,7 @@ def get_body_spherical_angles(body_coords): # body_coords is (frames, joints, di
             # Only process if there are frames
             if bone_vectors.shape[0] > 0:
                 spherical_angles = get_bone_spherical_angles(bone_vectors)
+                print(f"Spherical angles for bone ({joint_a}->{joint_b}) sample: {spherical_angles}") # Debug print
                 all_bone_angles_list.append(spherical_angles)
 
     if not all_bone_angles_list:
@@ -796,7 +798,7 @@ def get_pose_data_v2(body, max_seq_len, joints_num, joints_dim, center_skels,
                      use_bone_angles_cent,
 
                      skip_frames=[],
-                     **kwargs):
+                        **kwargs):
 
     # Remove frames without predictions
     body = body[np.all(~np.all(body == 0, axis=2), axis=1)]
@@ -883,6 +885,7 @@ def get_pose_data_v2(body, max_seq_len, joints_num, joints_dim, center_skels,
         # Raw coordinates
         pose_features.append(np.reshape(
             skels, (num_frames, joints_num * joints_dim)))
+        print(f"Coords shape: {pose_features[-1].shape}")
 
     if use_jcd_diff or use_jcd_features:
         jcd_features = get_jcd_features1(skels, joints_num, num_frames)
