@@ -56,7 +56,7 @@ from torchinfo import summary
 
 # --- Local project imports ---
 from models.TCN_classifier import TCN_clf
-from pytorch_dataset import (
+from pytorch_dataset_mp import (
     TripletPoseDataset,
     TherapyDataset,
     get_num_feats,
@@ -168,7 +168,8 @@ def animate_first_sample_skeleton_3d_upper_body(annotations_file, model_params):
 
         print(f"Features shape: {features.shape}, label: {label}")
 
-        offset = 46  # Start of keypoints
+        offset = model_params.get("num_features", 24) + (model_params.get("num_features", 24) - 1) - 1 # Start of keypoints
+        num_keypoints = model_params.get("num_features", 24) * 3
         joints_num = model_params.get("joints_num", 24)
         coords_dim = model_params.get("joints_dim", 3)
         
@@ -177,38 +178,52 @@ def animate_first_sample_skeleton_3d_upper_body(annotations_file, model_params):
         ax = fig.add_subplot(111, projection='3d')
         ax.set_title("3D Skeleton Animation (Upper Body)")
 
-        # Bones_upper_body after dropping joints 0–5 13 19-23 (reindexed)
+        # --- Define dropped joints ---
         drop_joints = {0, 1, 2, 3, 4, 5, 13, 19, 20, 21, 22, 23}
-
-        # Original bone list using original indices (0..23)
-        original_bones = [
-            (1,0),(1,2),(2,14),(3,14),(3,4),(4,5),(14,16),(15,16),
-            (12,15),(6,7),(7,8),(8,12),(9,12),(9,10),(10,11),(12,17),
-            (17,18),(18,19),(13,19),(21,23),(19,21),(19,20),(20,22)
-        ]
-
-        # Build keep list and old->new mapping
         keep_indices = [j for j in range(24) if j not in drop_joints]
         old_to_new = {old: new for new, old in enumerate(keep_indices)}
 
-        # Remap original bones to new indices, keeping only valid edges
-        edges = []
-        for a, b in original_bones:
-            if a in old_to_new and b in old_to_new:
-                edges.append((old_to_new[a], old_to_new[b]))
+        print("Kept joints:", keep_indices)
+        print("Old → New mapping:")
+        for old, new in old_to_new.items():
+            print(f"  {old:2d} → {new:2d}")
 
-        # Extract upper body coordinates for all frames
-        upper_coords = features.numpy()[:, offset:offset + 72].reshape(-1, 24, 3)[:, keep_indices, :]
+        # --- Connecting joints ---
+        CONNECTING_JOINT_OLD = [
+            1, 0, 1, 2, 2, 14, 3, 14, 3, 4, 4, 5,
+            14, 16, 15, 16, 12, 15, 6, 7, 7, 8, 8, 12,
+            9, 12, 9, 10, 10, 11, 12, 17, 17, 18, 18, 19,
+            13, 19, 21, 23, 19, 21, 19, 20, 20, 22
+        ]
 
+        CONNECTING_JOINT = []
+        remap_pairs = []  # for debug printing
+        for i in range(0, len(CONNECTING_JOINT_OLD), 2):
+            j1, j2 = CONNECTING_JOINT_OLD[i], CONNECTING_JOINT_OLD[i+1]
+            if j1 in old_to_new and j2 in old_to_new:
+                CONNECTING_JOINT.extend([old_to_new[j1], old_to_new[j2]])
+                remap_pairs.append((j1, j2, old_to_new[j1], old_to_new[j2]))
+
+        print("\nConnecting joints (old → new):")
+        for old1, old2, new1, new2 in remap_pairs:
+            print(f"  ({old1:2d}, {old2:2d}) → ({new1:2d}, {new2:2d})")
+
+        print("\nFinal CONNECTING_JOINT:", CONNECTING_JOINT)
+
+        # --- Extract upper body coordinates ---
+        upper_coords = (
+            features.numpy()[:, offset : offset + num_keypoints]
+            .reshape(-1, 24, 3)[:, keep_indices, :]
+        )  # (frames, 12, 3)
 
         # Apply remap: (oldZ → newX, oldX → newY, oldY → newZ)
         xs = upper_coords[:, :, 1].flatten()
         ys = upper_coords[:, :, 2].flatten()
         zs = upper_coords[:, :, 0].flatten()
 
-        print("[DEBUG] New X (old Z) range:", xs.min(), xs.max())
-        print("[DEBUG] New Y (old X) range:", ys.min(), ys.max())
-        print("[DEBUG] New Z (old Y) range:", zs.min(), zs.max())
+        # print("[DEBUG] New X (old Z) range:", xs.min(), xs.max())
+        # print("[DEBUG] New Y (old X) range:", ys.min(), ys.max())
+        # print("[DEBUG] New Z (old Y) range:", zs.min(), zs.max())
 
         all_min = min(xs.min(), ys.min(), zs.min())
         all_max = max(xs.max(), ys.max(), zs.max())
@@ -217,16 +232,19 @@ def animate_first_sample_skeleton_3d_upper_body(annotations_file, model_params):
         # ax.set_ylim(all_min, all_max)
         # ax.set_zlim(all_min, all_max)
         
-        ax.set_xlim(-0.1, 0.1)   # now showing old Z
-        ax.set_ylim(-0.3, 0.1)    # now showing old X
-        ax.set_zlim(-0.3, 0.1)    # now showing old Y
+        # ax.set_xlim(-0.1, 0.1)   # now showing old Z
+        # ax.set_ylim(-0.3, 0.1)    # now showing old X
+        # ax.set_zlim(-0.3, 0.1)    # now showing old Y
+        ax.set_xlim(-0.3, 0.5)
+        ax.set_ylim(-0.1, 0.5)
+        ax.set_zlim(-0.15, 0.5)
 
         ax.set_xlabel("Y")
         ax.set_ylabel("Z")
         ax.set_zlabel("X")
 
         scatter = ax.scatter([], [], [], c="blue", s=40)
-        lines = [ax.plot([], [], [], c='black')[0] for _ in edges]
+        lines = [ax.plot([], [], [], c='black')[0] for _ in CONNECTING_JOINT]
 
         def init():
             scatter._offsets3d = (np.array([]), np.array([]), np.array([]))
@@ -240,7 +258,8 @@ def animate_first_sample_skeleton_3d_upper_body(annotations_file, model_params):
             xs, ys, zs = coords[:, 1], coords[:, 2], coords[:, 0]  # remapped axes
             scatter._offsets3d = (xs, ys, zs)
 
-            for k, (i, j) in enumerate(edges):
+            for k in range(0, len(CONNECTING_JOINT), 2):
+                i, j = CONNECTING_JOINT[k], CONNECTING_JOINT[k + 1]
                 x_vals = np.array([coords[i, 1], coords[j, 1]])
                 y_vals = np.array([coords[i, 2], coords[j, 2]])
                 z_vals = np.array([coords[i, 0], coords[j, 0]])
@@ -269,7 +288,7 @@ def animate_first_sample_skeleton_3d_upper_body(annotations_file, model_params):
             ani.save(save_path, writer="pillow", fps=10)
 
         print(f"Animation saved to {save_path}")
-
+        exit(0)
         # plt.show()
 
 def animate_first_sample_skeleton_3d(annotations_file, model_params):
@@ -298,7 +317,8 @@ def animate_first_sample_skeleton_3d(annotations_file, model_params):
 
         print(f"Features shape: {features.shape}, label: {label}")
 
-        offset = 46  # Start of keypoints
+        offset = model_params.get("num_features", 24) + (model_params.get("num_features", 24) - 1) - 1 # Start of keypoints
+        num_keypoints = model_params.get("num_features", 24) * 3
         joints_num = model_params.get("joints_num", 24)
         coords_dim = model_params.get("joints_dim", 3)
 
@@ -333,9 +353,9 @@ def animate_first_sample_skeleton_3d(annotations_file, model_params):
         # ax.set_ylim(all_min, all_max)
         # ax.set_zlim(all_min, all_max)
         
-        ax.set_xlim(-0.1, 0.1)   # now showing old Z
-        ax.set_ylim(-0.3, 0.1)    # now showing old X
-        ax.set_zlim(-0.3, 0.1)    # now showing old Y
+        ax.set_xlim(-0.2, 0.2)   # now showing old Z
+        ax.set_ylim(-0.6, 0.2)    # now showing old X
+        ax.set_zlim(-0.6, 0.2)    # now showing old Y
 
         ax.set_xlabel("Y")
         ax.set_ylabel("Z")
@@ -353,7 +373,7 @@ def animate_first_sample_skeleton_3d(annotations_file, model_params):
 
         def update(frame_idx):
             frame = features[frame_idx].numpy()
-            coords = frame[offset: offset + 72].reshape(joints_num, coords_dim)
+            coords = frame[offset: offset + num_keypoints].reshape(joints_num, coords_dim)
             xs, ys, zs = coords[:, 1], coords[:, 2], coords[:, 0]  # your remapped X/Y/Z
             scatter._offsets3d = (xs, ys, zs)
 
@@ -386,8 +406,8 @@ def animate_first_sample_skeleton_3d(annotations_file, model_params):
             ani.save(save_path, writer="pillow", fps=10)
 
         print(f"Animation saved to {save_path}")
-
         # plt.show()
+        exit(0)
 
 def visualize_first_sample_skeleton_3d(annotations_file, model_params):
     """
@@ -1698,7 +1718,7 @@ def evaluate_model_on_all_data_mp(model, model_number, model_params, device, fol
     labels = np.array([s['class_id'] for s in full_dataset.samples])
     for i in range(len(full_dataset)):
         sample, label = full_dataset[i]
-        print(f"Sample {i} - Shape: {sample.shape}, Label: {label}")
+        # print(f"Sample {i} - Shape: {sample.shape}, Label: {label}")
 
     # Child dataset
     child_dataset = TripletPoseDataset(
@@ -1756,18 +1776,16 @@ def evaluate_model_on_all_data_mp(model, model_number, model_params, device, fol
         print(f"\n--- Classification Report ({group_name}) ---")
         print(report)
 
-        base_filename = os.path.splitext(os.path.basename(save_path))[0]
+        save_dir = save_path  # if save_path is a directory
+        model_name = f"model_{model_number}_fold{fold}_{group_name}"
 
-        # Report save path
-        report_save_path = os.path.join(
-            os.path.dirname(save_path),
-            f"model_{model_number}_{base_filename}_fold{fold}_{group_name}_report.txt"
-        )
+        # Save classification report
+        report_save_path = os.path.join(save_dir, f"{model_name}_report.txt")
         with open(report_save_path, "w", encoding="utf-8") as f:
             f.write(report)
         print(f"Classification report saved to: {report_save_path}")
 
-        # Confusion Matrix
+        # Confusion matrix
         conf_mat = confusion_matrix(all_labels, all_preds)
         plt.figure(figsize=(10, 8))
         sns.heatmap(conf_mat, annot=True, fmt='d', cmap='Blues')
@@ -1776,14 +1794,10 @@ def evaluate_model_on_all_data_mp(model, model_number, model_params, device, fol
         plt.title(f"Confusion Matrix ({group_name})")
         plt.tight_layout()
 
-        # Confusion Matrix save path
-        group_save_path = os.path.join(
-            os.path.dirname(save_path),
-            f"model_{model_number}_{base_filename}_fold{fold}_{group_name}.png"
-        )
-        plt.savefig(group_save_path)
+        conf_mat_path = os.path.join(save_dir, f"{model_name}_confusion_matrix.png")
+        plt.savefig(conf_mat_path)
         plt.close()
-        print(f"Confusion matrix saved to: {group_save_path}")
+        print(f"Confusion matrix saved to: {conf_mat_path}")
 
 
 def main(model_params):
@@ -2697,8 +2711,8 @@ if __name__ == "__main__":
     static_params = {
         "best_val_f1": 0,  # Best F1 score from the study
         "best_model_number": 0,  # Best model number from the study
-        "joints_num": 12, # 25 for Kinect / 24 for MP / 12 for upper body MP
-        "num_classes": 14, # Number of classes for classification (NTU-120 has 120, MP has 12 and Therapies has 14)
+        "joints_num": 24, # 25 for Kinect / 24 for MP / 12 for upper body MP CADDIN
+        "num_classes": 14, # Number of classes for classification (NTU-120 has 120, CADDIN has 12 and Therapies has 14)
 
         "epochs": 300, # Number of training epochs
         "K": 5,  # Number of folds for cross-validation
@@ -2720,7 +2734,8 @@ if __name__ == "__main__":
         # "model_name": "Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp)",
         # "model_name": "Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp_NEW)",
         # "model_name": "Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp_NEW_after_MP_Therapist_APPDA)",
-        "model_name": "Models_MP_Therapist_APPDA_Block_0(upper_body)",
+        # "model_name": "Models_MP_Therapist_APPDA_Block_0(upper_body)",
+        "model_name": "Models_MP_CADDIN_Upper_Body_Block_0(upper_body)",
 
         # TODO: Change every time you switch to the next model
         # Path to the pre-trained model in Pytorch format
@@ -2728,6 +2743,7 @@ if __name__ == "__main__":
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_Therapist_APPDA_Classifier_Block_0_1_2_3_4_5",
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp)",  # Path to the pre-trained model for Therapies dataset in Pytorch format
         "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_Therapist_APPDA_Block_0(upper_body)",  # Path to the pre-trained model for Therapies dataset in Pytorch format
+        # "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_CADDIN_Upper_Body_Block_0(upper_body)",  # Path to the pre-trained model for Therapies dataset in Pytorch format
 
         # TODO: Change every time you switch to the next model
         # Use a pre-trained model (Set True if you want to use a pre-trained model)
@@ -2746,9 +2762,11 @@ if __name__ == "__main__":
 
         # TODO: Change every time you switch to the next model
         # "train_annotations": "./datasets_annotations/therapies_APPDA_MP_annotations.txt",
-        # "train_annotations": "./datasets_annotations/mp_train.txt",
+        "train_annotations": "./datasets_annotations/mp_train.txt",
         # "train_annotations": "./datasets_annotations/therapies_APPDA_MP_upper_body_annotations.txt",
-        "train_annotations": "./datasets_annotations/CADDIN_MP_upper_body.txt",
+        # "train_annotations": "./ntu_annotations/one_shot_aux_set.txt",
+        # "train_annotations": "./datasets_annotations/CADDIN_Final_Validation_MP_upper_body.txt",  # Set True to split the training data into K folds
+        # "train_annotations": "./datasets_annotations/mp_train_upper_body.txt",
         
         # "val_annotations": "./datasets_annotations/mp_val.txt", # Set in case you don't use K-Fold Cross Validation
         # "final_validation_annotations": "./datasets_annotations/CADDIN_Final_MP_upper_body.txt",
@@ -2759,10 +2777,10 @@ if __name__ == "__main__":
 
         # "eval_therapies": True,  # Therapy data needed for its evaluation
         "h_flip": True,
+        # "skip_frames": [],
         "skip_frames": [2, 3],
 
         # NTU-120 Data sets to optimize the NTU one-shot benchmark
-        # "train_annotations": "./ntu_annotations/one_shot_aux_set.txt",
         # "val_annotations": "",
         # "eval_therapies": False,
         # "h_flip": False,
@@ -2833,14 +2851,14 @@ if __name__ == "__main__":
         "conv_params": [256, 4, 2, True, "causal", [4]],
         "is_tcn": False,
         "use_jcd_features": True,
-        # "use_jcd_features": True,
+        # "use_jcd_features": False,
         "use_speeds": False,
         "use_coords_raw": False,
         "use_coords": True,
         # "use_coords": True,
         "use_jcd_diff": False,
         "use_bone_angles": True,
-        # "use_bone_angles": True,
+        # "use_bone_angles": False,
         "use_bone_angles_cent": False,
         "average_wrong_skels": True,
         "average_wrong_skels_method": 'mean',
@@ -2853,7 +2871,6 @@ if __name__ == "__main__":
         static_params['effective_seq_len'] = 32
     else:
         static_params['effective_seq_len'] = static_params['max_seq_len']
-
 
 
     # --- Model Verification on unseen data ---
@@ -2939,6 +2956,15 @@ if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
+    # export_dataset_to_txt(model_params['train_compare_1'], model_params, "full_dataset_1_converted.txt")
+    # export_dataset_to_txt(model_params['train_compare_2'], model_params, "full_dataset_2_converted.txt")
+
+    # visualize_pose_dataset_2d(model_params['train_compare_1'], model_params['train_compare_2'], model_params, max_samples=2000, method="pca")
+    # animate_first_sample_skeleton_3d(model_params['train_compare_2'], model_params)
+    print(f"model_params['train_annotations']: {model_params['train_annotations']}")
+    animate_first_sample_skeleton_3d(model_params['train_annotations'], model_params)
+    exit(0)
+    
     # --- Data Loading Therapist ---
     # Load the validation dataset once
     val_dataset = TripletPoseDataset(
@@ -2964,14 +2990,6 @@ if __name__ == "__main__":
     all_fold_labels = []  # store labels from each fold
     all_fold_sims = []  # store similarities from each fold
     all_fold_embs = []  # store embeddings from each fold
-
-    # export_dataset_to_txt(model_params['train_compare_1'], model_params, "full_dataset_1_converted.txt")
-    # export_dataset_to_txt(model_params['train_compare_2'], model_params, "full_dataset_2_converted.txt")
-
-    # visualize_pose_dataset_2d(model_params['train_compare_1'], model_params['train_compare_2'], model_params, max_samples=2000, method="pca")
-    # animate_first_sample_skeleton_3d(model_params['train_compare_2'], model_params)
-    # animate_first_sample_skeleton_3d_upper_body(model_params['train_annotations'], model_params)
-    # exit(0)
     
     print(f"num_feats: {model_params['num_feats']}, num_jcd_feats: {model_params.get('num_jcd_feats', 'N/A')}")
     for fold in range(5):  # 5 folds
@@ -2993,8 +3011,8 @@ if __name__ == "__main__":
         pytorch_model.load_state_dict(torch.load(fold_model_path))
         pytorch_model.eval().to(device)
 
-        evaluate_model_on_all_data_mp(pytorch_model, 12, model_params, device, fold, metrics_save_dir)
-        continue  # Skip the rest for now
+        # evaluate_model_on_all_data_mp(pytorch_model, 12, model_params, device, fold, metrics_save_dir)
+        # continue  # Skip the rest for now
     
         # --- Collect predictions instead of embeddings ---
         all_preds = []
