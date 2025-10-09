@@ -2195,8 +2195,8 @@ def main(model_params):
                                     collate_fn=collate_fn_classification_pre_pad
             )
             """  
-
-            # --- Check class distribution in dataloaders ---
+            
+            """# --- Check class distribution in dataloaders ---
             train_labels = []
             for _, labels in train_loader:
                 train_labels.extend(labels.numpy().tolist())
@@ -2221,7 +2221,7 @@ def main(model_params):
 
             print(f"\nTrain loader batches: {len(train_loader)}")
             print(f"Validation loader batches: {len(val_loader)}")
-            exit(0)  # Remove this line after debugging
+            exit(0)  # Remove this line after debugging"""
 
             
             # --- PyTorch Optimizer and Loss (Mimicking Keras printouts) ---
