@@ -834,9 +834,9 @@ def get_pose_data_v2(body, max_seq_len, joints_num, joints_dim, center_skels,
         # print('bbbb', len(body))
 
     # print(f"max_seq_len before adjustment: {max_seq_len}, body shape: {body.shape}")
-    if (-1)*max_seq_len > 0:
+    if max_seq_len > 0:
         # If movement is longer than max_seq_lenght -> crop to max_seq_length
-        body = zoom_to_max_len(body, (-1)*max_seq_len, joints_num, joints_dim)
+        body = zoom_to_max_len(body, max_seq_len, joints_num, joints_dim)
         # print(f"After zoom_to_max_len: body shape: {body.shape}")
 
     elif max_seq_len < 0:
