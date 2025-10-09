@@ -765,10 +765,12 @@ def train_model(model_params, running_train_loss_clf, running_train_loss, pytorc
             loss_c = active_losses['classification'](
                 clf_logits_batch, labels_batch.to(device).long())
             current_batch_total_loss += loss_weights_pytorch_pt['classification'] * loss_c
+            print(f"clf_logits_batch: {clf_logits_batch}")
             running_train_loss_clf += loss_c.item()
             # if batch_idx == 0 and epoch == 0:
             #     print(
             #         f"  Classification loss component active. Example batch loss_c: {loss_c.item():.4f}")
+
         # Calculate Triplet Loss (Requires Batch Mining)
         if 'triplet' in active_losses and embeddings_batch is not None:
             # TODO: NOT IMPLEMENTED: Triplet loss mining logic
