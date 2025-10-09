@@ -731,11 +731,11 @@ def train_model(model_params, running_train_loss_clf, running_train_loss, pytorc
             device, non_blocking=True)  # Integer class labels
         optimizer.zero_grad()
 
-        print("features_batch[0]:", features_batch[0])
-        print("labels_batch[0]:", labels_batch[0])
+        # print("features_batch[0]:", features_batch[0])
+        # print("labels_batch[0]:", labels_batch[0])
 
-        print("features_batch[1]:", features_batch[1])
-        print("labels_batch[1]:", labels_batch[1])
+        # print("features_batch[1]:", features_batch[1])
+        # print("labels_batch[1]:", labels_batch[1])
 
 
         # Forward pass
@@ -761,7 +761,7 @@ def train_model(model_params, running_train_loss_clf, running_train_loss, pytorc
         # Calculate Classification Loss
         if 'classification' in active_losses and clf_logits_batch is not None:
             # Ensure labels_batch is of type LongTensor for CrossEntropyLoss
-            print("labels_batch:", labels_batch.long())
+            # print("labels_batch:", labels_batch.long())
             loss_c = active_losses['classification'](
                 clf_logits_batch, labels_batch.to(device).long())
             current_batch_total_loss += loss_weights_pytorch_pt['classification'] * loss_c
