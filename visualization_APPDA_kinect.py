@@ -164,15 +164,3 @@ if __name__ == "__main__":
     plt.show()
     
     exit()
-    
-    
-    print("First video key:", first_key)
-
-    first_video = video_skels[first_key]
-    print("Type of data for this video:", type(first_video))
-
-    # If it's an array, check shape
-    if isinstance(first_video, np.ndarray):
-        print("Shape:", first_video.shape)
-        print("First 5 frames:\n", first_video[:5])
-

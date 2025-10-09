@@ -547,7 +547,6 @@ def animate_first_sample_skeleton_3d_Therapist(annotations_file, model_params):
 
         print(f"Animation saved to {save_path}")
         # plt.show()
-    
 
 def visualize_first_sample_skeleton_3d(annotations_file, model_params):
     """
@@ -1089,6 +1088,7 @@ def create_pytorch_model(model_params, fold=None):
     # If the model is in TensorFlow/Keras format, we will convert it to PyTorch.
     if model_params.get('model_converter', False) and \
         not model_params.get('model_is_pytorch', False):
+        print("\n* Converting TensorFlow/Keras model to PyTorch...")
         
         # --- PyTorch Model Instantiation ---
         pytorch_model = TCN_clf(
@@ -1939,7 +1939,6 @@ def evaluate_model_on_all_data_mp(model, model_number, model_params, device, fol
         plt.close()
         print(f"Confusion matrix saved to: {conf_mat_path}")
 
-
 def main(model_params):
     train_verbose = model_params.get('train_verbose', 1)
     log_interval = model_params.get('log_interval', 10)
@@ -2098,8 +2097,6 @@ def main(model_params):
     # else:
     #     print("No validation annotations provided, val_loader will be None.") 
 
-    
-
     # --- Data Loading Therapist ---
     # """
     # Load your raw data
@@ -2107,54 +2104,17 @@ def main(model_params):
     actions_data = pickle.load(open(os.path.join(raw_data_path, 'actions_data_v2.pckl'), 'rb'))
     video_skels = pickle.load(open(os.path.join(raw_data_path, 'video_skels_v2.pckl'), 'rb'))
 
+    # --- Prepare data ---
     # Filter out unwanted actions (same as your TF code)
     actions_data = actions_data[~actions_data.action.isin(['no', 'si'])]
-    print(f"Loaded actions_data with {len(actions_data)} entries and video_skels with {len(video_skels)} videos.")
-    
+    # print(f"Loaded actions_data with {len(actions_data)} entries and video_skels with {len(video_skels)} videos.")
     actions_data = actions_data.sort_values(by=['patient', 'session', 'video', 'ex_num'])
     
-    # Show the full DataFrame without truncation
-    # with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', None):
-    #    print(actions_data)
-    
-    #actions_data, actions_data_final_val = train_test_split(
-    #    actions_data,
-    #    test_size=0.15,  # 15% = ~24 samples
-    #    stratify=actions_data['action'],
-    #    random_state=42
-    #)
-
-    ## Debug print for actions_data_final_val
-    #print("First few rows of actions_data_final_val:")
-    #print(actions_data_final_val.head())
-    
-    ## How many lines have the same action in actions_data_final_val?
-    #action_counts_final_val = actions_data_final_val['action'].value_counts()
-    #print(f"Action counts in final validation set:\n{action_counts_final_val}")
-    
-    # Print first few rows of actions_data for debugging
-    #print("First few rows of actions_data:")
-    # all_actions = actions_data['action'].unique()
-    #print(f"Unique actions found: {all_actions}")
-    #
-    ## How many lines have the same action?
-    # action_counts = actions_data['action'].value_counts()
-    # print(f"Action counts:\n{action_counts}")
-    
-    # --- Prepare data ---
     # Create a mapping from action names to indices
     all_actions = actions_data['action'].unique()
     action_to_idx = {action: idx for idx, action in enumerate(sorted(all_actions))}
     labels = actions_data['action'].map(action_to_idx).values
-
-    # Print Labels ID
-    print("Labels ID:")
-    for action, idx in action_to_idx.items():
-        print(f"  {action}: {idx}")
-
-    # === Make a copy of the full dataset for later evaluation ===
-    full_eval_data = actions_data.copy()
-
+    
     # # Separate into children and therapist subsets (assuming you have a 'role' column or similar)
     # children_data = full_eval_data[full_eval_data['role'] == 'child']
     # therapist_data = full_eval_data[full_eval_data['role'] == 'therapist']
@@ -2169,23 +2129,26 @@ def main(model_params):
         k_folds = model_params.get("K", 5)
         skf = StratifiedKFold(n_splits=k_folds, shuffle=True, random_state=42)
         
-        # Load full dataset once (MP)
-        full_dataset = TripletPoseDataset(
-            pose_annotations_file=model_params['train_annotations'],
+        full_dataset = TherapyDataset(
+            actions_data,
+            video_skels,
+            pose_annotations_file=None,
+            in_memory_generator=False,
+            validation=False,
             validation_mode=False,
-            in_memory=model_params['in_memory_generator_train'],
+            in_memory=model_params.get('in_memory_generator_train', False),
             **model_params
         )
         
-        labels = np.array([s['class_id'] for s in full_dataset.samples])
-        for i in range(len(full_dataset)):
-            sample, label = full_dataset[i]
-            print(f"Sample {i} - Shape: {sample.shape}, Label: {label}")
-        
-        print(f"Full dataset size: {len(full_dataset)} samples")
-        print(f"Labels shape: {labels.shape}")
-        print(f"Unique classes in dataset: {np.unique(labels)}")
-        print(f"Full dataset labels: {labels}")
+        # labels = np.array([s['class_id'] for s in full_dataset.samples])
+        # for i in range(len(full_dataset)):
+        #     sample, label = full_dataset[i]
+        #     print(f"Sample {i} - Shape: {sample.shape}, Label: {label}")
+        # 
+        # print(f"Full dataset size: {len(full_dataset)} samples")
+        # print(f"Labels shape: {labels.shape}")
+        # print(f"Unique classes in dataset: {np.unique(labels)}")
+        # print(f"Full dataset labels: {labels}")
         
         # --- Training Loop ---
         fold_val_f1_scores = []
@@ -2213,21 +2176,21 @@ def main(model_params):
             val_subset = torch.utils.data.Subset(full_dataset, val_idx)
             
             # --- Create DataLoaders for this fold (MP)---
-            train_loader = DataLoader(
-                train_subset,
-                batch_size=model_params['batch_size'],
-                shuffle=True,
-                num_workers=model_params.get('num_workers', 0),
-                pin_memory=True if device.type == 'cuda' else False,
-                drop_last=True
+            train_loader = DataLoader(train_subset, 
+                                        batch_size=model_params['batch_size'],
+                                        num_workers=model_params['num_workers'],
+                                        pin_memory=(device.type == 'cuda'), 
+                                        drop_last=True, 
+                                        collate_fn=collate_fn_classification_pre_pad
             )
-            val_loader = DataLoader(
-                val_subset,
-                batch_size=model_params['batch_size'],
-                shuffle=False,
-                num_workers=model_params.get('num_workers', 0),
-                pin_memory=True if device.type == 'cuda' else False,
-                drop_last=False
+
+            val_loader = DataLoader(val_subset, 
+                                    batch_size=model_params['batch_size'],
+                                    shuffle=False, 
+                                    num_workers=model_params['num_workers'],
+                                    pin_memory=(device.type == 'cuda'), 
+                                    drop_last=False, 
+                                    collate_fn=collate_fn_classification_pre_pad
             )
             
             # --- PyTorch Optimizer and Loss (Mimicking Keras printouts) ---
@@ -2789,7 +2752,6 @@ def main(model_params):
     #     except Exception as e_rsw:
     #         print(f"Error during remove_suboptimal_weights: {e_rsw}")
 
-
 def objective(trial, static_params):
     # Define hyperparameter search space
     optuna_params = {        
@@ -2848,7 +2810,7 @@ if __name__ == "__main__":
     # parser.add_argument('--train_annotations', type=str, help='Path to train annotations')
     # parser.add_argument('--val_annotations', type=str, help='Path to val annotations')
     # Add more if you want — just match the key names in model_params
-    #
+    
     # args = parser.parse_args()
 
     # TODO: Change this after each run to avoid overwriting
@@ -2880,30 +2842,34 @@ if __name__ == "__main__":
         # "model_name": "Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp_NEW)",
         # "model_name": "Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp_NEW_after_MP_Therapist_APPDA)",
         # "model_name": "Models_MP_Therapist_APPDA_Block_0(upper_body)",
-        "model_name": "Models_MP_CADDIN_Upper_Body_Block_0(upper_body)",
-
+        ####
+        "model_name": "Models_Kinect_APPDA_Block_0",
+        ####
         # TODO: Change every time you switch to the next model
         # Path to the pre-trained model in Pytorch format
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier_Block_5/0730_1921_model_1/weights/Best_Model-ep300-trainloss0.31293-f10.54116.pt",
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_Therapist_APPDA_Classifier_Block_0_1_2_3_4_5",
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp)",  # Path to the pre-trained model for Therapies dataset in Pytorch format
-        "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_Therapist_APPDA_Block_0(upper_body)",  # Path to the pre-trained model for Therapies dataset in Pytorch format
+        # "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_Therapist_APPDA_Block_0(upper_body)",  # Path to the pre-trained model for Therapies dataset in Pytorch format
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_CADDIN_Upper_Body_Block_0(upper_body)",  # Path to the pre-trained model for Therapies dataset in Pytorch format
-
+        ####
+        "pretrained_model_path": "./therapies_model_7/model",
+        ####
+        
         # TODO: Change every time you switch to the next model
         # Use a pre-trained model (Set True if you want to use a pre-trained model)
         "use_pretrained_model": True,  # Set to True if you want to use a pre-trained model
         
         # TODO: Change every time you switch to the next model
         # Convert Keras parameters to PyTorch equivalents (Set True if The model you want to fine tune is in TensorFlow/Keras format)
-        "model_converter": False, # Set to True if you want to convert a Keras model to PyTorch or in case you want to change the 1st layer size
+        "model_converter": True, # Set to True if you want to convert a Keras model to PyTorch or in case you want to change the 1st layer size
         "old_model_input_feature_size": 394, # Set to the number of input features that entered in the old model (e.g., 423 for Kinect, 394 for MP, 124 for upper body MP)
         
-        "model_is_pytorch": True, # Set to True if the Model is in PyTorch format or False if it is in TensorFlow/Keras format
+        "model_is_pytorch": False, # Set to True if the Model is in PyTorch format or False if it is in TensorFlow/Keras format
         
         # Path to the pre-trained model in TensorFlow/Keras format
         # "pretrained_model_path": "./ntu_benchmark_model/model",  # Path to the pre-trained model for NTU-120 one-shot benchmark
-        # "pretrained_model_path": "./therapies_model_7/model",   # Path to the pre-trained model for the therapies dataset
+        # "pretrained_model_path": "./therapies_model_7/model",     # Path to the pre-trained model for the therapies dataset
 
         # TODO: Change every time you switch to the next model
         # "train_annotations": "./datasets_annotations/therapies_APPDA_MP_annotations.txt",
@@ -2934,12 +2900,12 @@ if __name__ == "__main__":
         # TODO: Change every time you switch to the next model
         # Define which keys are *excluded from training* (i.e., frozen)
         "excluded_pt_keys": [
-            # "encoder_net.encoder.0.residual_blocks.0.conv1.weight",
-            # "encoder_net.encoder.0.residual_blocks.0.conv1.bias",
-            # "encoder_net.encoder.0.residual_blocks.0.conv2.weight",
-            # "encoder_net.encoder.0.residual_blocks.0.conv2.bias",
-            # "encoder_net.encoder.0.residual_blocks.0.downsample.weight",
-            # "encoder_net.encoder.0.residual_blocks.0.downsample.bias",
+            "encoder_net.encoder.0.residual_blocks.0.conv1.weight",
+            "encoder_net.encoder.0.residual_blocks.0.conv1.bias",
+            "encoder_net.encoder.0.residual_blocks.0.conv2.weight",
+            "encoder_net.encoder.0.residual_blocks.0.conv2.bias",
+            "encoder_net.encoder.0.residual_blocks.0.downsample.weight",
+            "encoder_net.encoder.0.residual_blocks.0.downsample.bias",
             "encoder_net.encoder.0.residual_blocks.1.conv1.weight",
             "encoder_net.encoder.0.residual_blocks.1.conv1.bias",
             "encoder_net.encoder.0.residual_blocks.1.conv2.weight",
@@ -2960,8 +2926,8 @@ if __name__ == "__main__":
             "encoder_net.encoder.0.residual_blocks.5.conv1.bias",
             "encoder_net.encoder.0.residual_blocks.5.conv2.weight",
             "encoder_net.encoder.0.residual_blocks.5.conv2.bias",
-            "clf_out.weight",
-            "clf_out.bias",
+            # "clf_out.weight",
+            # "clf_out.bias",
         ],
         
         # Define which keys are replaced with new ones (i.e., re-initialized)
@@ -3020,7 +2986,7 @@ if __name__ == "__main__":
 
 
     # --- Model Verification on unseen data ---
-    # """
+    """
     # --- Path and Feature Calculation (Cleaned Up) ---
     # print("--- Initializing Parameters and Paths ---")
     static_params['path_model'] = train_utils.create_model_folder(
@@ -3241,7 +3207,7 @@ if __name__ == "__main__":
     print(f"Overall mean similarity: {overall_mean:.2f}")
     
     exit(0)
-    # """
+    """
 
     # Create Optuna study
     study = optuna.create_study(direction="maximize")  # Or "minimize" for loss

@@ -374,11 +374,11 @@ def get_transformation_matrix_global(skel):
     # X-axis: From left hip (16) to right hip (12)
     x_vec = skel[:, RIGHT_HIP, :] - skel[:, LEFT_HIP, :] # Vector from left hip to right hip
     
-    print(f"x_vec sample: {x_vec}") # Debug print
+    # print(f"x_vec sample: {x_vec}") # Debug print
     
     x_axis = matrix_unit_vector(x_vec)
 
-    print(f"x_axis sample: {x_axis}") # Debug print
+    # print(f"x_axis sample: {x_axis}") # Debug print
 
     # Y-axis: Approximate vertical axis. Vector from spine base (0) to neck (3) or mid-shoulders.
     # Original code used skel[:,20] - o for Z. Let's try to define Y as up.
@@ -393,7 +393,7 @@ def get_transformation_matrix_global(skel):
     # Original Z axis: SpineChest (20) - Origin (mid-hip)
     z_approx_vec = skel[:,SPINE_CHEST,:] - o # Vector from mid-hip to spine/chest
     
-    print(f"z_approx_vec sample: {z_approx_vec}") # Debug print
+    # print(f"z_approx_vec sample: {z_approx_vec}") # Debug print
     
     # Y-axis: Orthogonal to X and Z_approx (cross product)
     # y_axis = np.cross(z_approx_vec, x_axis) # Order matters for right/left-handed system
@@ -512,7 +512,7 @@ def get_body_spherical_angles(body_coords): # body_coords is (frames, joints, di
     # For now, using sequential bones based on the loop in Keras: body[:, bone_idx+1] - body[:, bone_idx]
     # This assumes joints are ordered to form meaningful sequential bones.
     num_joints = body_coords.shape[1]
-    print("num_joints in get_body_spherical_angles:", num_joints)
+    # print("num_joints in get_body_spherical_angles:", num_joints)
     # Iterate through defined bone connections (pairs of joints)
     for i in range(0, len(CONNECTING_JOINT)-1):
         joint_a = CONNECTING_JOINT[i]
@@ -526,7 +526,7 @@ def get_body_spherical_angles(body_coords): # body_coords is (frames, joints, di
             # Only process if there are frames
             if bone_vectors.shape[0] > 0:
                 spherical_angles = get_bone_spherical_angles(bone_vectors)
-                print(f"Spherical angles for bone ({joint_a}->{joint_b}) sample: {spherical_angles}") # Debug print
+                # print(f"Spherical angles for bone ({joint_a}->{joint_b}) sample: {spherical_angles}") # Debug print
                 all_bone_angles_list.append(spherical_angles)
 
     if not all_bone_angles_list:
@@ -770,9 +770,7 @@ def zoom_to_max_len(p, max_seq_len, joints_num, joints_dim, force=False):
             for n in range(joints_dim):
                 # smooth coordinates
                 # Zoom coordinates to fit the max_seq_len_shape
-                p_new[:, m, n] = inter.zoom(
-                    # , mode='nearest'
-                    p[:, m, n], max_seq_len/num_frames)[:max_seq_len]
+                p_new[:,m,n] = inter.zoom(p[:,m,n], max_seq_len/num_frames)[:max_seq_len]   # , mode='nearest'
     else:
         p_new = p
     return p_new
@@ -796,10 +794,16 @@ def get_pose_data_v2(body, max_seq_len, joints_num, joints_dim, center_skels,
                      use_coords_raw, use_coords, use_jcd_diff,
                      use_bone_angles,
                      use_bone_angles_cent,
-
                      skip_frames=[],
                         **kwargs):
 
+    # print(f"get_pose_data_v2 called with body shape: {body.shape if body is not None else 'None'}")
+    # print(f"max_seq_len: {max_seq_len}, joints_num: {joints_num}, joints_dim: {joints_dim}")
+    # print(f"center_skels: {center_skels}, h_flip: {h_flip}, scale_by_torso: {scale_by_torso}, temporal_scale: {temporal_scale}")
+    # print(f"validation: {validation}, use_jcd_features: {use_jcd_features}, use_speeds: {use_speeds}")
+    # print(f"use_coords_raw: {use_coords_raw}, use_coords: {use_coords}, use_jcd_diff: {use_jcd_diff}")
+    # print(f"use_bone_angles: {use_bone_angles}, use_bone_angles_cent: {use_bone_angles_cent}, skip_frames: {skip_frames}")
+    
     # Remove frames without predictions
     body = body[np.all(~np.all(body == 0, axis=2), axis=1)]
     # body = body[body.sum(axis=1).sum(axis=1)!=0]
@@ -816,6 +820,7 @@ def get_pose_data_v2(body, max_seq_len, joints_num, joints_dim, center_skels,
 
         zoom_factor = new_num_frames/orig_new_frames
         body = inter.zoom(body, (zoom_factor, 1, 1), mode='nearest')
+        # print(f"Temporal scaling: orig_frames={orig_new_frames}, new_frames={new_num_frames}, zoom_factor={zoom_factor}, body_shape={body.shape}")
 
     # Reduce frame rate
     if len(skip_frames) > 0:
@@ -828,22 +833,28 @@ def get_pose_data_v2(body, max_seq_len, joints_num, joints_dim, center_skels,
         body = body[sk_init::sk]
         # print('bbbb', len(body))
 
-    if max_seq_len > 0:
+    # print(f"max_seq_len before adjustment: {max_seq_len}, body shape: {body.shape}")
+    if (-1)*max_seq_len > 0:
         # If movement is longer than max_seq_lenght -> crop to max_seq_length
-        body = zoom_to_max_len(body, max_seq_len, joints_num, joints_dim)
+        body = zoom_to_max_len(body, (-1)*max_seq_len, joints_num, joints_dim)
+        # print(f"After zoom_to_max_len: body shape: {body.shape}")
 
     elif max_seq_len < 0:
-        if not validation:
+        if not validation: # Training
             # Crop randomly the movement to -max_seq_length
             start = np.random.randint(max(len(body)-abs(max_seq_len)+1, 1))
             end = start + abs(max_seq_len)
+            # print(f"Training cropping: body length={len(body)}, start={start}, end={end}")
             body = body[start:end]
-        else:
+            # print(f"Training cropping: start={start}, end={end}, body_shape={body.shape}")
+        else: # Validation
             # Crop to the last part of the movement
             start = max(0, (len(body) - abs(max_seq_len)) // 2)
             end = start + abs(max_seq_len)
             body = body[start:end]
-
+            # print(f"Validation cropping: start={start}, end={end}, body_shape={body.shape}")
+    
+    # exit()
     if scale_by_torso:
         body = scale_skel_by_torso(body)
 
@@ -885,7 +896,7 @@ def get_pose_data_v2(body, max_seq_len, joints_num, joints_dim, center_skels,
         # Raw coordinates
         pose_features.append(np.reshape(
             skels, (num_frames, joints_num * joints_dim)))
-        print(f"Coords shape: {pose_features[-1].shape}")
+        # print(f"Coords shape: {pose_features[-1].shape}")
 
     if use_jcd_diff or use_jcd_features:
         jcd_features = get_jcd_features1(skels, joints_num, num_frames)
@@ -1073,7 +1084,7 @@ class TherapyDataset(Dataset):
                  use_jcd_features=False, use_speeds=False,
                  use_coords_raw=False, use_coords=False, use_jcd_diff=False,
                  use_bone_angles=False, use_bone_angles_cent=False,
-                 classification=True, num_classes=None,
+                 classification=True, num_classes=None, skip_frames=[],
                  **kwargs):
         self.data_df = data_df
         self.video_skels = video_skels
@@ -1099,7 +1110,7 @@ class TherapyDataset(Dataset):
         self.use_bone_angles_cent = use_bone_angles_cent
         self.classification = classification
         self.num_classes = num_classes if num_classes else len(self.data_df['action'].unique())
-
+        self.skip_frames = skip_frames
         # Map actions to indexes for classification labels
         self.actions = sorted(self.data_df['action'].unique())
         self.action_to_idx = {a: i for i, a in enumerate(self.actions)}
@@ -1147,7 +1158,7 @@ class TherapyDataset(Dataset):
             self.use_jcd_diff,
             self.use_bone_angles,
             self.use_bone_angles_cent,
-            skip_frames=[],
+            self.skip_frames,
         )
 
         # Convert numpy array to torch tensor
