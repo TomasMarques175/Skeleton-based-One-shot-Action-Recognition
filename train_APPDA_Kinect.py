@@ -765,7 +765,7 @@ def train_model(model_params, running_train_loss_clf, running_train_loss, pytorc
             loss_c = active_losses['classification'](
                 clf_logits_batch, labels_batch.to(device).long())
             current_batch_total_loss += loss_weights_pytorch_pt['classification'] * loss_c
-            print(f"clf_logits_batch: {clf_logits_batch}")
+            # print(f"clf_logits_batch: {clf_logits_batch}")
             running_train_loss_clf += loss_c.item()
             # if batch_idx == 0 and epoch == 0:
             #     print(
