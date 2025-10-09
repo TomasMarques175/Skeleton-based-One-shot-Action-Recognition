@@ -2225,7 +2225,7 @@ def main(model_params):
 
             
             # --- PyTorch Optimizer and Loss (Mimicking Keras printouts) ---
-            active_losses, loss_weights_pytorch_pt, optimizer = Setup_optimizer_and_loss(pytorch_model, model_params, device, train_data)
+            active_losses, loss_weights_pytorch_pt, optimizer = Setup_optimizer_and_loss(pytorch_model, model_params, device, train_dataset)
             
             tb_log_dir = os.path.join(model_params['path_model'], 'tensorboard_logs')
             model_folder = os.path.basename(os.path.dirname(tb_log_dir))
