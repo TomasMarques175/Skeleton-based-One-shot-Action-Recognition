@@ -854,7 +854,6 @@ def get_pose_data_v2(body, max_seq_len, joints_num, joints_dim, center_skels,
             body = body[start:end]
             # print(f"Validation cropping: start={start}, end={end}, body_shape={body.shape}")
     
-    # exit()
     if scale_by_torso:
         body = scale_skel_by_torso(body)
 
