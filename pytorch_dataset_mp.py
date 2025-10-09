@@ -374,11 +374,11 @@ def get_transformation_matrix_global(skel):
     # X-axis: From left hip (16) to right hip (12)
     x_vec = skel[:, RIGHT_HIP, :] - skel[:, LEFT_HIP, :] # Vector from left hip to right hip
     
-    print(f"x_vec sample: {x_vec}") # Debug print
+    # print(f"x_vec sample: {x_vec}") # Debug # print
     
     x_axis = matrix_unit_vector(x_vec)
 
-    print(f"x_axis sample: {x_axis}") # Debug print
+    # print(f"x_axis sample: {x_axis}") # Debug print
 
     # Y-axis: Approximate vertical axis. Vector from spine base (0) to neck (3) or mid-shoulders.
     # Original code used skel[:,20] - o for Z. Let's try to define Y as up.
@@ -393,7 +393,7 @@ def get_transformation_matrix_global(skel):
     # Original Z axis: SpineChest (20) - Origin (mid-hip)
     z_approx_vec = skel[:,SPINE_CHEST,:] - o # Vector from mid-hip to spine/chest
     
-    print(f"z_approx_vec sample: {z_approx_vec}") # Debug print
+    # print(f"z_approx_vec sample: {z_approx_vec}") # Debug print
     
     # Y-axis: Orthogonal to X and Z_approx (cross product)
     # y_axis = np.cross(z_approx_vec, x_axis) # Order matters for right/left-handed system
@@ -428,7 +428,7 @@ def get_transformation_matrix_global(skel):
         # Combined matrix M:
         # [x_axis_x, x_axis_y, x_axis_z, -dot(x_axis, origin)]
         # [y_axis_x, y_axis_y, y_axis_z, -dot(y_axis, origin)]
-        # [z_axis_x, z_axis_y, z_axis_z, -dot(z_axis, origin)]
+        # [z_axis_x, z_axis_y, z_axis_z, -Num JCD features:(z_axis, origin)]
         # [0         , 0         , 0         , 1             ]
         
         transform_matrix = np.eye(4)
@@ -552,18 +552,18 @@ def get_pose_data_processed(body_raw, is_validation, model_params):
     average_wrong_skels_enabled = model_params.get('average_wrong_skels', True)
     scaler_obj = model_params.get('scaler_object', None) # Get scaler from params
 
-    print(f"max_seq_len_param: {max_seq_len_param}")
-    print(f"joints_num: {joints_num}, joints_dim: {joints_dim}")
-    print(f"center_skels: {center_skels}, h_flip_enabled: {h_flip_enabled}, scale_by_torso_enabled: {scale_by_torso_enabled}")
-    print(f"temporal_scale_range: {temporal_scale_range}, skip_frames_options: {skip_frames_options}, average_wrong_skels_enabled: {average_wrong_skels_enabled}, scaler_obj: {scaler_obj}")
+    # print(f"max_seq_len_param: {max_seq_len_param}")
+    # print(f"joints_num: {joints_num}, joints_dim: {joints_dim}")
+    # print(f"center_skels: {center_skels}, h_flip_enabled: {h_flip_enabled}, scale_by_torso_enabled: {scale_by_torso_enabled}")
+    # print(f"temporal_scale_range: {temporal_scale_range}, skip_frames_options: {skip_frames_options}, average_wrong_skels_enabled: {average_wrong_skels_enabled}, scaler_obj: {scaler_obj}")
     
     body = body_raw.copy()
-    print(f"Raw body shape: {body.shape}")
-    print(f"body.shape[0]: {body.shape[0]}")
+    # print(f"Raw body shape: {body.shape}")
+    # print(f"body.shape[0]: {body.shape[0]}")
     
     body = body[np.any(np.any(body != 0, axis=2), axis=1)]
     if body.shape[0] == 0:
-        print("Warning: Skeleton zero length after initial zero-frame removal.")
+        # print("Warning: Skeleton zero length after initial zero-frame removal.")
         _target_len_fallback = abs(max_seq_len_param) if max_seq_len_param != 0 else 32
         _num_feats_fallback = model_params.get('num_feats', 100)
         return np.zeros((_target_len_fallback, _num_feats_fallback), dtype=np.float32)
@@ -571,24 +571,24 @@ def get_pose_data_processed(body_raw, is_validation, model_params):
     if average_wrong_skels_enabled:
         body = average_wrong_frame_skels(body)
         if body is None or body.shape[0] == 0:
-            print("Warning: Skeleton zero length after averaging wrong frames.")
+            # print("Warning: Skeleton zero length after averaging wrong frames.")
             _target_len_fallback = abs(max_seq_len_param) if max_seq_len_param != 0 else 32
             _num_feats_fallback = model_params.get('num_feats', 100)
             return np.zeros((_target_len_fallback, _num_feats_fallback), dtype=np.float32)
 
     if not is_validation:
-        print(f"isinstance(temporal_scale_range, (list, tuple)): {isinstance(temporal_scale_range, (list, tuple))}")
+        # print(f"isinstance(temporal_scale_range, (list, tuple)): {isinstance(temporal_scale_range, (list, tuple))}")
         if temporal_scale_range and isinstance(temporal_scale_range, (list, tuple)) and len(temporal_scale_range) == 2:
             orig_len = body.shape[0]
             min_scale, max_scale = temporal_scale_range
-            print(f"Temporal scaling: orig_len={orig_len}, min_scale={min_scale}, max_scale={max_scale}")
+            # print(f"Temporal scaling: orig_len={orig_len}, min_scale={min_scale}, max_scale={max_scale}")
             if min_scale < max_scale and orig_len > 1 : # Need at least 2 frames to scale meaningfully
                 scale_factor = np.random.uniform(min_scale, max_scale)
-                print(f"Chosen scale_factor: {scale_factor}")
+                # print(f"Chosen scale_factor: {scale_factor}")
                 new_len = max(2, int(round(orig_len * scale_factor)))
                 if new_len != orig_len:
                     body = zoom_to_target_len(body, new_len, joints_num, joints_dim)
-        print(f"Body shape after temporal scaling: {body.shape}")
+        # print(f"Body shape after temporal scaling: {body.shape}")
 
         if skip_frames_options and body.shape[0] > 1:
             # Ensure skip_rate is at least 1 (no skip)
@@ -601,7 +601,7 @@ def get_pose_data_processed(body_raw, is_validation, model_params):
                     if body.shape[0] == 0: # After skipping, it might become empty
                         body = body_raw.copy()[0:1] # Fallback to first frame of original raw
                         print("Warning: Body became empty after skip_frames, using fallback.")
-        print(f"Body shape after skip frames: {body.shape}")
+        # print(f"Body shape after skip frames: {body.shape}")
         
         if h_flip_enabled and np.random.rand() > 0.5:
             body = flip_skeleton(body)
@@ -613,7 +613,7 @@ def get_pose_data_processed(body_raw, is_validation, model_params):
         if final_target_len == 0: final_target_len = 1 # Ensure at least 1 frame for feature extraction
     
     current_len = body.shape[0]
-    print(f"Body shape before length adjustment: {body.shape}, current_len: {current_len}, final_target_len: {final_target_len}")
+    # print(f"Body shape before length adjustment: {body.shape}, current_len: {current_len}, final_target_len: {final_target_len}")
     if max_seq_len_param > 0: # Zoom to fixed length (max_seq_len_param is positive)
         if current_len != final_target_len and final_target_len > 0:
             body = zoom_to_target_len(body, final_target_len, joints_num, joints_dim)
@@ -625,12 +625,12 @@ def get_pose_data_processed(body_raw, is_validation, model_params):
             else:
                 start = (current_len - target_crop_len) // 2
             body = body[start : start + target_crop_len]
-            print(f"Cropped body from {current_len} to {target_crop_len}, start at {start}")
+            # print(f"Cropped body from {current_len} to {target_crop_len}, start at {start}")
         elif current_len < target_crop_len and current_len > 0 : # Pad if shorter but not empty
             pad_width = target_crop_len - current_len
             padding = [(pad_width, 0), (0, 0), (0, 0)] # Pre-padding
             body = np.pad(body, padding, mode='constant', constant_values=0.0)
-            print(f"Padded body from {current_len} to {target_crop_len}")
+            # print(f"Padded body from {current_len} to {target_crop_len}")
         elif current_len == 0 and target_crop_len > 0: # If body became empty, pad to target_crop_len
             body = np.zeros((target_crop_len, joints_num, joints_dim), dtype=body_raw.dtype)
 

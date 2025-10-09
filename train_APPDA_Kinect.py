@@ -1113,17 +1113,14 @@ def create_pytorch_model(model_params, fold=None):
                 for var in tf_model.variables:
                     print(f"{var.name} {tuple(var.shape)}")
         """
-                # --- 3. Extract TensorFlow weights to numpy dict ---
         
+        # --- 3. Extract TensorFlow weights to numpy dict ---
         tf_weights = {}
         for var in tf_model.variables:
             # Convert tensor to numpy
             tf_weights[var.name] = var.numpy()
         #    print(var.name, var.shape)
 
-        # Define which keys are *excluded from training* (i.e., frozen)
-        excluded_pt_keys = model_params.get('excluded_pt_keys', [])
-        
         # Define which keys are replaced with new ones (i.e., re-initialized)
         excluded_tf_prefixes = model_params.get('excluded_tf_prefixes', [])
 
@@ -1143,12 +1140,12 @@ def create_pytorch_model(model_params, fold=None):
             k: v for k, v in tf_weights.items()
             if not any(k.startswith(prefix) for prefix in excluded_tf_prefixes)
         }
+        
         # total_tf_params = sum(np.prod(v.shape) for v in tf_weights_filtered.values())
-
-        #print(f"\nTotal TF parameters from checkpoint (excluding excluded layers): {total_tf_params}")
-        #print("[Included TensorFlow keys with shapes:]")
-        #for k, v in tf_weights_filtered.items():
-        #    print(f"  {k}: {v.shape}")
+        # print(f"\nTotal TF parameters from checkpoint (excluding excluded layers): {total_tf_params}")
+        # print("[Included TensorFlow keys with shapes:]")
+        # for k, v in tf_weights_filtered.items():
+        #     print(f"  {k}: {v.shape}")
         
         # --- 4. Get PyTorch state dict ---
         pt_state_dict = pytorch_model.state_dict()
@@ -1169,7 +1166,7 @@ def create_pytorch_model(model_params, fold=None):
                         print(f"[MISMATCH] {name}: shape mismatch {pt_w.shape} vs {tf_w.shape}")
                         continue
                     diff = torch.abs(pt_w - tf_w).mean().item()
-                    #print(f"{name}: mean abs diff = {diff:.6f}")
+                    # print(f"{name}: mean abs diff = {diff:.6f}")
                 # else:
                 #     print(f"[SKIP] {name}: not found in converted weights")
 
@@ -1182,7 +1179,11 @@ def create_pytorch_model(model_params, fold=None):
         """
         
         # --- 7. Freeze unconverted parameters ---
-        #print("\n=== Freezing unconverted parameters ===")
+        # print("\n=== Freezing unconverted parameters ===")
+        
+        # Define which keys are *excluded from training* (i.e., frozen)
+        excluded_pt_keys = model_params.get('excluded_pt_keys', [])
+        
         # Freeze all parameters that are in the excluded list
         for name, param in pytorch_model.named_parameters():
             if name in excluded_pt_keys:
@@ -1192,6 +1193,7 @@ def create_pytorch_model(model_params, fold=None):
         #     print(f"{name}: {'❄️ Frozen' if not param.requires_grad else '🔥 Trainable'}")
         
         initial_state_dict = copy.deepcopy(pytorch_model.state_dict())
+        exit(0)  # Exit after conversion for debugging
 
     if model_params.get('model_converter', False) and \
         model_params.get('model_is_pytorch', False) and \
@@ -1521,7 +1523,6 @@ def convert_tf_to_torch(tf_weights, pt_state_dict):
 
     # for k in unmatched_keys:
     #     print(f"{YELLOW}[UNMATCHED]{RESET} Did not match {k}")
-
     # print(f"\n[SUMMARY]")
     # print(f"{GREEN}Matched keys: {len(matched_keys)}{RESET}")
     # print(f"{RED if unmatched_keys else GREEN}Unmatched keys: {len(unmatched_keys)}{RESET}")
@@ -1991,23 +1992,6 @@ def main(model_params):
     #       json.dumps(model_params, indent=2))
 
     copy_scaler_if_needed(model_params)
-
-    # --- Annotation File Counts (for informational purposes) ---
-    num_train_files, num_val_files = 0, 0
-    try:
-        if model_params.get('train_annotations'):
-            with open(model_params['train_annotations'], 'r') as f:
-                num_train_files = len(f.read().splitlines())
-        if model_params.get('val_annotations'):
-            with open(model_params['val_annotations'], 'r') as f:
-                num_val_files = len(f.read().splitlines())
-        print(
-            f"Num train annotation lines: {num_train_files}, Num val annotation lines: {num_val_files}")
-    except FileNotFoundError as e:
-        print(f"Warning: Annotation file not found: {e}. Counts will be 0.")
-    except Exception as e:
-        print(
-            f"Warning: Error reading annotation files: {e}. Counts might be inaccurate.")
 
 
     """ 
@@ -2832,7 +2816,7 @@ if __name__ == "__main__":
 
         # TODO: Change based on if you want to continue to use the models from the previous K-fold
         "fine_tunning": True,  # Set to True if you want to fine-tune the previous K models
-        
+
         # TODO: Change based on if you want to use the K-folds models
         "average_k_fold": False,  # Set to True if you want to average the results of the K-folds models
         
@@ -2843,7 +2827,7 @@ if __name__ == "__main__":
         # "model_name": "Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp_NEW_after_MP_Therapist_APPDA)",
         # "model_name": "Models_MP_Therapist_APPDA_Block_0(upper_body)",
         ####
-        "model_name": "Models_Kinect_APPDA_Block_0",
+        "model_name": "Models_Kinect_APPDA_Classifier", # Trocar o nome da pasta... Não é bloco 0
         ####
         # TODO: Change every time you switch to the next model
         # Path to the pre-trained model in Pytorch format
@@ -2854,6 +2838,7 @@ if __name__ == "__main__":
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_CADDIN_Upper_Body_Block_0(upper_body)",  # Path to the pre-trained model for Therapies dataset in Pytorch format
         ####
         "pretrained_model_path": "./therapies_model_7/model",
+        # "pretrained_model_path": "./pretrained_models_Pytorch/Models_Kinect_APPDA_Classifier",
         ####
         
         # TODO: Change every time you switch to the next model
@@ -2879,7 +2864,7 @@ if __name__ == "__main__":
         # "train_annotations": "./datasets_annotations/CADDIN_Final_Validation_MP_upper_body.txt",  # Set True to split the training data into K folds
         # "train_annotations": "./datasets_annotations/mp_train_upper_body.txt",
         "train_annotations": "./datasets_annotations/therapies_APPDA_MP_annotations.txt",
-        
+
         # "val_annotations": "./datasets_annotations/mp_val.txt", # Set in case you don't use K-Fold Cross Validation
         # "final_validation_annotations": "./datasets_annotations/CADDIN_Final_MP_upper_body.txt",
         "final_validation_annotations": "./datasets_annotations/CADDIN_Final_Validation_MP_upper_body.txt",

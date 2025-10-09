@@ -56,7 +56,7 @@ from torchinfo import summary
 
 # --- Local project imports ---
 from models.TCN_classifier import TCN_clf
-from pytorch_dataset_kinect_therapist import (
+from pytorch_dataset_mp import (
     TripletPoseDataset,
     TherapyDataset,
     get_num_feats,
@@ -159,10 +159,7 @@ def animate_first_sample_skeleton_3d_upper_body(annotations_file, model_params):
     features, label = None, None
     for i in range(len(dataset)):
         f, l = dataset[i]
-        if l != 0: # Looking for label 1
-            features, label = f, l
-            print(f"Found sample with label 0 at index {i}")
-            # break
+        features, label = f, l
 
         if features is None:
             raise ValueError("No sample with label 0 found in dataset!")
@@ -292,7 +289,7 @@ def animate_first_sample_skeleton_3d_upper_body(annotations_file, model_params):
         exit(0)
         # plt.show()
 
-def animate_first_sample_skeleton_3d(annotations_file, model_params):
+def animate_first_sample_skeleton_3d_CADDIN_MP(annotations_file, model_params):
     """
     Animate the 3D skeleton for all frames of the first sample.
     """
@@ -304,115 +301,182 @@ def animate_first_sample_skeleton_3d(annotations_file, model_params):
         **model_params
     )
 
+    all_bones_angles_means = []
+    all_jcd_features_means = []
+
     # Find the first sample with label 0
     features, label = None, None
     for i in range(len(dataset)):
         f, l = dataset[i]
-        if l != 0: # Looking for label 1
-            features, label = f, l
-            print(f"Found sample with label 0 at index {i}")
-            # break
+        features, label = f, l
 
         if features is None:
             raise ValueError("No sample with label 0 found in dataset!")
 
-        print(f"Features shape: {features.shape}, label: {label}")
+        # print(f"Features shape: {features.shape}, label: {label}")
 
         offset = model_params.get("num_features", 24) + (model_params.get("num_features", 24) - 1) - 1 # Start of keypoints
         num_keypoints = model_params.get("num_features", 24) * 3
         joints_num = model_params.get("joints_num", 24)
         coords_dim = model_params.get("joints_dim", 3)
-
-        # Define skeleton edges
-        edges = [
-            (1, 0), (1, 2), (2, 14), (3, 14), (3, 4), (4, 5),
-            (14, 16), (15, 16), (12, 15), (6, 7), (7, 8), (8, 12),
-            (9, 12), (9, 10), (10, 11), (12, 17), (17, 18), (18, 19),
-            (13, 19), (21, 23), (19, 21), (19, 20), (20, 22)
-        ]
-
-        # Setup plot
-        fig = plt.figure(figsize=(8, 8))
-        ax = fig.add_subplot(111, projection='3d')
-        ax.set_title("3D Skeleton Animation (First Sample)")
-        # Debug: check min/max ranges after remapping (Z, X, Y)
-        all_coords = features.numpy()[:, offset: offset + 72].reshape(-1, joints_num, coords_dim)
+        num_bones_angles = model_params.get("num_features", 24) + (model_params.get("num_features", 24) - 1)
+        num_jcd_features = model_params.get("num_features", 24) * (model_params.get("num_features", 24) - 1)// 2 - 1
         
-        # Apply remap: (oldZ → newX, oldX → newY, oldY → newZ)
-        xs = all_coords[:, :, 1].flatten()
-        ys = all_coords[:, :, 2].flatten()
-        zs = all_coords[:, :, 0].flatten()
+        # Take only the first 48 features (bones angles)
+        bones_angles_frame = features[:, :num_bones_angles]  # shape: (num_frames, 48)
 
-        print("[DEBUG] New X (old Z) range:", xs.min(), xs.max())
-        print("[DEBUG] New Y (old X) range:", ys.min(), ys.max())
-        print("[DEBUG] New Z (old Y) range:", zs.min(), zs.max())
+        # Take the last 299 features as JCD features
+        jcd_features_frame = features[:, -num_jcd_features:]  # shape: (num_frames, 299)
 
-        all_min = min(xs.min(), ys.min(), zs.min())
-        all_max = max(xs.max(), ys.max(), zs.max())
+        # Compute the mean of each feature across all frames
+        bones_angles_means = bones_angles_frame.mean(axis=0)  # shape: (48,)
+        jcd_features_means = jcd_features_frame.mean(axis=0)  # shape: (299,)
 
-        # ax.set_xlim(all_min, all_max)
-        # ax.set_ylim(all_min, all_max)
-        # ax.set_zlim(all_min, all_max)
-        
-        ax.set_xlim(-0.2, 0.2)   # now showing old Z
-        ax.set_ylim(-0.6, 0.2)    # now showing old X
-        ax.set_zlim(-0.6, 0.2)    # now showing old Y
+        # print("bones_angles_means.shape:", bones_angles_means.shape)
+        # print("jcd_features_means.shape:", jcd_features_means.shape)
 
-        ax.set_xlabel("Y")
-        ax.set_ylabel("Z")
-        ax.set_zlabel("X")
+        # Store with label info
+        all_bones_angles_means.append({
+            "sample_idx": i,
+            "label": label,
+            "means": bones_angles_means
+        })
 
-        scatter = ax.scatter([], [], [], c="blue", s=40)
-        lines = [ax.plot([], [], [], c='black')[0] for _ in edges]
-        
-        def init():
-            scatter._offsets3d = (np.array([]), np.array([]), np.array([]))
-            for line in lines:
-                line.set_data(np.zeros(2), np.zeros(2))
-                line.set_3d_properties(np.zeros(2))
-            return [scatter] + lines
+        all_jcd_features_means.append({
+            "sample_idx": i,
+            "label": label,
+            "means": jcd_features_means
+        })
 
-        def update(frame_idx):
-            frame = features[frame_idx].numpy()
-            coords = frame[offset: offset + num_keypoints].reshape(joints_num, coords_dim)
-            xs, ys, zs = coords[:, 1], coords[:, 2], coords[:, 0]  # your remapped X/Y/Z
-            scatter._offsets3d = (xs, ys, zs)
+        if i == 0:
+            continue  # Only process the first sample for animation
+            # Define skeleton edges
+            edges = [
+                (1, 0), (1, 2), (2, 14), (3, 14), (3, 4), (4, 5),
+                (14, 16), (15, 16), (12, 15), (6, 7), (7, 8), (8, 12),
+                (9, 12), (9, 10), (10, 11), (12, 17), (17, 18), (18, 19),
+                (13, 19), (21, 23), (19, 21), (19, 20), (20, 22)
+            ]
 
-            for k, (i, j) in enumerate(edges):
-                x_vals = np.array([coords[i, 1], coords[j, 1]])
-                y_vals = np.array([coords[i, 2], coords[j, 2]])  # old Z → new Y
-                z_vals = np.array([coords[i, 0], coords[j, 0]])  # old Y → new Z
-                
-                lines[k].set_data(x_vals, y_vals)
-                lines[k].set_3d_properties(z_vals)
-            return [scatter] + lines
+            # Setup plot
+            fig = plt.figure(figsize=(8, 8))
+            ax = fig.add_subplot(111, projection='3d')
+            ax.set_title("3D Skeleton Animation (First Sample)")
+            # Debug: check min/max ranges after remapping (Z, X, Y)
+            all_coords = features.numpy()[:, offset: offset + 72].reshape(-1, joints_num, coords_dim)
+            
+            # Apply remap: (oldZ → newX, oldX → newY, oldY → newZ)
+            xs = all_coords[:, :, 1].flatten()
+            ys = all_coords[:, :, 2].flatten()
+            zs = all_coords[:, :, 0].flatten()
 
-        ani = animation.FuncAnimation(fig, update, frames=features.shape[0],
-                                    init_func=init, blit=True, interval=1000)
-        
-        # Show the animation in a window for preview
-        plt.show()   # <-- this will display the animated skeleton before saving
+            print("[DEBUG] New X (old Z) range:", xs.min(), xs.max())
+            print("[DEBUG] New Y (old X) range:", ys.min(), ys.max())
+            print("[DEBUG] New Z (old Y) range:", zs.min(), zs.max())
 
-        # Create folder if it doesn't exist
-        save_dir = "animations"
-        os.makedirs(save_dir, exist_ok=True)
-        
-        same_has = "gif"
+            all_min = min(xs.min(), ys.min(), zs.min())
+            all_max = max(xs.max(), ys.max(), zs.max())
 
-        if same_has == "mp4":
-            print("Saving animation as MP4...")
-            save_path = os.path.join(save_dir, f"skeleton_animation_sample_{i}_label_{label-1}.mp4")
-            ani.save(save_path, writer="ffmpeg", fps=10)
+            # ax.set_xlim(all_min, all_max)
+            # ax.set_ylim(all_min, all_max)
+            # ax.set_zlim(all_min, all_max)
+            
+            ax.set_xlim(-0.2, 0.2)   # now showing old Z
+            ax.set_ylim(-0.6, 0.2)    # now showing old X
+            ax.set_zlim(-0.6, 0.2)    # now showing old Y
 
-        elif same_has == "gif":
-            print("Saving animation as GIF...")
-            save_path = os.path.join(save_dir, f"skeleton_animation_sample_{i}_label_{label-1}.gif")
-            ani.save(save_path, writer="pillow", fps=10)
+            ax.set_xlabel("Y")
+            ax.set_ylabel("Z")
+            ax.set_zlabel("X")
 
-        print(f"Animation saved to {save_path}")
-        exit(0)
+            scatter = ax.scatter([], [], [], c="blue", s=40)
+            lines = [ax.plot([], [], [], c='black')[0] for _ in edges]
+            
+            def init():
+                scatter._offsets3d = (np.array([]), np.array([]), np.array([]))
+                for line in lines:
+                    line.set_data(np.zeros(2), np.zeros(2))
+                    line.set_3d_properties(np.zeros(2))
+                return [scatter] + lines
 
-def animate_first_sample_skeleton_3d_Therapist(annotations_file, model_params):
+            def update(frame_idx):
+                frame = features[frame_idx].numpy()
+                coords = frame[offset: offset + num_keypoints].reshape(joints_num, coords_dim)
+                xs, ys, zs = coords[:, 1], coords[:, 2], coords[:, 0]  # your remapped X/Y/Z
+                scatter._offsets3d = (xs, ys, zs)
+
+                for k, (i, j) in enumerate(edges):
+                    x_vals = np.array([coords[i, 1], coords[j, 1]])
+                    y_vals = np.array([coords[i, 2], coords[j, 2]])  # old Z → new Y
+                    z_vals = np.array([coords[i, 0], coords[j, 0]])  # old Y → new Z
+                    
+                    lines[k].set_data(x_vals, y_vals)
+                    lines[k].set_3d_properties(z_vals)
+                return [scatter] + lines
+
+            ani = animation.FuncAnimation(fig, update, frames=features.shape[0],
+                                        init_func=init, blit=True, interval=1000)
+            
+            # Show the animation in a window for preview
+            plt.show()   # <-- this will display the animated skeleton before saving
+
+            # Create folder if it doesn't exist
+            save_dir = "animations"
+            os.makedirs(save_dir, exist_ok=True)
+            
+            same_has = "gif"
+
+            if same_has == "mp4":
+                print("Saving animation as MP4...")
+                save_path = os.path.join(save_dir, f"skeleton_animation_sample_{i}_label_{label-1}.mp4")
+                ani.save(save_path, writer="ffmpeg", fps=10)
+
+            elif same_has == "gif":
+                print("Saving animation as GIF...")
+                save_path = os.path.join(save_dir, f"skeleton_animation_sample_{i}_label_{label-1}.gif")
+                ani.save(save_path, writer="pillow", fps=10)
+
+            print(f"Animation saved to {save_path}")
+
+    # Convert all samples to 2D array: samples × features
+    bones_all = np.stack([
+        s["means"].numpy() if hasattr(s["means"], "numpy") else s["means"]
+        for s in all_bones_angles_means
+    ])  # shape: (num_samples, 48)
+
+    # Apply PCA to reduce to 2D
+    pca_bones = PCA(n_components=2)
+    bones_pca = pca_bones.fit_transform(bones_all)  # shape: (num_samples, 2)
+
+    # Plot the reduced features
+    plt.figure(figsize=(8,6))
+    plt.scatter(bones_pca[:,0], bones_pca[:,1], c='blue', alpha=0.7)
+    plt.title("Bones Angles Means Reduced to 2D via PCA(CADDIN MP)")
+    plt.xlabel("PC 1")
+    plt.ylabel("PC 2")
+    plt.grid(True)
+    plt.show()
+    
+    jcd_features_all = np.stack([
+        s["means"].numpy() if hasattr(s["means"], "numpy") else s["means"]
+        for s in all_jcd_features_means
+    ])  # shape: (num_samples, 299)
+    
+    # Apply PCA to reduce to 2D
+    pca_jcd = PCA(n_components=2)
+    jcd_pca = pca_jcd.fit_transform(jcd_features_all)  # shape: (num_samples, 2)
+    
+    # Plot the reduced features
+    plt.figure(figsize=(8,6))
+    plt.scatter(jcd_pca[:,0], jcd_pca[:,1], c='green', alpha=0.7)
+    plt.title("JCD Features Means Reduced to 2D via PCA(CADDIN MP)")
+    plt.xlabel("PC 1")
+    plt.ylabel("PC 2")
+    plt.grid(True)
+    plt.show()
+
+
+def animate_first_sample_skeleton_3d_APPDA_Kinect(annotations_file, model_params):
     """
     Animate the 3D skeleton for all frames of the first sample.
     """
@@ -434,121 +498,186 @@ def animate_first_sample_skeleton_3d_Therapist(annotations_file, model_params):
         in_memory=model_params.get('in_memory_generator_train', False),
         **model_params
     )
-
+    
+    all_bones_angles_means = []
+    all_jcd_features_means = []
+    
     # Find the first sample with label 0
     features, label = None, None
     for i in range(len(dataset)):
         f, l = dataset[i]
-        if l != 0: # Looking for label 1
-            features, label = f, l
-            print(f"Found sample with label 0 at index {i}")
-            # break
+        # print(f"Sample {i}, Label {l}")
+        features, label = f, l
 
+        # print(f"features.shape: {f.shape}")
         if features is None:
             raise ValueError("No sample with label 0 found in dataset!")
-
-        print(f"Features shape: {features.shape}, label: {label}")
-        print("model_params.get('joints_num', 24):", model_params.get('joints_num', 24))
-        offset = model_params.get("joints_num", 24) + (model_params.get("joints_num", 24) - 1) - 1 # Start of keypoints
-        print("Offset:", offset)
-        num_keypoints = model_params.get("joints_num", 24) * 3
-        print("Num keypoints:", num_keypoints)
-        joints_num = model_params.get("joints_num", 24)
-        coords_dim = model_params.get("joints_dim", 3)
-
-        # Define skeleton edges
-        edges = [
-            (20, 4), (4, 5), (5, 6), (6, 7), (7, 21), (6, 22),
-            (1, 0), (20, 2), (2, 3), (1, 20),
-            (20, 8), (9, 10), (8, 9), (10, 24), (10, 11), (11, 23),
-            (0, 12), (12, 13), (13, 14), (14, 15),
-            (0, 16), (16, 17), (17, 18), (18, 19)
-        ]
-
-        # Setup plot
-        fig = plt.figure(figsize=(8, 8))
-        ax = fig.add_subplot(111, projection='3d')
-        ax.set_title("3D Skeleton Animation (First Sample)")
-        # Debug: check min/max ranges after remapping (Z, X, Y)
-        print("features.shape:", features.shape)
-        all_coords = features.numpy()[:, 48: 48 + num_keypoints].reshape(-1, joints_num, coords_dim)
-        # print("all_coords[1, :, :]:", all_coords[1, :, :])
         
-        # Apply remap: (oldZ → newX, oldX → newY, oldY → newZ)
-        xs = all_coords[:, :, 1].flatten()
-        ys = all_coords[:, :, 2].flatten()
-        zs = all_coords[:, :, 0].flatten()
+        # Take only the first 48 features (bones angles)
+        bones_angles_frame = features[:, :48]  # shape: (num_frames, 48)
 
-        print("[DEBUG] New X (old Z) range:", xs.min(), xs.max())
-        print("[DEBUG] New Y (old X) range:", ys.min(), ys.max())
-        print("[DEBUG] New Z (old Y) range:", zs.min(), zs.max())
+        # Take the last 299 features as JCD features
+        jcd_features_frame = features[:, -299:]  # shape: (num_frames, 299)
 
-        all_min = min(xs.min(), ys.min(), zs.min())
-        all_max = max(xs.max(), ys.max(), zs.max())
+        # Compute the mean of each feature across all frames
+        bones_angles_means = bones_angles_frame.mean(axis=0)  # shape: (48,)
+        jcd_features_means = jcd_features_frame.mean(axis=0)  # shape: (299,)
 
-        ax.set_xlim(all_min, all_max)
-        ax.set_ylim(all_min, all_max)
-        ax.set_zlim(all_min, all_max)
-        
-        # ax.set_xlim(-0.2, 0.2)   # now showing old Z
-        # ax.set_ylim(-0.6, 0.2)    # now showing old X
-        # ax.set_zlim(-0.6, 0.2)    # now showing old Y
+        # print("bones_angles_means.shape:", bones_angles_means.shape)
+        # print("jcd_features_means.shape:", jcd_features_means.shape)
 
-        ax.set_xlabel("Y")
-        ax.set_ylabel("Z")
-        ax.set_zlabel("X")
+        # Store with label info
+        all_bones_angles_means.append({
+            "sample_idx": i,
+            "label": label,
+            "means": bones_angles_means
+        })
 
-        scatter = ax.scatter([], [], [], c="blue", s=40)
-        lines = [ax.plot([], [], [], c='black')[0] for _ in edges]
+        all_jcd_features_means.append({
+            "sample_idx": i,
+            "label": label,
+            "means": jcd_features_means
+        })
 
-        def init():
-            scatter._offsets3d = (np.array([]), np.array([]), np.array([]))
-            for line in lines:
-                line.set_data(np.zeros(2), np.zeros(2))
-                line.set_3d_properties(np.zeros(2))
-            return [scatter] + lines
+        if i == 0:
+            continue  # Only process the first sample for animation
+            print(f"Features shape: {features.shape}, label: {label}")
+            print("model_params.get('joints_num', 24):", model_params.get('joints_num', 24))
+            offset = model_params.get("joints_num", 24) + (model_params.get("joints_num", 24) - 1) - 1 # Start of keypoints
+            print("Offset:", offset)
+            num_keypoints = model_params.get("joints_num", 24) * 3
+            print("Num keypoints:", num_keypoints)
+            joints_num = model_params.get("joints_num", 24)
+            coords_dim = model_params.get("joints_dim", 3)
 
-        def update(frame_idx):
-            frame = features[frame_idx].numpy()
-            print("frame.shape:", frame.shape)
-            coords = frame[48: 48 + num_keypoints].reshape(joints_num, coords_dim)
-            print("coords = frame[46: 46 + num_keypoints, :].reshape(joints_num, coords_dim):", coords)
-            xs, ys, zs = coords[:, 1], coords[:, 2], coords[:, 0]  # your remapped X/Y/Z
-            scatter._offsets3d = (xs, ys, zs)
+            # Define skeleton edges
+            edges = [
+                (20, 4), (4, 5), (5, 6), (6, 7), (7, 21), (6, 22),
+                (1, 0), (20, 2), (2, 3), (1, 20),
+                (20, 8), (9, 10), (8, 9), (10, 24), (10, 11), (11, 23),
+                (0, 12), (12, 13), (13, 14), (14, 15),
+                (0, 16), (16, 17), (17, 18), (18, 19)
+            ]
 
-            for k, (i, j) in enumerate(edges):
-                x_vals = np.array([coords[i, 1], coords[j, 1]])
-                y_vals = np.array([coords[i, 2], coords[j, 2]])  # old Z → new Y
-                z_vals = np.array([coords[i, 0], coords[j, 0]])  # old Y → new Z
-                
-                lines[k].set_data(x_vals, y_vals)
-                lines[k].set_3d_properties(z_vals)
-            return [scatter] + lines
+            # Setup plot
+            fig = plt.figure(figsize=(8, 8))
+            ax = fig.add_subplot(111, projection='3d')
+            ax.set_title("3D Skeleton Animation (First Sample)")
+            # Debug: check min/max ranges after remapping (Z, X, Y)
+            print("features.shape:", features.shape)
+            all_coords = features.numpy()[:, 48: 48 + num_keypoints].reshape(-1, joints_num, coords_dim)
+            # print("all_coords[1, :, :]:", all_coords[1, :, :])
+            
+            # Apply remap: (oldZ → newX, oldX → newY, oldY → newZ)
+            xs = all_coords[:, :, 1].flatten()
+            ys = all_coords[:, :, 2].flatten()
+            zs = all_coords[:, :, 0].flatten()
 
-        ani = animation.FuncAnimation(fig, update, frames=features.shape[0],
-                                    init_func=init, blit=True, interval=1000)
-        plt.show()   # <-- this will display the animated skeleton before saving
-        
-        # Create folder if it doesn't exist
-        save_dir = "animations"
-        os.makedirs(save_dir, exist_ok=True)
-        
-        same_has = "gif"
+            print("[DEBUG] New X (old Z) range:", xs.min(), xs.max())
+            print("[DEBUG] New Y (old X) range:", ys.min(), ys.max())
+            print("[DEBUG] New Z (old Y) range:", zs.min(), zs.max())
 
-        if same_has == "mp4":
-            print("Saving animation as MP4...")
-            save_path = os.path.join(save_dir, f"skeleton_animation_sample_{i}_label_{label-1}.mp4")
-            ani.save(save_path, writer="ffmpeg", fps=10)
+            all_min = min(xs.min(), ys.min(), zs.min())
+            all_max = max(xs.max(), ys.max(), zs.max())
 
-        elif same_has == "gif":
-            print("Saving animation as GIF...")
-            save_path = os.path.join(save_dir, f"skeleton_animation_sample_{i}_label_{label-1}.gif")
-            ani.save(save_path, writer="pillow", fps=10)
+            ax.set_xlim(all_min, all_max)
+            ax.set_ylim(all_min, all_max)
+            ax.set_zlim(all_min, all_max)
+            
+            # ax.set_xlim(-0.2, 0.2)   # now showing old Z
+            # ax.set_ylim(-0.6, 0.2)    # now showing old X
+            # ax.set_zlim(-0.6, 0.2)    # now showing old Y
 
-        print(f"Animation saved to {save_path}")
-        # plt.show()
+            ax.set_xlabel("Y")
+            ax.set_ylabel("Z")
+            ax.set_zlabel("X")
+
+            scatter = ax.scatter([], [], [], c="blue", s=40)
+            lines = [ax.plot([], [], [], c='black')[0] for _ in edges]
+
+            def init():
+                scatter._offsets3d = (np.array([]), np.array([]), np.array([]))
+                for line in lines:
+                    line.set_data(np.zeros(2), np.zeros(2))
+                    line.set_3d_properties(np.zeros(2))
+                return [scatter] + lines
+
+            def update(frame_idx):
+                frame = features[frame_idx].numpy()
+                print("frame.shape:", frame.shape)
+                coords = frame[48: 48 + num_keypoints].reshape(joints_num, coords_dim)
+                print("coords = frame[46: 46 + num_keypoints, :].reshape(joints_num, coords_dim):", coords)
+                xs, ys, zs = coords[:, 1], coords[:, 2], coords[:, 0]  # your remapped X/Y/Z
+                scatter._offsets3d = (xs, ys, zs)
+
+                for k, (i, j) in enumerate(edges):
+                    x_vals = np.array([coords[i, 1], coords[j, 1]])
+                    y_vals = np.array([coords[i, 2], coords[j, 2]])  # old Z → new Y
+                    z_vals = np.array([coords[i, 0], coords[j, 0]])  # old Y → new Z
+                    
+                    lines[k].set_data(x_vals, y_vals)
+                    lines[k].set_3d_properties(z_vals)
+                return [scatter] + lines
+
+            ani = animation.FuncAnimation(fig, update, frames=features.shape[0],
+                                        init_func=init, blit=True, interval=1000)
+            # plt.show()   # <-- this will display the animated skeleton before saving
+            
+            # Create folder if it doesn't exist
+            save_dir = "animations"
+            os.makedirs(save_dir, exist_ok=True)
+            
+            same_has = "gif"
+
+            if same_has == "mp4":
+                print("Saving animation as MP4...")
+                save_path = os.path.join(save_dir, f"skeleton_animation_sample_{i}_label_{label-1}.mp4")
+                ani.save(save_path, writer="ffmpeg", fps=10)
+
+            elif same_has == "gif":
+                print("Saving animation as GIF...")
+                save_path = os.path.join(save_dir, f"skeleton_animation_sample_{i}_label_{label-1}.gif")
+                ani.save(save_path, writer="pillow", fps=10)
+
+            print(f"Animation saved to {save_path}")
+
+    # Convert all samples to 2D array: samples × features
+    bones_all = np.stack([
+        s["means"].numpy() if hasattr(s["means"], "numpy") else s["means"]
+        for s in all_bones_angles_means
+    ])  # shape: (num_samples, 48)
+
+    # Apply PCA to reduce to 2D
+    pca_bones = PCA(n_components=2)
+    bones_pca = pca_bones.fit_transform(bones_all)  # shape: (num_samples, 2)
+
+    # Plot the reduced features
+    plt.figure(figsize=(8,6))
+    plt.scatter(bones_pca[:,0], bones_pca[:,1], c='blue', alpha=0.7)
+    plt.title("Bones Angles Means Reduced to 2D via PCA(APPDA Kinect)")
+    plt.xlabel("PC 1")
+    plt.ylabel("PC 2")
+    plt.grid(True)
+    plt.show()
     
-
+    jcd_features_all = np.stack([
+        s["means"].numpy() if hasattr(s["means"], "numpy") else s["means"]
+        for s in all_jcd_features_means
+    ])  # shape: (num_samples, 299)
+    
+    # Apply PCA to reduce to 2D
+    pca_jcd = PCA(n_components=2)
+    jcd_pca = pca_jcd.fit_transform(jcd_features_all)  # shape: (num_samples, 2)
+    
+    # Plot the reduced features
+    plt.figure(figsize=(8,6))
+    plt.scatter(jcd_pca[:,0], jcd_pca[:,1], c='green', alpha=0.7)
+    plt.title("JCD Features Means Reduced to 2D via PCA(APPDA Kinect)")
+    plt.xlabel("PC 1")
+    plt.ylabel("PC 2")
+    plt.grid(True)
+    plt.show()
+    
 def visualize_first_sample_skeleton_3d(annotations_file, model_params):
     """
     Visualize the 3D skeleton joints for the first frame of the first sample.
@@ -2856,7 +2985,7 @@ if __name__ == "__main__":
     static_params = {
         "best_val_f1": 0,  # Best F1 score from the study
         "best_model_number": 0,  # Best model number from the study
-        "joints_num": 25, # 25 for Kinect / 24 for MP / 12 for upper body MP CADDIN
+        "joints_num": 24, # 25 for Kinect / 24 for MP / 12 for upper body MP CADDIN
         "num_classes": 14, # Number of classes for classification (NTU-120 has 120, CADDIN has 12 and Therapies has 14)
 
         "epochs": 300, # Number of training epochs
@@ -3107,7 +3236,8 @@ if __name__ == "__main__":
 
     # visualize_pose_dataset_2d(model_params['train_compare_1'], model_params['train_compare_2'], model_params, max_samples=2000, method="pca")
     # animate_first_sample_skeleton_3d(model_params['train_compare_2'], model_params)
-    animate_first_sample_skeleton_3d_Therapist(model_params['train_annotations'], model_params)
+    animate_first_sample_skeleton_3d_CADDIN_MP(model_params['train_annotations'], model_params)
+    exit()
     
     # --- Data Loading Therapist ---
     # Load the validation dataset once
