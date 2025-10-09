@@ -2126,15 +2126,15 @@ def main(model_params):
             **model_params
         )
         
-        # labels = np.array([s['class_id'] for s in full_dataset.samples])
-        # for i in range(len(full_dataset)):
-        #     sample, label = full_dataset[i]
-        #     print(f"Sample {i} - Shape: {sample.shape}, Label: {label}")
-        # 
-        # print(f"Full dataset size: {len(full_dataset)} samples")
-        # print(f"Labels shape: {labels.shape}")
-        # print(f"Unique classes in dataset: {np.unique(labels)}")
-        # print(f"Full dataset labels: {labels}")
+        #labels = np.array([s['class_id'] for s in full_dataset.samples])
+        #for i in range(len(full_dataset)):
+        #    sample, label = full_dataset[i]
+        #    print(f"Sample {i} - Shape: {sample.shape}, Label: {label}")
+    
+        #print(f"Full dataset size: {len(full_dataset)} samples")
+        #print(f"Labels shape: {labels.shape}")
+        #print(f"Unique classes in dataset: {np.unique(labels)}")
+        #print(f"Full dataset labels: {labels}")
         
         # --- Training Loop ---
         fold_val_f1_scores = []
@@ -2144,9 +2144,14 @@ def main(model_params):
         # print(f"Total samples: {len(full_dataset)}, Total classes: {len(action_to_idx)}")
         # for fold, (train_idx, val_idx) in enumerate(skf.split(actions_data, labels)):
         for fold, (train_idx, val_idx) in enumerate(skf.split(range(len(full_dataset)), labels)):
-            print(f"\n=== Starting Fold {fold+1}/{k_folds} ===")
-            # print(f"Train indices length: {len(train_idx)}, Validation indices length: {len(val_idx)}")
-        
+            
+            # --- Create subsets (Therapist) ---
+            train_data = actions_data.iloc[train_idx].reset_index(drop=True)
+            val_data = actions_data.iloc[val_idx].reset_index(drop=True)
+            
+            # --- Create DataLoaders for this fold (Therapist) ---
+            train_loader, val_loader, train_dataset, val_dataset = Create_Therapy_Dataloader(model_params, train_data, video_skels, val_data)
+
             # --- PyTorch Model Instantiation ---
             pytorch_model, initial_state_dict = create_pytorch_model(model_params, fold)
             
@@ -2154,17 +2159,23 @@ def main(model_params):
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             pytorch_model.to(device)
             
-            # --- Create subsets (Therapist) ---
-            # train_data = actions_data.iloc[train_idx].reset_index(drop=True)
-            # val_data = actions_data.iloc[val_idx].reset_index(drop=True)
-            
-            # --- Create DataLoaders for this fold (Therapist) ---
-            # train_loader, val_loader, train_dataset, val_dataset = Create_Therapy_Dataloader(model_params, train_data, video_skels, val_data)
             
             # --- Create subsets (Kinect) ---
+            """
             train_subset = torch.utils.data.Subset(full_dataset, train_idx)
             val_subset = torch.utils.data.Subset(full_dataset, val_idx)
-            
+
+            # --- Check class balance for this fold ---
+            train_labels = [full_dataset[i][1] for i in train_idx]
+            val_labels = [full_dataset[i][1] for i in val_idx]
+
+            train_counts = np.bincount(train_labels)
+            val_counts = np.bincount(val_labels)
+
+            total_counts = train_counts + val_counts
+            train_ratio = len(train_idx) / (len(train_idx) + len(val_idx))
+            val_ratio = len(val_idx) / (len(train_idx) + len(val_idx))
+
             # --- Create DataLoaders for this fold (Kinect)---
             train_loader = DataLoader(train_subset, 
                                         batch_size=model_params['batch_size'],
@@ -2183,6 +2194,35 @@ def main(model_params):
                                     drop_last=False,
                                     collate_fn=collate_fn_classification_pre_pad
             )
+            """  
+
+            # --- Check class distribution in dataloaders ---
+            train_labels = []
+            for _, labels in train_loader:
+                train_labels.extend(labels.numpy().tolist())
+
+            val_labels = []
+            for _, labels in val_loader:
+                val_labels.extend(labels.numpy().tolist())
+
+            # Count per class
+            train_counts = Counter(train_labels)
+            val_counts = Counter(val_labels)
+            all_classes = sorted(set(train_counts.keys()) | set(val_counts.keys()))
+
+            print("\n=== Class Distribution in Dataloaders ===")
+            for cls in all_classes:
+                train_n = train_counts.get(cls, 0)
+                val_n = val_counts.get(cls, 0)
+                total = train_n + val_n
+                train_pct = train_n / total * 100 if total > 0 else 0
+                val_pct = val_n / total * 100 if total > 0 else 0
+                print(f"Class {cls}: total={total:4d} | train={train_n:4d} ({train_pct:5.1f}%) | val={val_n:4d} ({val_pct:5.1f}%)")
+
+            print(f"\nTrain loader batches: {len(train_loader)}")
+            print(f"Validation loader batches: {len(val_loader)}")
+            exit(0)  # Remove this line after debugging
+
             
             # --- PyTorch Optimizer and Loss (Mimicking Keras printouts) ---
             active_losses, loss_weights_pytorch_pt, optimizer = Setup_optimizer_and_loss(pytorch_model, model_params, device, train_subset)
