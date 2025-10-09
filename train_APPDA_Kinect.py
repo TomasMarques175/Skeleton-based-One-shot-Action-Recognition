@@ -412,7 +412,7 @@ def animate_first_sample_skeleton_3d(annotations_file, model_params):
         print(f"Animation saved to {save_path}")
         exit(0)
 
-def animate_first_sample_skeleton_3d_Therapist(annotations_file, model_params):
+def animate_first_sample_skeleton_3d_APPDA_Kinect(annotations_file, model_params):
     """
     Animate the 3D skeleton for all frames of the first sample.
     """
@@ -731,6 +731,13 @@ def train_model(model_params, running_train_loss_clf, running_train_loss, pytorc
             device, non_blocking=True)  # Integer class labels
         optimizer.zero_grad()
 
+        print("features_batch[0]:", features_batch[0])
+        print("labels_batch[0]:", labels_batch[0])
+
+        print("features_batch[1]:", features_batch[1])
+        print("labels_batch[1]:", labels_batch[1])
+
+
         # Forward pass
         # Model output: [embedding, clf_logits] if both active, or just one of them
         model_output = pytorch_model(features_batch)
@@ -739,16 +746,7 @@ def train_model(model_params, running_train_loss_clf, running_train_loss, pytorc
         embeddings_batch = None
         clf_logits_batch = None
 
-        if model_params.get('triplet', False) and model_params.get('classification', True):
-            if isinstance(model_output, list) and len(model_output) == 2:
-                embeddings_batch, clf_logits_batch = model_output
-            else:
-                print(
-                    "Warning: Model output format unexpected for triplet+classification. Skipping batch.")
-                continue
-        elif model_params.get('triplet', False):
-            embeddings_batch = model_output  # Assumes model returns only embeddings
-        elif model_params.get('classification', True):
+        if model_params.get('classification', True):
             clf_logits_batch = model_output  # Assumes model returns only clf_logits
         else:
             print(
@@ -763,6 +761,7 @@ def train_model(model_params, running_train_loss_clf, running_train_loss, pytorc
         # Calculate Classification Loss
         if 'classification' in active_losses and clf_logits_batch is not None:
             # Ensure labels_batch is of type LongTensor for CrossEntropyLoss
+            print("labels_batch:", labels_batch.long())
             loss_c = active_losses['classification'](
                 clf_logits_batch, labels_batch.to(device).long())
             current_batch_total_loss += loss_weights_pytorch_pt['classification'] * loss_c
@@ -770,7 +769,7 @@ def train_model(model_params, running_train_loss_clf, running_train_loss, pytorc
             # if batch_idx == 0 and epoch == 0:
             #     print(
             #         f"  Classification loss component active. Example batch loss_c: {loss_c.item():.4f}")
-
+        exit(0)
         # Calculate Triplet Loss (Requires Batch Mining)
         if 'triplet' in active_losses and embeddings_batch is not None:
             # TODO: NOT IMPLEMENTED: Triplet loss mining logic
@@ -888,7 +887,7 @@ def Setup_optimizer_and_loss(pytorch_model, model_params, device, train_dataset=
 
         # Infer number of classes from dataset
         num_classes_model = model_params['num_classes']  # full size, e.g. 14
-
+        
         # Count samples per class
         counts = np.bincount(train_labels_from_dataset, minlength=num_classes_model)
         total = counts.sum()
@@ -1193,7 +1192,6 @@ def create_pytorch_model(model_params, fold=None):
         #     print(f"{name}: {'❄️ Frozen' if not param.requires_grad else '🔥 Trainable'}")
         
         initial_state_dict = copy.deepcopy(pytorch_model.state_dict())
-        exit(0)  # Exit after conversion for debugging
 
     if model_params.get('model_converter', False) and \
         model_params.get('model_is_pytorch', False) and \
@@ -1544,16 +1542,16 @@ def collate_fn_classification_pre_pad(batch):
     """
     samples, labels = zip(*batch)  # Unzip list of tuples
     lengths = [s.shape[0] for s in samples]
-    max_len = max(lengths)
+    max_len = 32
     feat_dim = samples[0].shape[1]
-
+    
     padded_samples = []
     for s in samples:
         pad_len = max_len - s.shape[0]
         pad_tensor = torch.zeros((pad_len, feat_dim), dtype=s.dtype)
         padded = torch.cat((pad_tensor, s), dim=0)  # 👈 Pre-padding
         padded_samples.append(padded)
-
+    
     padded_samples = torch.stack(padded_samples)
     labels = torch.tensor(labels)
 
@@ -2087,6 +2085,7 @@ def main(model_params):
     raw_data_path = './datasets/therapies_dataset/'
     actions_data = pickle.load(open(os.path.join(raw_data_path, 'actions_data_v2.pckl'), 'rb'))
     video_skels = pickle.load(open(os.path.join(raw_data_path, 'video_skels_v2.pckl'), 'rb'))
+    # print(f"Loaded actions_data with {len(actions_data)} entries and video_skels with {len(video_skels)} videos.")
 
     # --- Prepare data ---
     # Filter out unwanted actions (same as your TF code)
@@ -2098,7 +2097,9 @@ def main(model_params):
     all_actions = actions_data['action'].unique()
     action_to_idx = {action: idx for idx, action in enumerate(sorted(all_actions))}
     labels = actions_data['action'].map(action_to_idx).values
-    
+    # print(f"Action to index mapping: {action_to_idx}")
+    # print(f"Labels shape: {labels.shape}, Unique classes in labels: {np.unique(labels)}")
+    # exit()
     # # Separate into children and therapist subsets (assuming you have a 'role' column or similar)
     # children_data = full_eval_data[full_eval_data['role'] == 'child']
     # therapist_data = full_eval_data[full_eval_data['role'] == 'therapist']
@@ -2138,9 +2139,13 @@ def main(model_params):
         fold_val_f1_scores = []
         fold_val_auc_scores = []
 
+        # print(f"\n--- Starting {k_folds}-Fold Cross-Validation ---")
+        # print(f"Total samples: {len(full_dataset)}, Total classes: {len(action_to_idx)}")
         # for fold, (train_idx, val_idx) in enumerate(skf.split(actions_data, labels)):
         for fold, (train_idx, val_idx) in enumerate(skf.split(range(len(full_dataset)), labels)):
-
+            print(f"\n=== Starting Fold {fold+1}/{k_folds} ===")
+            # print(f"Train indices length: {len(train_idx)}, Validation indices length: {len(val_idx)}")
+        
             # --- PyTorch Model Instantiation ---
             pytorch_model, initial_state_dict = create_pytorch_model(model_params, fold)
             
@@ -2155,25 +2160,26 @@ def main(model_params):
             # --- Create DataLoaders for this fold (Therapist) ---
             # train_loader, val_loader, train_dataset, val_dataset = Create_Therapy_Dataloader(model_params, train_data, video_skels, val_data)
             
-            # --- Create subsets (MP) ---
+            # --- Create subsets (Kinect) ---
             train_subset = torch.utils.data.Subset(full_dataset, train_idx)
             val_subset = torch.utils.data.Subset(full_dataset, val_idx)
             
-            # --- Create DataLoaders for this fold (MP)---
+            # --- Create DataLoaders for this fold (Kinect)---
             train_loader = DataLoader(train_subset, 
                                         batch_size=model_params['batch_size'],
+                                        shuffle=True,
                                         num_workers=model_params['num_workers'],
-                                        pin_memory=(device.type == 'cuda'), 
+                                        pin_memory=(device.type == 'cuda'),
                                         drop_last=True, 
                                         collate_fn=collate_fn_classification_pre_pad
             )
-
+            
             val_loader = DataLoader(val_subset, 
                                     batch_size=model_params['batch_size'],
-                                    shuffle=False, 
+                                    shuffle=False,
                                     num_workers=model_params['num_workers'],
-                                    pin_memory=(device.type == 'cuda'), 
-                                    drop_last=False, 
+                                    pin_memory=(device.type == 'cuda'),
+                                    drop_last=False,
                                     collate_fn=collate_fn_classification_pre_pad
             )
             

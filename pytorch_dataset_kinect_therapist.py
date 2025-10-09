@@ -554,16 +554,17 @@ def get_pose_data_processed(body_raw, is_validation, model_params):
     average_wrong_skels_enabled = model_params.get('average_wrong_skels', True)
     scaler_obj = model_params.get('scaler_object', None) # Get scaler from params
 
-    print(f"max_seq_len_param: {max_seq_len_param}")
-    print(f"joints_num: {joints_num}, joints_dim: {joints_dim}")
-    print(f"center_skels: {center_skels}, h_flip_enabled: {h_flip_enabled}, scale_by_torso_enabled: {scale_by_torso_enabled}")
-    print(f"temporal_scale_range: {temporal_scale_range}, skip_frames_options: {skip_frames_options}, average_wrong_skels_enabled: {average_wrong_skels_enabled}, scaler_obj: {scaler_obj}")
+    # print(f"max_seq_len_param: {max_seq_len_param}")
+    # print(f"joints_num: {joints_num}, joints_dim: {joints_dim}")
+    # print(f"center_skels: {center_skels}, h_flip_enabled: {h_flip_enabled}, scale_by_torso_enabled: {scale_by_torso_enabled}")
+    # print(f"temporal_scale_range: {temporal_scale_range}, skip_frames_options: {skip_frames_options}, average_wrong_skels_enabled: {average_wrong_skels_enabled}, scaler_obj: {scaler_obj}")
     
     body = body_raw.copy()
-    print(f"Raw body shape: {body.shape}")
-    print(f"body.shape[0]: {body.shape[0]}")
+    # print(f"Raw body shape: {body.shape}")
+    # print(f"body.shape[0]: {body.shape[0]}")
     
     body = body[np.any(np.any(body != 0, axis=2), axis=1)]
+    
     if body.shape[0] == 0:
         print("Warning: Skeleton zero length after initial zero-frame removal.")
         _target_len_fallback = abs(max_seq_len_param) if max_seq_len_param != 0 else 32
@@ -833,11 +834,10 @@ def get_pose_data_v2(body, max_seq_len, joints_num, joints_dim, center_skels,
         body = body[sk_init::sk]
         # print('bbbb', len(body))
 
-    # print(f"max_seq_len before adjustment: {max_seq_len}, body shape: {body.shape}")
     if max_seq_len > 0:
         # If movement is longer than max_seq_lenght -> crop to max_seq_length
         body = zoom_to_max_len(body, max_seq_len, joints_num, joints_dim)
-        # print(f"After zoom_to_max_len: body shape: {body.shape}")
+        print(f"After zoom_to_max_len: body shape: {body.shape}")
 
     elif max_seq_len < 0:
         if not validation: # Training
