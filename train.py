@@ -475,7 +475,6 @@ def animate_first_sample_skeleton_3d_CADDIN_MP(annotations_file, model_params):
     plt.grid(True)
     plt.show()
 
-
 def animate_first_sample_skeleton_3d_APPDA_Kinect(annotations_file, model_params):
     """
     Animate the 3D skeleton for all frames of the first sample.
@@ -677,7 +676,7 @@ def animate_first_sample_skeleton_3d_APPDA_Kinect(annotations_file, model_params
     plt.ylabel("PC 2")
     plt.grid(True)
     plt.show()
-    
+
 def visualize_first_sample_skeleton_3d(annotations_file, model_params):
     """
     Visualize the 3D skeleton joints for the first frame of the first sample.

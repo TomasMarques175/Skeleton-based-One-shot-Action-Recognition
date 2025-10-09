@@ -87,7 +87,7 @@ if __name__ == "__main__":
         action_list = [line.strip() for line in f if line.strip()]
 
     # Load dataset entries
-    with open("datasets_annotations/therapies_APPDA_MP_annotations.txt", "r", encoding="utf-8") as f:
+    with open("datasets_annotations/therapies_APPDA_MP_upper_body_annotations.txt", "r", encoding="utf-8") as f:
         entries = [line.strip().split() for line in f if line.strip()]
 
     path, label = entries[0]
@@ -100,16 +100,30 @@ if __name__ == "__main__":
     # Setup plot
     fig = plt.figure(figsize=(8, 8))
     ax = fig.add_subplot(111, projection='3d')
-    ax.set_title("3D Skeleton Animation (First Sample)")
+    ax.set_title("3D Skeleton Animation APPDA MP (Upper Body)")
 
-    # Define skeleton edges
-    edges = [
-        (1, 0), (1, 2), (2, 14), (3, 14), (3, 4), (4, 5),
-        (14, 16), (15, 16), (12, 15), (6, 7), (7, 8), (8, 12),
-        (9, 12), (9, 10), (10, 11), (12, 17), (17, 18), (18, 19),
-        (13, 19), (21, 23), (19, 21), (19, 20), (20, 22)
-    ]    # Apply remap: (oldZ → newX, oldX → newY, oldY → newZ)
+    # Bones_upper_body after dropping joints 0–5 13 19-23 (reindexed)
+    drop_joints = {0, 1, 2, 3, 4, 5, 13, 19, 20, 21, 22, 23}
+
+    # Original bone list using original indices (0..23)
+    original_bones = [
+        (1,0),(1,2),(2,14),(3,14),(3,4),(4,5),(14,16),(15,16),
+        (12,15),(6,7),(7,8),(8,12),(9,12),(9,10),(10,11),(12,17),
+        (17,18),(18,19),(13,19),(21,23),(19,21),(19,20),(20,22)
+    ]
     
+    # Build keep list and old->new mapping
+    keep_indices = [j for j in range(24) if j not in drop_joints]
+    old_to_new = {old: new for new, old in enumerate(keep_indices)}
+
+    # Remap original bones to new indices, keeping only valid edges
+    bones = []
+    for a, b in original_bones:
+        if a in old_to_new and b in old_to_new:
+            bones.append((old_to_new[a], old_to_new[b]))
+
+    print("\nFinal CONNECTING_JOINT:", bones)
+
     xs = data[:, :, 0].flatten()
     ys = data[:, :, 1].flatten()
     zs = data[:, :, 2].flatten()
@@ -136,7 +150,7 @@ if __name__ == "__main__":
     ax.set_zlabel("Z")
     
     scatter = ax.scatter([], [], [], c="blue", s=40)
-    lines = [ax.plot([], [], [], c='black')[0] for _ in edges]
+    lines = [ax.plot([], [], [], c='black')[0] for _ in bones]
 
     def init():
         scatter._offsets3d = (np.array([]), np.array([]), np.array([]))
@@ -151,7 +165,7 @@ if __name__ == "__main__":
         xs, ys, zs = frame[:, 0], frame[:, 1], frame[:, 2]  # your remapped X/Y/Z
         scatter._offsets3d = (xs, ys, zs)
 
-        for k, (i, j) in enumerate(edges):
+        for k, (i, j) in enumerate(bones):
             x_vals = np.array([frame[i, 0], frame[j, 0]])
             y_vals = np.array([frame[i, 1], frame[j, 1]])  # old Z → new Y
             z_vals = np.array([frame[i, 2], frame[j, 2]])  # old Y → new Z
@@ -162,7 +176,7 @@ if __name__ == "__main__":
         return [scatter] + lines
 
     ani = animation.FuncAnimation(fig, update, frames=data.shape[0],
-                                init_func=init, blit=True, interval=1000)
+                                init_func=init, blit=True, interval=10)
     
     plt.show()
     
