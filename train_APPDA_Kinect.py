@@ -2884,8 +2884,8 @@ if __name__ == "__main__":
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_Therapist_APPDA_Block_0(upper_body)",  # Path to the pre-trained model for Therapies dataset in Pytorch format
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_CADDIN_Upper_Body_Block_0(upper_body)",  # Path to the pre-trained model for Therapies dataset in Pytorch format
         ####
-        # "pretrained_model_path": "./therapies_model_7/model",
-        "pretrained_model_path": "./ntu_benchmark_model/model",
+        "pretrained_model_path": "./therapies_model_7/model",
+        # "pretrained_model_path": "./ntu_benchmark_model/model",
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_Kinect_APPDA_Classifier",
         ####
         
@@ -3244,7 +3244,7 @@ if __name__ == "__main__":
 
     # Create Optuna study
     study = optuna.create_study(direction="maximize")  # Or "minimize" for loss
-    study.optimize(partial(objective, static_params=static_params), n_trials=static_params.get("n_trials", 40))  # Try 40 different combinations#   
+    study.optimize(partial(objective, static_params=static_params), n_trials=static_params.get("n_trials", 40))  # Try 40 different combinations   
     print("\n--- Hyperparameter Optimization Finished ---")
 
     best_trial = study.best_trial
