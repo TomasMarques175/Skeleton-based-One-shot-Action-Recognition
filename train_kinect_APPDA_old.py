@@ -1363,8 +1363,6 @@ def main(model_params):
                 tb_writer.add_scalar(
                     'Performance/epoch_duration_sec', epoch_duration, epoch)
             
-            fold_val_f1_scores.append(best_val_f1)
-            fold_val_auc_scores.append(best_val_auc)
             
             # Determine folder one level up
             current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -1377,6 +1375,9 @@ def main(model_params):
             best_val_loss = np.min(val_losses)
             best_val_f1 = np.max(val_f1_scores)
             best_val_auc = np.max(val_auc_scores)
+            
+            fold_val_f1_scores.append(best_val_f1)
+            fold_val_auc_scores.append(best_val_auc)
 
             # 2. Create filename with best values embedded (rounded for readability)
             filename = (
