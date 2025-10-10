@@ -1543,7 +1543,7 @@ def collate_fn_classification_pre_pad(batch):
     """
     samples, labels = zip(*batch)  # Unzip list of tuples
     lengths = [s.shape[0] for s in samples]
-    max_len = 32
+    max_len = max(lengths)
     feat_dim = samples[0].shape[1]
     
     padded_samples = []
@@ -1630,7 +1630,7 @@ def Create_Therapy_Dataloader(model_params, train_data, video_skels, val_data):
                                 batch_size=model_params['batch_size'],
                                 sampler=sampler, 
                                 num_workers=model_params['num_workers'],
-                                drop_last=False, 
+                                drop_last=True, 
                                 collate_fn=collate_fn_classification_pre_pad)
 
     if val_dataset is not None:
