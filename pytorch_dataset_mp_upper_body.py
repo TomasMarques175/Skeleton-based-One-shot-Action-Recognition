@@ -16,13 +16,22 @@ import scipy.ndimage.interpolation as inter # Used in helper zoom_to_target_len
 # Ensure they are reviewed for TF/Keras dependencies.
 # =============================================================================
 
+"""
 FLIP_CORRESPONDENCES_LEFT = [8, 7, 6, 2, 1, 0, 20, 21, 23]
 FLIP_CORRESPONDENCES_RIGHT = [9, 10, 11, 3, 4, 5, 17, 20, 22]
 
 # Pelvis → Mid Spine → Upper Spine → Neck → Head → Top Head
 SPINE = [12, 14, 15, 16, 17, 18]
+TORSO_CONNECTING_JOINTS = [14, 12]
+# TORSO_CONNECTING_JOINTS = [14, 16, 
+#                            16, 15, 
+#                            15, 12]
 
-CONNECTING_JOINT = [
+LEFT_HIP = 2 # Old index 12
+RIGHT_HIP = 3 # Old index 16
+SPINE_CHEST = 12 # Old index 20
+
+CONNECTING_JOINT = [s
     1, 0,       # Check CRMH skeleton
     1, 2,       #
     2, 14,      #
@@ -47,15 +56,28 @@ CONNECTING_JOINT = [
     19, 20,     #
     20, 22      #
 ]
+"""
 
+"""
 # --- Constants (from Keras code) ---
 # FLIP_CORRESPONDENCES_LEFT = [4, 5, 6, 7, 12, 13, 14, 15, 21, 22]
 # FLIP_CORRESPONDENCES_RIGHT = [8, 9, 10, 11, 16, 17, 18, 19, 23, 24]
 # SPINE = [0, 1, 2, 3, 20]
 # CONNECTING_JOINT = [1, 0, 20, 2, 20, 4, 5, 6, 20, 8, 9,
 #                     10, 0, 12, 13, 14, 0, 16, 17, 18, 1, 7, 7, 11, 11] # Used in get_body_spherical_angles
-
+# 
+# TORSO_CONNECTING_JOINTS = [20, 1,
+#                            1, 0]
+# 
+# # TORSO_CONNECTING_JOINTS = [14, 16, 
+# #                            16, 15, 
+# #                            15, 12]
+# 
+# LEFT_HIP = 12 # Old index 12
+# RIGHT_HIP = 16 # Old index 16
+# SPINE_CHEST = 20 # Old index 20
 """
+
 # --- Define dropped joints ---
 drop_joints = {0, 1, 2, 3, 4, 5, 13, 19, 20, 21, 22, 23}
 keep_indices = [j for j in range(24) if j not in drop_joints]
@@ -74,8 +96,6 @@ FLIP_CORRESPONDENCES_RIGHT = [old_to_new[j] for j in [9, 10, 11] if j in old_to_
 # print("\nFlip correspondences:")
 # for l, r in zip(FLIP_CORRESPONDENCES_LEFT, FLIP_CORRESPONDENCES_RIGHT):
     # print(f"  L {l} ↔ R {r}")
-
-
 
 # Example: keep only existing spine joints
 SPINE = [old_to_new[j] for j in [12, 14, 15, 16, 17, 18] if j in old_to_new]
@@ -97,12 +117,17 @@ for i in range(0, len(CONNECTING_JOINT_OLD), 2):
         CONNECTING_JOINT.extend([old_to_new[j1], old_to_new[j2]])
         remap_pairs.append((j1, j2, old_to_new[j1], old_to_new[j2]))
 
+TORSO_CONNECTING_JOINTS = [old_to_new[j] for j in [14, 12] if j in old_to_new]
+SPINE_CHEST = [old_to_new[j] for j in [12] if j in old_to_new]
+LEFT_HIP = None # Old index 12
+RIGHT_HIP = None # Old index 16
+
 # print("\nConnecting joints (old → new):")
 # for old1, old2, new1, new2 in remap_pairs:
 #     print(f"  ({old1:2d}, {old2:2d}) → ({new1:2d}, {new2:2d})")
 
 # print("\nFinal CONNECTING_JOINT:", CONNECTING_JOINT)
-"""
+
 
 # --- Helper Function Definitions (Copied from pytorch_dataset_py_01) ---
 
@@ -321,14 +346,18 @@ def scale_skel_by_torso(skel):
         # print(f"Warning: scale_by_torso requires at least 21 joints, found {skel.shape[1]}. Skipping scaling.")
         return skel
 
-    torso_dists = np.linalg.norm(skel[:, 20] - skel[:, 1], axis=1) + \
-                np.linalg.norm(skel[:, 1] - skel[:, 0], axis=1)
+    # torso_dists = np.linalg.norm(skel[:, 20] - skel[:, 1], axis=1) + \
+    #             np.linalg.norm(skel[:, 1] - skel[:, 0], axis=1)
+    # print("\n".join(
+    #     f"skel[:, TORSO_CONNECTING_JOINTS[{i}]]: {skel[:, TORSO_CONNECTING_JOINTS[i]]}"
+    #     for i in range(len(TORSO_CONNECTING_JOINTS))
+    # ))
     
-    """
-    epsilon = 0
-    scale_factors = np.where(torso_dists > epsilon, 0.4 / torso_dists, 1.0)
-    skel_scaled = skel * scale_factors[:, np.newaxis, np.newaxis]
-    """
+    # Compute the total torso distance dynamically
+    torso_dists = sum(
+        np.linalg.norm(skel[:, TORSO_CONNECTING_JOINTS[i]] - skel[:, TORSO_CONNECTING_JOINTS[i+1]], axis=1)
+        for i in range(0, len(TORSO_CONNECTING_JOINTS), 2)
+    )
     
     for i in range(skel.shape[0]):
         rel = 0.4 / torso_dists[i] if torso_dists[i] != 0 else 1
@@ -348,11 +377,16 @@ def get_transformation_matrix_global(skel):
 
     # Origin: Midpoint between hips (indices 12 and 16 for NTU RGB+D)
     # Original code used 12 and 16. Let's stick to that.
-    o = (skel[:, 16, :] + skel[:, 12, :]) / 2.0
+    o = (skel[:, LEFT_HIP, :] + skel[:, RIGHT_HIP, :]) / 2.0
 
     # X-axis: From left hip (16) to right hip (12)
-    x_vec = skel[:, 12, :] - skel[:, 16, :] # Vector from left hip to right hip
+    x_vec = skel[:, RIGHT_HIP, :] - skel[:, LEFT_HIP, :] # Vector from left hip to right hip
+    
+    # print(f"x_vec sample: {x_vec}") # Debug # print
+    
     x_axis = matrix_unit_vector(x_vec)
+
+    # print(f"x_axis sample: {x_axis}") # Debug print
 
     # Y-axis: Approximate vertical axis. Vector from spine base (0) to neck (3) or mid-shoulders.
     # Original code used skel[:,20] - o for Z. Let's try to define Y as up.
@@ -365,7 +399,9 @@ def get_transformation_matrix_global(skel):
     # Let's try to define Y as orthogonal to a plane defined by hips and a point above.
     # For simplicity, let's use the original Z-axis definition and derive Y.
     # Original Z axis: SpineChest (20) - Origin (mid-hip)
-    z_approx_vec = skel[:,20,:] - o # Vector from mid-hip to spine/chest
+    z_approx_vec = skel[:,SPINE_CHEST,:] - o # Vector from mid-hip to spine/chest
+    
+    # print(f"z_approx_vec sample: {z_approx_vec}") # Debug print
     
     # Y-axis: Orthogonal to X and Z_approx (cross product)
     # y_axis = np.cross(z_approx_vec, x_axis) # Order matters for right/left-handed system
@@ -400,7 +436,7 @@ def get_transformation_matrix_global(skel):
         # Combined matrix M:
         # [x_axis_x, x_axis_y, x_axis_z, -dot(x_axis, origin)]
         # [y_axis_x, y_axis_y, y_axis_z, -dot(y_axis, origin)]
-        # [z_axis_x, z_axis_y, z_axis_z, -dot(z_axis, origin)]
+        # [z_axis_x, z_axis_y, z_axis_z, -Num JCD features:(z_axis, origin)]
         # [0         , 0         , 0         , 1             ]
         
         transform_matrix = np.eye(4)
@@ -484,13 +520,19 @@ def get_body_spherical_angles(body_coords): # body_coords is (frames, joints, di
     # For now, using sequential bones based on the loop in Keras: body[:, bone_idx+1] - body[:, bone_idx]
     # This assumes joints are ordered to form meaningful sequential bones.
     num_joints = body_coords.shape[1]
-    # print("num_joints in get_body_spherical_angles:", num_joints)
-    for bone_idx in range(num_joints - 1): # Iterate through possible sequential bones
-        # Check if both joints for the bone are within bounds
-        if bone_idx < num_joints and (bone_idx + 1) < num_joints:
-            bone_vectors = body_coords[:, bone_idx + 1, :] - body_coords[:, bone_idx, :] # Vector for each frame
-            if bone_vectors.shape[0] > 0: # Ensure there are frames
-                spherical_angles = get_bone_spherical_angles(bone_vectors) # (frames, 2)
+    # Iterate through defined bone connections (pairs of joints)
+    for i in range(0, len(CONNECTING_JOINT), 2):
+        joint_a = CONNECTING_JOINT[i]
+        joint_b = CONNECTING_JOINT[i + 1]
+
+        # Ensure indices are within bounds
+        if joint_a < num_joints and joint_b < num_joints:
+            # Compute bone vector (joint_b - joint_a) for all frames
+            bone_vectors = body_coords[:, joint_b, :] - body_coords[:, joint_a, :]
+
+            # Only process if there are frames
+            if bone_vectors.shape[0] > 0:
+                spherical_angles = get_bone_spherical_angles(bone_vectors)
                 all_bone_angles_list.append(spherical_angles)
 
     if not all_bone_angles_list:
@@ -518,46 +560,43 @@ def get_pose_data_processed(body_raw, is_validation, model_params):
     average_wrong_skels_enabled = model_params.get('average_wrong_skels', True)
     scaler_obj = model_params.get('scaler_object', None) # Get scaler from params
 
-    print(f"max_seq_len_param: {max_seq_len_param}")
-    print(f"joints_num: {joints_num}, joints_dim: {joints_dim}")
-    print(f"center_skels: {center_skels}, h_flip_enabled: {h_flip_enabled}, scale_by_torso_enabled: {scale_by_torso_enabled}")
-    print(f"temporal_scale_range: {temporal_scale_range}, skip_frames_options: {skip_frames_options}, average_wrong_skels_enabled: {average_wrong_skels_enabled}, scaler_obj: {scaler_obj}")
+    # print(f"max_seq_len_param: {max_seq_len_param}")
+    # print(f"joints_num: {joints_num}, joints_dim: {joints_dim}")
+    # print(f"center_skels: {center_skels}, h_flip_enabled: {h_flip_enabled}, scale_by_torso_enabled: {scale_by_torso_enabled}")
+    # print(f"temporal_scale_range: {temporal_scale_range}, skip_frames_options: {skip_frames_options}, average_wrong_skels_enabled: {average_wrong_skels_enabled}, scaler_obj: {scaler_obj}")
     
-
     body = body_raw.copy()
-    print(f"Raw body shape: {body.shape}")
-    print(f"body.shape[0]: {body.shape[0]}")
+    # print(f"Raw body shape: {body.shape}")
+    # print(f"body.shape[0]: {body.shape[0]}")
     
     body = body[np.any(np.any(body != 0, axis=2), axis=1)]
     if body.shape[0] == 0:
-        print("Warning: Skeleton zero length after initial zero-frame removal.")
+        # print("Warning: Skeleton zero length after initial zero-frame removal.")
         _target_len_fallback = abs(max_seq_len_param) if max_seq_len_param != 0 else 32
         _num_feats_fallback = model_params.get('num_feats', 100)
         return np.zeros((_target_len_fallback, _num_feats_fallback), dtype=np.float32)
 
-
     if average_wrong_skels_enabled:
         body = average_wrong_frame_skels(body)
         if body is None or body.shape[0] == 0:
-            print("Warning: Skeleton zero length after averaging wrong frames.")
+            # print("Warning: Skeleton zero length after averaging wrong frames.")
             _target_len_fallback = abs(max_seq_len_param) if max_seq_len_param != 0 else 32
             _num_feats_fallback = model_params.get('num_feats', 100)
             return np.zeros((_target_len_fallback, _num_feats_fallback), dtype=np.float32)
 
-
     if not is_validation:
-        print(f"isinstance(temporal_scale_range, (list, tuple)): {isinstance(temporal_scale_range, (list, tuple))}")
+        # print(f"isinstance(temporal_scale_range, (list, tuple)): {isinstance(temporal_scale_range, (list, tuple))}")
         if temporal_scale_range and isinstance(temporal_scale_range, (list, tuple)) and len(temporal_scale_range) == 2:
             orig_len = body.shape[0]
             min_scale, max_scale = temporal_scale_range
-            print(f"Temporal scaling: orig_len={orig_len}, min_scale={min_scale}, max_scale={max_scale}")
+            # print(f"Temporal scaling: orig_len={orig_len}, min_scale={min_scale}, max_scale={max_scale}")
             if min_scale < max_scale and orig_len > 1 : # Need at least 2 frames to scale meaningfully
                 scale_factor = np.random.uniform(min_scale, max_scale)
-                print(f"Chosen scale_factor: {scale_factor}")
+                # print(f"Chosen scale_factor: {scale_factor}")
                 new_len = max(2, int(round(orig_len * scale_factor)))
                 if new_len != orig_len:
                     body = zoom_to_target_len(body, new_len, joints_num, joints_dim)
-        print(f"Body shape after temporal scaling: {body.shape}")
+        # print(f"Body shape after temporal scaling: {body.shape}")
 
         if skip_frames_options and body.shape[0] > 1:
             # Ensure skip_rate is at least 1 (no skip)
@@ -570,7 +609,7 @@ def get_pose_data_processed(body_raw, is_validation, model_params):
                     if body.shape[0] == 0: # After skipping, it might become empty
                         body = body_raw.copy()[0:1] # Fallback to first frame of original raw
                         print("Warning: Body became empty after skip_frames, using fallback.")
-        print(f"Body shape after skip frames: {body.shape}")
+        # print(f"Body shape after skip frames: {body.shape}")
         
         if h_flip_enabled and np.random.rand() > 0.5:
             body = flip_skeleton(body)
@@ -582,7 +621,7 @@ def get_pose_data_processed(body_raw, is_validation, model_params):
         if final_target_len == 0: final_target_len = 1 # Ensure at least 1 frame for feature extraction
     
     current_len = body.shape[0]
-    print(f"Body shape before length adjustment: {body.shape}, current_len: {current_len}, final_target_len: {final_target_len}")
+    # print(f"Body shape before length adjustment: {body.shape}, current_len: {current_len}, final_target_len: {final_target_len}")
     if max_seq_len_param > 0: # Zoom to fixed length (max_seq_len_param is positive)
         if current_len != final_target_len and final_target_len > 0:
             body = zoom_to_target_len(body, final_target_len, joints_num, joints_dim)
@@ -594,12 +633,12 @@ def get_pose_data_processed(body_raw, is_validation, model_params):
             else:
                 start = (current_len - target_crop_len) // 2
             body = body[start : start + target_crop_len]
-            print(f"Cropped body from {current_len} to {target_crop_len}, start at {start}")
+            # print(f"Cropped body from {current_len} to {target_crop_len}, start at {start}")
         elif current_len < target_crop_len and current_len > 0 : # Pad if shorter but not empty
             pad_width = target_crop_len - current_len
             padding = [(pad_width, 0), (0, 0), (0, 0)] # Pre-padding
             body = np.pad(body, padding, mode='constant', constant_values=0.0)
-            print(f"Padded body from {current_len} to {target_crop_len}")
+            # print(f"Padded body from {current_len} to {target_crop_len}")
         elif current_len == 0 and target_crop_len > 0: # If body became empty, pad to target_crop_len
             body = np.zeros((target_crop_len, joints_num, joints_dim), dtype=body_raw.dtype)
 
@@ -609,7 +648,6 @@ def get_pose_data_processed(body_raw, is_validation, model_params):
     elif body.shape[0] == 0 and final_target_len == 0: # Should not happen if final_target_len defaults to 1
         _num_feats_fallback = model_params.get('num_feats', 100)
         return np.zeros((1, _num_feats_fallback), dtype=np.float32)
-
 
     if scale_by_torso_enabled:
         body = scale_skel_by_torso(body)
@@ -644,7 +682,6 @@ def get_pose_data_processed(body_raw, is_validation, model_params):
         if angles_cent.shape[0] == num_frames_for_features: pose_features_list.append(angles_cent)
         elif angles_cent.shape[0] > 0 : pose_features_list.append(zoom_to_target_len(angles_cent.reshape(angles_cent.shape[0], -1, 1), num_frames_for_features, angles_cent.shape[1], 1).reshape(num_frames_for_features, -1))
         # print(f"Angles_cent shape: {angles_cent.shape}, num_frames_for_features: {num_frames_for_features}")
-
 
     if model_params.get('use_coords_raw', False):
         if body_uncentered_for_raw_coords is not None:
@@ -707,7 +744,6 @@ def get_pose_data_processed(body_raw, is_validation, model_params):
         except Exception as e:
             print(f"Warning: Error applying scaler: {e}. Features not scaled.")
 
-
     # Final check on sequence length and feature dimension
     expected_num_feats = model_params.get('num_feats', -1)
     if expected_num_feats != -1 and pose_features_final.shape[1] != expected_num_feats:
@@ -726,7 +762,6 @@ def get_pose_data_processed(body_raw, is_validation, model_params):
     elif final_target_len == 0 and pose_features_final.shape[0] == 0: # Handle case where max_seq_len=0 and input was empty
         _num_feats_fallback = model_params.get('num_feats', 100)
         return np.zeros((1, _num_feats_fallback), dtype=np.float32) # Return at least one frame
-
 
     return pose_features_final
 
