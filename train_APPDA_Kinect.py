@@ -2922,8 +2922,8 @@ if __name__ == "__main__":
 
         # "eval_therapies": True,  # Therapy data needed for its evaluation
         "h_flip": True,
-        # "skip_frames": [],
-        "skip_frames": [2, 3],
+        "skip_frames": [],
+        # "skip_frames": [2, 3],
 
         # NTU-120 Data sets to optimize the NTU one-shot benchmark
         # "val_annotations": "",
