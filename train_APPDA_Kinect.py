@@ -56,7 +56,7 @@ from torchinfo import summary
 
 # --- Local project imports ---
 from models.TCN_classifier import TCN_clf
-from pytorch_dataset_kinect_therapist import (
+from pytorch_dataset_kinect import (
     TripletPoseDataset,
     TherapyDataset,
     get_num_feats,

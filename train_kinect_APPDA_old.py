@@ -1827,7 +1827,7 @@ if __name__ == "__main__":
         
         # Path to the pre-trained model in Pytorch format
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier_Block_5_4_3_2_1/0720_0313_model_12\weights\ep002-trainloss20.46306-loss0.81176-f10.54457.pt",
-        "pretrained_model_path": "./ntu_benchmark_model/model",
+        "pretrained_model_path": "./therapies_model_7/model",
         
         # Path to the pre-trained model
         # "pre-trained_model": "./ntu_benchmark_model/model",  # Path to the pre-trained model for NTU-120 one-shot benchmark

@@ -1,45 +1,662 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Fri Apr 17 11:24:14 2020
+# pytorch_dataset.py
 
-@author: asabater
-"""
-
-from scipy.signal import medfilt
-from tensorflow.keras.preprocessing.sequence import pad_sequences
-from scipy.special import comb
-from tqdm import tqdm
-from scipy.spatial.distance import cdist
-import scipy.ndimage.interpolation as inter
 import os
+import torch
+from torch.utils.data import Dataset
+from torch.utils.data import DataLoader
 import numpy as np
-import sys
 import pickle
-from tensorflow.keras.utils import to_categorical
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-import numpy as np
-import time
-import pandas as pd
+from scipy.special import comb # Used in helper get_jcd_features, get_num_feats
+from scipy.spatial.distance import cdist # Used in helper get_jcd_features
+import scipy.ndimage.interpolation as inter # Used in helper zoom_to_target_len
 
-flip_correspondences_left = [4, 5, 6, 7,   12, 13, 14, 15, 21, 22]
-flip_correspondences_right = [8, 9, 10, 11, 16, 17, 18, 19, 23, 24]
-spine = [0, 1, 2, 3, 20]
+# =============================================================================
+# Helper Functions (Ported or Adapted from Keras data_generator.py)
+# These should be the same as in pytorch_dataset_py_01
+# Ensure they are reviewed for TF/Keras dependencies.
+# =============================================================================
 
-connecting_joint = [1, 0, 20, 2, 20, 4, 5, 6, 20, 8, 9,
-                    10, 0, 12, 13, 14, 0, 16, 17, 18, 1, 7, 7, 11, 11]
+FLIP_CORRESPONDENCES_LEFT = [8, 7, 6, 2, 1, 0, 20, 21, 23]
+FLIP_CORRESPONDENCES_RIGHT = [9, 10, 11, 3, 4, 5, 17, 20, 22]
+
+# Pelvis → Mid Spine → Upper Spine → Neck → Head → Top Head
+SPINE = [12, 14, 15, 16, 17, 18]
+
+CONNECTING_JOINT = [
+    1, 0,       # Check CRMH skeleton
+    1, 2,       #
+    2, 14,      #
+    3, 14,      #
+    3, 4,       #
+    4, 5,       #
+    14, 16,     #
+    15, 16,     #
+    12, 15,     #
+    6, 7,       #
+    7, 8,       #
+    8, 12,      #
+    9, 12,      #
+    9, 10,      #
+    10, 11,     #
+    12, 17,     #
+    17, 18,     #
+    18, 19,     #
+    13, 19,     #
+    21, 23,     #
+    19, 21,     #
+    19, 20,     #
+    20, 22      #
+]
+
+# --- Constants (from Keras code) ---
+# FLIP_CORRESPONDENCES_LEFT = [4, 5, 6, 7, 12, 13, 14, 15, 21, 22]
+# FLIP_CORRESPONDENCES_RIGHT = [8, 9, 10, 11, 16, 17, 18, 19, 23, 24]
+# SPINE = [0, 1, 2, 3, 20]
+# CONNECTING_JOINT = [1, 0, 20, 2, 20, 4, 5, 6, 20, 8, 9,
+#                     10, 0, 12, 13, 14, 0, 16, 17, 18, 1, 7, 7, 11, 11] # Used in get_body_spherical_angles
+
+# --- Helper Function Definitions (Copied from pytorch_dataset_py_01) ---
+
+def get_scaler_filename(**params):
+    # ... (Implementation from your Keras data_generator.py, ensuring it's TF-free) ...
+    # This function constructs the scaler filename based on model_params
+    # Example from your Keras code:
+    path_prefix = params.get('scaler_path_prefix', '/home/asabater/datasets/NTU-120/data_scalers/') # Make configurable
+    filename = 'std_msl{}_jn{}_jd{}_cskl{}_strs{}'.format(
+        params.get('max_seq_len', -1), params.get('joints_num',25), params.get('joints_dim',3),
+        'T' if params.get('center_skels',True) else 'F',
+        'T' if params.get('scale_by_torso',True) else 'F')
+    filename += '_jcd{}_spds{}_coordsraw{}_coords{}_jcddiff{}_angs{}_angscent{}_numfeats{}.pckl'.format(
+        'T' if params.get('use_jcd_features',False) else 'F',
+        'T' if params.get('use_speeds',False) else 'F',
+        'T' if params.get('use_coords_raw',False) else 'F',
+        'T' if params.get('use_coords',True) else 'F',
+        'T' if params.get('use_jcd_diff',False) else 'F',
+        'T' if params.get('use_bone_angles',False) else 'F',
+        'T' if params.get('use_bone_angles_cent',False) else 'F',
+        params.get('num_feats', 0) # Default to 100 if not specified
+    )
+    return os.path.join(path_prefix, filename)
+
+def get_num_feats(joints_num, joints_dim,
+                use_jcd_features, use_speeds, use_coords_raw, use_coords, use_jcd_diff,
+                use_bone_angles, use_bone_angles_cent, **kwargs):
+
+    num_feats = 0
+    if use_bone_angles:
+        num_feats += (joints_num-1)*2
+    if use_bone_angles_cent:
+        num_feats += (joints_num-1)*2
+    if use_jcd_features:
+        num_feats += int(comb(joints_num, 2))
+    if use_speeds:
+        num_feats += joints_num * joints_dim
+    if use_coords_raw:
+        num_feats += joints_num * joints_dim
+    if use_coords:
+        num_feats += joints_num * joints_dim
+    if use_jcd_diff:
+        num_feats += int(comb(joints_num, 2))
+
+    # print(f"Calculated number of features: {num_feats} based on parameters: "
+    #         f"joints_num={joints_num}, joints_dim={joints_dim}, "
+    #         f"use_jcd_features={use_jcd_features}, use_speeds={use_speeds}, "
+    #         f"use_coords_raw={use_coords_raw}, use_coords={use_coords}, "
+    #         f"use_jcd_diff={use_jcd_diff}, use_bone_angles={use_bone_angles}, "
+    #         f"use_bone_angles_cent={use_bone_angles_cent}")
+    return num_feats
+
+def load_skeleton_data(file_path):
+    """Loads skeleton data from a .npy file."""
+    try:
+        pose_raw = np.load(file_path, allow_pickle=True).item()
+        return pose_raw
+    except FileNotFoundError:
+        print(f"Error: File not found at {file_path}")
+        return None
+    except Exception as e:
+        print(f"Error loading skeleton data from {file_path}: {e}")
+        return None
+
+def get_body_skel(pose_raw, validation, mode='var'):
+    """Selects the primary skeleton from potentially multiple bodies."""
+    if pose_raw is None: return None
+    n_bodys_val = pose_raw.get('nbodys', [0]) # Default to [0] if 'nbodys' key is missing
+    n_bodys = list(set(n_bodys_val if isinstance(n_bodys_val, list) else [n_bodys_val]))
+
+    if not n_bodys or max(n_bodys) == 0: # Handles empty or [0]
+        if 'skel_body0' in pose_raw:
+            return pose_raw['skel_body0']
+        else:
+            print(f"Warning: No valid skeleton data found (no 'nbodys' or 'skel_body0') in file associated with {pose_raw.get('filename', 'unknown_file')}")
+            return None
+
+    valid_body_indices = [i for i in range(max(n_bodys) + 1) if f'skel_body{i}' in pose_raw]
+    if not valid_body_indices:
+        print(f"Warning: No 'skel_bodyX' keys found despite nbodys info in {pose_raw.get('filename', 'unknown_file')}")
+        return None
+
+    body_lens = []
+    valid_skeletons = []
+    for i in valid_body_indices:
+        skel = pose_raw[f'skel_body{i}']
+        if skel is None or skel.ndim < 3 or skel.shape[0] == 0: # Check if skel is valid
+            continue
+        non_zero_frames = skel[np.all(~np.all(skel == 0, axis=2), axis=1)]
+        if non_zero_frames.shape[0] > 0:
+            body_lens.append(non_zero_frames.shape[0])
+            valid_skeletons.append(skel)
+
+    if not body_lens:
+        print(f"Warning: All detected skeletons have zero length after filtering in {pose_raw.get('filename', 'unknown_file')}")
+        # Fallback: return the first skeleton found, even if it was all zeros initially,
+        # average_wrong_frame_skels might fix it.
+        if valid_skeletons: return valid_skeletons[0]
+        return None
 
 
-# %%
+    max_len = max(body_lens)
+    longest_indices_in_valid_list = [idx for idx, length in enumerate(body_lens) if length == max_len]
+
+    chosen_valid_list_idx = 0 # Default
+    if longest_indices_in_valid_list: # Ensure list is not empty
+        if validation:
+            if mode == 'var' and len(longest_indices_in_valid_list) > 0 :
+                stds = [valid_skeletons[idx].std() for idx in longest_indices_in_valid_list if valid_skeletons[idx].size > 0] # Check size
+                if stds: # Ensure stds is not empty
+                    chosen_valid_list_idx = longest_indices_in_valid_list[np.argmax(stds)]
+                else: # Fallback if all stds are zero or skeletons were empty
+                    chosen_valid_list_idx = longest_indices_in_valid_list[0]
+            elif longest_indices_in_valid_list:
+                chosen_valid_list_idx = longest_indices_in_valid_list[0]
+        elif longest_indices_in_valid_list:
+            chosen_valid_list_idx = np.random.choice(longest_indices_in_valid_list)
+        else: # Should not be reached if body_lens was not empty
+            return valid_skeletons[0] if valid_skeletons else None
+    else: # No longest skeletons found (e.g. all had zero length effectively)
+        return valid_skeletons[0] if valid_skeletons else None
 
 
-# Calculate JCD feature
-def norm_scale(x):
-    return (x-np.mean(x))/np.mean(x)
+    return valid_skeletons[chosen_valid_list_idx]
 
-# Crop movement to max_seq_len frames
+def average_wrong_frame_skels(skels):
+    if skels is None or len(skels) == 0: return skels
+    if skels.ndim < 3: # Expects (frames, joints, dims)
+        print(f"Warning: average_wrong_frame_skels received unexpected shape {skels.shape}. Skipping.")
+        return skels
 
+    good_frames_mask = np.any(np.any(skels != 0, axis=2), axis=1)
+    if np.all(good_frames_mask): return skels # All frames are good
+
+    bad_indices = np.where(~good_frames_mask)[0]
+
+    for idx in bad_indices:
+        prev_good_idx = -1
+        # Find previous good frame
+        for i in range(idx - 1, -1, -1):
+            if good_frames_mask[i]:
+                prev_good_idx = i
+                break
+        
+        next_good_idx = -1
+        # Find next good frame
+        for i in range(idx + 1, len(skels)):
+            if good_frames_mask[i]:
+                next_good_idx = i
+                break
+
+        if prev_good_idx != -1 and next_good_idx != -1:
+            skels[idx] = (skels[prev_good_idx] + skels[next_good_idx]) / 2.0
+        elif prev_good_idx != -1: # Only previous good frame exists
+            skels[idx] = skels[prev_good_idx]
+        elif next_good_idx != -1: # Only next good frame exists
+            skels[idx] = skels[next_good_idx]
+        # If no good frames around, it remains as is (likely all zeros)
+        # Or one could implement a more sophisticated fill, e.g., with a default pose.
+    return skels
+
+def zoom_to_target_len(p, target_len, joints_num, joints_dim):
+    num_frames = p.shape[0]
+    if num_frames == target_len:
+        return p
+    if num_frames == 0:
+        return np.zeros([target_len, joints_num, joints_dim], dtype=p.dtype)
+
+    p_new = np.zeros([target_len, joints_num, joints_dim], dtype=p.dtype)
+    for m in range(joints_num):
+        for n in range(joints_dim):
+            if num_frames > 0: # Ensure not dividing by zero
+                zoom_factor = target_len / num_frames
+                # order=0 for nearest, order=1 for linear
+                zoomed_data = inter.zoom(p[:, m, n], zoom_factor, mode='nearest', order=1)
+                # Adjust length if zoom results in slightly different size due to float precision
+                if len(zoomed_data) > target_len:
+                    p_new[:, m, n] = zoomed_data[:target_len]
+                elif len(zoomed_data) < target_len:
+                    p_new[:len(zoomed_data), m, n] = zoomed_data
+                    # Pad the rest if necessary (though zoom should ideally match target_len)
+                    p_new[len(zoomed_data):, m, n] = zoomed_data[-1] if len(zoomed_data) > 0 else 0 # Fill with last value or 0
+                else:
+                    p_new[:, m, n] = zoomed_data
+
+            else: # Should be caught by num_frames == 0 earlier
+                p_new[:,m,n] = 0
+    return p_new
+
+def flip_skeleton(skel, flip_axis=0):
+    skel_flipped = skel.copy()
+    aux = skel_flipped[..., FLIP_CORRESPONDENCES_LEFT, :].copy() # Ensure it's a copy for swap
+    skel_flipped[..., FLIP_CORRESPONDENCES_LEFT, :] = skel_flipped[..., FLIP_CORRESPONDENCES_RIGHT, :]
+    skel_flipped[..., FLIP_CORRESPONDENCES_RIGHT, :] = aux
+    
+    # Flip the specified axis for all relevant joints (left, right, spine)
+    # Create a combined list of all joints to be flipped
+    joints_to_flip_on_axis = list(set(FLIP_CORRESPONDENCES_LEFT + FLIP_CORRESPONDENCES_RIGHT + SPINE))
+    
+    # Ensure indices are within bounds
+    valid_joints_to_flip = [j for j in joints_to_flip_on_axis if j < skel_flipped.shape[-2]] # skel_flipped.shape[-2] is joints_num
+
+    if valid_joints_to_flip:
+        skel_flipped[..., valid_joints_to_flip, flip_axis] = -skel_flipped[..., valid_joints_to_flip, flip_axis]
+    return skel_flipped
+
+def scale_skel_by_torso(skel):
+    if skel.shape[0] == 0: return skel
+    if skel.shape[1] <= 20: # joints_num
+        print(f"Warning: scale_by_torso requires at least 21 joints, found {skel.shape[1]}. Skipping scaling.")
+        return skel
+
+    torso_dists = np.linalg.norm(skel[:, 20] - skel[:, 1], axis=1) + \
+                np.linalg.norm(skel[:, 1] - skel[:, 0], axis=1)
+    """ 
+    epsilon = 0
+    scale_factors = np.where(torso_dists > epsilon, 0.4 / torso_dists, 1.0)
+    skel_scaled = skel * scale_factors[:, np.newaxis, np.newaxis] 
+    """
+    for i in range(skel.shape[0]):
+        rel = 0.4 / torso_dists[i] if torso_dists[i] != 0 else 1
+        skel[i] = skel[i] * rel
+
+    return skel
+
+def matrix_unit_vector(matrix):
+    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+    norms[norms < 1e-9] = 1.0 # Avoid division by zero for zero vectors, result will be zero vector
+    return matrix / norms
+
+def get_transformation_matrix_global(skel):
+    if skel.shape[1] <= 20: # joints_num
+        print(f"Warning: get_transformation_matrix_global requires at least 21 joints. Returning identity.")
+        return np.array([np.eye(4)] * skel.shape[0])
+
+    # Origin: Midpoint between hips (indices 12 and 16 for NTU RGB+D)
+    # Original code used 12 and 16. Let's stick to that.
+    o = (skel[:, 16, :] + skel[:, 12, :]) / 2.0
+
+    # X-axis: From left hip (16) to right hip (12)
+    x_vec = skel[:, 12, :] - skel[:, 16, :] # Vector from left hip to right hip
+    x_axis = matrix_unit_vector(x_vec)
+
+    # Y-axis: Approximate vertical axis. Vector from spine base (0) to neck (3) or mid-shoulders.
+    # Original code used skel[:,20] - o for Z. Let's try to define Y as up.
+    # A common choice for Y is (SpineNavel (1) - SpineChest (20)) or similar vertical component.
+    # Let's use (Head (3) - SpineBase (0)) as a proxy for "up" relative to the body.
+    # Or more robustly, use cross product.
+    # Original code: z_vec = skel[:, 20] - o (SpineChest - origin)
+    # Let's assume the original intent for z_vec was a forward-facing vector.
+    # If x_axis is rightward, and we want y_axis upward, then z_axis is forward.
+    # Let's try to define Y as orthogonal to a plane defined by hips and a point above.
+    # For simplicity, let's use the original Z-axis definition and derive Y.
+    # Original Z axis: SpineChest (20) - Origin (mid-hip)
+    z_approx_vec = skel[:,20,:] - o # Vector from mid-hip to spine/chest
+    
+    # Y-axis: Orthogonal to X and Z_approx (cross product)
+    # y_axis = np.cross(z_approx_vec, x_axis) # Order matters for right/left-handed system
+    y_axis = np.cross(x_axis, z_approx_vec) # If x is right, z_approx is somewhat forward, y is up
+    y_axis = matrix_unit_vector(y_axis)
+
+    # Z-axis: Orthogonal to X and Y
+    z_axis = np.cross(x_axis, y_axis)
+    z_axis = matrix_unit_vector(z_axis) # Should already be unit if x and y are unit and orthogonal
+
+    r_matrices = []
+    for i in range(len(skel)):
+        rotation_inv = np.eye(4)
+        rotation_inv[0, :3] = x_axis[i]
+        rotation_inv[1, :3] = y_axis[i]
+        rotation_inv[2, :3] = z_axis[i]
+        
+        translation_inv = np.eye(4)
+        translation_inv[:3, 3] = o[i] # We want to translate points BY -o. So matrix has o in translation part.
+                                    # If P' = M * P, M = Rot * Trans(-o).
+                                    # We want M such that P_new = M_inv * P_orig_homo
+                                    # Or P_new_xyz = R^T * (P_orig_xyz - o)
+                                    # So, R is [x_axis, y_axis, z_axis]^T. Trans(-o) applied first.
+                                    # The matrix r should be T(-o) followed by R.
+                                    # Let's build the matrix that transforms FROM world TO local.
+                                    # 1. Translate by -o
+                                    # 2. Rotate by R^T
+        
+        # Matrix to transform points from world to local: R_transpose * Translation(-origin)
+        # R_transpose rows are x_axis, y_axis, z_axis
+        # T_neg_origin sets origin at (0,0,0)
+        # Combined matrix M:
+        # [x_axis_x, x_axis_y, x_axis_z, -dot(x_axis, origin)]
+        # [y_axis_x, y_axis_y, y_axis_z, -dot(y_axis, origin)]
+        # [z_axis_x, z_axis_y, z_axis_z, -dot(z_axis, origin)]
+        # [0         , 0         , 0         , 1             ]
+        
+        transform_matrix = np.eye(4)
+        transform_matrix[0,:3] = x_axis[i]
+        transform_matrix[1,:3] = y_axis[i]
+        transform_matrix[2,:3] = z_axis[i]
+        transform_matrix[:3,3] = -np.dot(transform_matrix[:3,:3], o[i]) # R^T * (-o)
+
+        r_matrices.append(transform_matrix)
+        
+    return np.stack(r_matrices)
+
+def transform_skel_global(skel, r_matrices):
+    skel_h = np.concatenate([skel, np.ones((*skel.shape[:-1], 1))], axis=-1) # (Frames, Joints, 4)
+    # r_matrices is (Frames, 4, 4)
+    # We want to apply r_matrices[f] to skel_h[f] for each frame f
+    # skel_h[f] is (Joints, 4). We want (Joints, 4) @ (4, 4)^T -> (Joints, 4)
+    # or (4,4) @ (4, Joints) -> (4, Joints) then transpose
+    
+    transformed_skel_h_frames = []
+    for i in range(skel_h.shape[0]): # Iterate through frames
+        # skel_h[i] is (Joints, 4). r_matrices[i] is (4,4)
+        # Transformed_points = Points @ TransformMatrix.T (if points are rows)
+        # Or Transformed_points = TransformMatrix @ Points (if points are columns)
+        # Here, r_matrices[i] is the matrix that transforms world to local.
+        # So, local_coords_homo = r_matrices[i] @ world_coords_homo.T
+        # This means world_coords_homo should be (4, num_joints)
+        frame_world_coords_homo_T = skel_h[i].T # Shape (4, num_joints)
+        frame_local_coords_homo_T = np.matmul(r_matrices[i], frame_world_coords_homo_T) # Shape (4, num_joints)
+        transformed_skel_h_frames.append(frame_local_coords_homo_T.T) # Back to (num_joints, 4)
+
+    transformed_skel_h = np.stack(transformed_skel_h_frames)
+    return transformed_skel_h[..., :3]
+
+def get_jcd_features(p, joints_num):
+    num_frames = p.shape[0]
+    if num_frames == 0:
+        num_jcd_feats = int(comb(joints_num, 2)) if joints_num >= 2 else 0
+        return np.zeros((0, num_jcd_feats), dtype=np.float32)
+    
+    jcd_list = []
+    # iu provides upper triangle indices (row_idx, col_idx)
+    iu_rows, iu_cols = np.triu_indices(joints_num, k=1)
+    
+    for f_idx in range(num_frames):
+        frame_coords = p[f_idx] # Shape (joints_num, joints_dim)
+        # Calculate pairwise distances for this frame
+        # cdist(frame_coords, frame_coords) gives a (joints_num, joints_num) matrix
+        # We need to extract the upper triangle from this.
+        dist_matrix = cdist(frame_coords, frame_coords, 'euclidean')
+        jcd_list.append(dist_matrix[iu_rows, iu_cols])
+        
+    return np.array(jcd_list, dtype=np.float32) if jcd_list else np.zeros((0, int(comb(joints_num, 2))), dtype=np.float32)
+
+def get_bone_spherical_angles(v): # v is (num_frames, dims) or (dims) for a single vector
+    v = np.atleast_2d(v) # Ensure v is at least 2D for consistent indexing
+    norm_xy = np.sqrt(v[:, 0]**2 + v[:, 1]**2)
+    # Avoid division by zero or log of zero for elevation if norm_xy is zero
+    elevation = np.arctan2(v[:, 2], norm_xy, out=np.zeros_like(v[:,2]), where=norm_xy!=0)
+    azimuth = np.arctan2(v[:, 1], v[:, 0])
+    return np.column_stack([elevation, azimuth])
+
+def get_body_spherical_angles(body_coords): # body_coords is (frames, joints, dims)
+    num_frames = body_coords.shape[0]
+    if num_frames == 0:
+        # Estimate number of bones from CONNECTING_JOINT. This is tricky.
+        # Assuming CONNECTING_JOINT defines pairs or a sequence.
+        # The original Keras code: (len(connecting_joint)-1)*2. This implies connecting_joint has one more element than bones.
+        # Let's assume CONNECTING_JOINT implies len(CONNECTING_JOINT) bones.
+        num_angle_feats = len(CONNECTING_JOINT) * 2 # Each bone gives 2 angles
+        return np.zeros((0, num_angle_feats), dtype=np.float32)
+
+    all_bone_angles_list = []
+    # This definition of bones needs to be accurate.
+    # The Keras code iterates `range(len(connecting_joint)-1)` implying `connecting_joint` defines a sequence.
+    # Let's assume it means bones between `joint[i]` and `joint[connecting_joint[i]]`
+    # Or more simply, bones between `joint[i]` and `joint[j]` where (i,j) are defined pairs.
+    # The original Keras code `body[:, i+1] - body[:, i]` is a sequential definition.
+    # Let's use a more robust definition if NTU standard bones are known, or stick to sequential.
+    # For now, using sequential bones based on the loop in Keras: body[:, bone_idx+1] - body[:, bone_idx]
+    # This assumes joints are ordered to form meaningful sequential bones.
+    num_joints = body_coords.shape[1]
+    for bone_idx in range(num_joints - 1): # Iterate through possible sequential bones
+        # Check if both joints for the bone are within bounds
+        if bone_idx < num_joints and (bone_idx + 1) < num_joints:
+            bone_vectors = body_coords[:, bone_idx + 1, :] - body_coords[:, bone_idx, :] # Vector for each frame
+            if bone_vectors.shape[0] > 0: # Ensure there are frames
+                spherical_angles = get_bone_spherical_angles(bone_vectors) # (frames, 2)
+                all_bone_angles_list.append(spherical_angles)
+
+    if not all_bone_angles_list:
+        return np.zeros((num_frames, 0), dtype=np.float32)
+
+    return np.concatenate(all_bone_angles_list, axis=1)
+
+def get_pose_data_processed(body_raw, is_validation, model_params):
+    if body_raw is None or body_raw.shape[0] == 0:
+        print("Warning: get_pose_data_processed received None or empty body_raw.")
+        # Return a zero array of expected feature dimension and a plausible sequence length
+        _target_len_fallback = abs(model_params.get('max_seq_len', 32))
+        if _target_len_fallback == 0: _target_len_fallback = 32
+        _num_feats_fallback = model_params.get('num_feats', 100) # Get this from model_params or calculate
+        return np.zeros((_target_len_fallback, _num_feats_fallback), dtype=np.float32)
+
+    max_seq_len_param = model_params.get('max_seq_len', -32)
+    joints_num = model_params.get('joints_num', 25)
+    joints_dim = model_params.get('joints_dim', 3)
+    center_skels = model_params.get('center_skels', True)
+    h_flip_enabled = model_params.get('h_flip', False)
+    scale_by_torso_enabled = model_params.get('scale_by_torso', True)
+    temporal_scale_range = model_params.get('temporal_scale', False)
+    skip_frames_options = model_params.get('skip_frames', [])
+    average_wrong_skels_enabled = model_params.get('average_wrong_skels', True)
+    scaler_obj = model_params.get('scaler_object', None) # Get scaler from params
+
+    body = body_raw.copy()
+
+    body = body[np.any(np.any(body != 0, axis=2), axis=1)]
+    if body.shape[0] == 0:
+        print("Warning: Skeleton zero length after initial zero-frame removal.")
+        _target_len_fallback = abs(max_seq_len_param) if max_seq_len_param != 0 else 32
+        _num_feats_fallback = model_params.get('num_feats', 100)
+        return np.zeros((_target_len_fallback, _num_feats_fallback), dtype=np.float32)
+
+
+    if average_wrong_skels_enabled:
+        body = average_wrong_frame_skels(body)
+        if body is None or body.shape[0] == 0:
+            print("Warning: Skeleton zero length after averaging wrong frames.")
+            _target_len_fallback = abs(max_seq_len_param) if max_seq_len_param != 0 else 32
+            _num_feats_fallback = model_params.get('num_feats', 100)
+            return np.zeros((_target_len_fallback, _num_feats_fallback), dtype=np.float32)
+
+
+    if not is_validation:
+        if temporal_scale_range and isinstance(temporal_scale_range, (list, tuple)) and len(temporal_scale_range) == 2:
+            orig_len = body.shape[0]
+            min_scale, max_scale = temporal_scale_range
+            if min_scale < max_scale and orig_len > 1 : # Need at least 2 frames to scale meaningfully
+                scale_factor = np.random.uniform(min_scale, max_scale)
+                new_len = max(2, int(round(orig_len * scale_factor)))
+                if new_len != orig_len:
+                    body = zoom_to_target_len(body, new_len, joints_num, joints_dim)
+
+        if skip_frames_options and body.shape[0] > 1:
+            # Ensure skip_rate is at least 1 (no skip)
+            skip_rate_choice = [s for s in skip_frames_options if isinstance(s, int) and s > 0]
+            if skip_rate_choice:
+                skip_rate = np.random.choice(skip_rate_choice)
+                if skip_rate > 1 and body.shape[0] >= skip_rate : # Check if subsampling is possible
+                    start_frame = np.random.randint(skip_rate)
+                    body = body[start_frame::skip_rate]
+                    if body.shape[0] == 0: # After skipping, it might become empty
+                        body = body_raw.copy()[0:1] # Fallback to first frame of original raw
+                        print("Warning: Body became empty after skip_frames, using fallback.")
+
+
+        if h_flip_enabled and np.random.rand() > 0.5:
+            body = flip_skeleton(body)
+
+    # Determine final sequence length for padding/cropping
+    final_target_len = abs(max_seq_len_param)
+    if max_seq_len_param == 0: # Use actual length if max_seq_len is 0
+        final_target_len = body.shape[0]
+        if final_target_len == 0: final_target_len = 1 # Ensure at least 1 frame for feature extraction
+    
+    current_len = body.shape[0]
+
+    if max_seq_len_param > 0: # Zoom to fixed length (max_seq_len_param is positive)
+        if current_len != final_target_len and final_target_len > 0:
+            body = zoom_to_target_len(body, final_target_len, joints_num, joints_dim)
+    elif max_seq_len_param < 0: # Crop if longer, Pad if shorter (max_seq_len_param is negative, use its abs value)
+        target_crop_len = abs(max_seq_len_param)
+        if current_len > target_crop_len:
+            if not is_validation:
+                start = np.random.randint(current_len - target_crop_len + 1) if (current_len - target_crop_len + 1) > 0 else 0
+            else:
+                start = (current_len - target_crop_len) // 2
+            body = body[start : start + target_crop_len]
+        elif current_len < target_crop_len and current_len > 0 : # Pad if shorter but not empty
+            pad_width = target_crop_len - current_len
+            padding = [(pad_width, 0), (0, 0), (0, 0)] # Pre-padding
+            body = np.pad(body, padding, mode='constant', constant_values=0.0)
+        elif current_len == 0 and target_crop_len > 0: # If body became empty, pad to target_crop_len
+            body = np.zeros((target_crop_len, joints_num, joints_dim), dtype=body_raw.dtype)
+
+
+    if body.shape[0] == 0 and final_target_len > 0: # If still empty, create zeros
+        print(f"Warning: Body is empty before feature extraction. Creating zeros of length {final_target_len}.")
+        body = np.zeros((final_target_len, joints_num, joints_dim), dtype=body_raw.dtype)
+    elif body.shape[0] == 0 and final_target_len == 0: # Should not happen if final_target_len defaults to 1
+        _num_feats_fallback = model_params.get('num_feats', 100)
+        return np.zeros((1, _num_feats_fallback), dtype=np.float32)
+
+
+    if scale_by_torso_enabled:
+        body = scale_skel_by_torso(body)
+
+    body_uncentered_for_raw_coords = body.copy() if model_params.get('use_coords_raw', False) else None
+    skels_to_process = body # Default to 'body' which might be uncentered
+
+    if center_skels:
+        transf_matrix = get_transformation_matrix_global(body) # Use original body for transform calc
+        skels_to_process = transform_skel_global(body, transf_matrix) # Centered version for features
+
+    # --- Feature Extraction ---
+    num_frames_for_features = skels_to_process.shape[0]
+    if num_frames_for_features == 0 and final_target_len > 0: # If skels_to_process became empty
+        skels_to_process = np.zeros((final_target_len, joints_num, joints_dim), dtype=body.dtype)
+        num_frames_for_features = final_target_len
+    elif num_frames_for_features == 0 and final_target_len == 0:
+        _num_feats_fallback = model_params.get('num_feats', 100)
+        return np.zeros((1, _num_feats_fallback), dtype=np.float32)
+
+
+    pose_features_list = []
+
+    if model_params.get('use_bone_angles', False):
+        # Use original body (before centering) for non-centered bone angles
+        # print(f"Extracting bone angles from body with shape {body.shape} for {num_frames_for_features} frames.")
+        angles = get_body_spherical_angles(body)
+        # print(f"Extracted bone angles shape: {angles.shape} for {num_frames_for_features} frames.")
+        # exit(0) # Debugging exit point
+        if angles.shape[0] == num_frames_for_features : pose_features_list.append(angles)
+        elif angles.shape[0] > 0 : pose_features_list.append(zoom_to_target_len(angles.reshape(angles.shape[0], -1, 1), num_frames_for_features, angles.shape[1], 1).reshape(num_frames_for_features, -1))
+
+
+    if model_params.get('use_bone_angles_cent', False):
+        angles_cent = get_body_spherical_angles(skels_to_process)
+        if angles_cent.shape[0] == num_frames_for_features: pose_features_list.append(angles_cent)
+        elif angles_cent.shape[0] > 0 : pose_features_list.append(zoom_to_target_len(angles_cent.reshape(angles_cent.shape[0], -1, 1), num_frames_for_features, angles_cent.shape[1], 1).reshape(num_frames_for_features, -1))
+
+
+    if model_params.get('use_coords_raw', False):
+        if body_uncentered_for_raw_coords is not None:
+            coords_raw_reshaped = body_uncentered_for_raw_coords.reshape(body_uncentered_for_raw_coords.shape[0], -1)
+            if coords_raw_reshaped.shape[0] == num_frames_for_features: pose_features_list.append(coords_raw_reshaped)
+            elif coords_raw_reshaped.shape[0] > 0 : pose_features_list.append(zoom_to_target_len(coords_raw_reshaped.reshape(coords_raw_reshaped.shape[0], -1, 1), num_frames_for_features, coords_raw_reshaped.shape[1], 1).reshape(num_frames_for_features, -1))
+
+    if model_params.get('use_coords', True): # Default to True if not specified
+        coords_reshaped = skels_to_process.reshape(num_frames_for_features, -1)
+        pose_features_list.append(coords_reshaped)
+
+
+    jcd_calculated_feats = None
+    if model_params.get('use_jcd_features', False) or model_params.get('use_jcd_diff', False):
+        jcd_calculated_feats = get_jcd_features(skels_to_process, joints_num)
+        if model_params.get('use_jcd_features', False):
+            if jcd_calculated_feats.shape[0] == num_frames_for_features: pose_features_list.append(jcd_calculated_feats)
+            elif jcd_calculated_feats.shape[0] > 0 : pose_features_list.append(zoom_to_target_len(jcd_calculated_feats.reshape(jcd_calculated_feats.shape[0], -1, 1), num_frames_for_features, jcd_calculated_feats.shape[1], 1).reshape(num_frames_for_features, -1))
+
+
+    if model_params.get('use_jcd_diff', False):
+        num_jcd_comb = int(comb(joints_num, 2)) if joints_num >= 2 else 0
+        if jcd_calculated_feats is not None and jcd_calculated_feats.shape[0] > 1:
+            jcd_diff_val = jcd_calculated_feats[1:] - jcd_calculated_feats[:-1]
+            jcd_diff_val = np.concatenate([jcd_diff_val[0:1] if jcd_diff_val.shape[0] > 0 else np.zeros((1, num_jcd_comb)), jcd_diff_val], axis=0) # Prepend
+        else:
+            jcd_diff_val = np.zeros((num_frames_for_features, num_jcd_comb), dtype=skels_to_process.dtype)
+        if jcd_diff_val.shape[0] == num_frames_for_features : pose_features_list.append(jcd_diff_val)
+        elif jcd_diff_val.shape[0] > 0 : pose_features_list.append(zoom_to_target_len(jcd_diff_val.reshape(jcd_diff_val.shape[0], -1, 1), num_frames_for_features, jcd_diff_val.shape[1], 1).reshape(num_frames_for_features, -1))
+
+
+    if model_params.get('use_speeds', False):
+        if num_frames_for_features > 1:
+            speed_feats_val = skels_to_process[1:] - skels_to_process[:-1]
+            speed_feats_val = np.concatenate([speed_feats_val[0:1] if speed_feats_val.shape[0] > 0 else np.zeros((1, joints_num, joints_dim)), speed_feats_val], axis=0) # Prepend
+            speed_feats_val = speed_feats_val.reshape(num_frames_for_features, -1)
+        else:
+            speed_feats_val = np.zeros((num_frames_for_features, joints_num * joints_dim), dtype=skels_to_process.dtype)
+        pose_features_list.append(speed_feats_val)
+
+    if not pose_features_list:
+        print("Warning: No features were extracted! Returning zeros.")
+        # Ensure num_feats is available in model_params for fallback
+        _num_feats_fallback = model_params.get('num_feats', 100)
+        return np.zeros((final_target_len if final_target_len > 0 else 1, _num_feats_fallback), dtype=np.float32)
+
+    # Ensure all feature arrays in list have the same number of frames (num_frames_for_features)
+    # This should be guaranteed by processing steps if sequence length handling is correct.
+    # If not, one might need to resize them here before concatenation.
+    # For now, assume they are all num_frames_for_features long.
+
+    pose_features_final = np.concatenate(pose_features_list, axis=1).astype(np.float32)
+
+    if scaler_obj is not None:
+        try:
+            pose_features_final = scaler_obj.transform(pose_features_final)
+        except Exception as e:
+            print(f"Warning: Error applying scaler: {e}. Features not scaled.")
+
+
+    # Final check on sequence length and feature dimension
+    expected_num_feats = model_params.get('num_feats', -1)
+    if expected_num_feats != -1 and pose_features_final.shape[1] != expected_num_feats:
+        print(f"Warning: Mismatch in feature dimension! Expected {expected_num_feats}, got {pose_features_final.shape[1]}. This can cause errors.")
+        # Option: Pad/truncate features, or error out, or re-calculate expected_num_feats based on selected features.
+        # This often indicates an issue in get_num_feats or feature selection logic.
+
+    # Ensure final output matches final_target_len (especially if max_seq_len was 0)
+    if pose_features_final.shape[0] != final_target_len and final_target_len > 0 :
+        print(f"Warning: Final processed features length ({pose_features_final.shape[0]}) != final_target_len ({final_target_len}). Resizing features.")
+        # Reshape to (frames, features, 1) for zoom, then back
+        current_feat_dim = pose_features_final.shape[1]
+        pose_features_final_reshaped = pose_features_final.reshape(pose_features_final.shape[0], current_feat_dim, 1)
+        pose_features_final = zoom_to_target_len(pose_features_final_reshaped, final_target_len, current_feat_dim, 1).reshape(final_target_len, current_feat_dim)
+
+    elif final_target_len == 0 and pose_features_final.shape[0] == 0: # Handle case where max_seq_len=0 and input was empty
+        _num_feats_fallback = model_params.get('num_feats', 100)
+        return np.zeros((1, _num_feats_fallback), dtype=np.float32) # Return at least one frame
+
+
+    return pose_features_final
 
 def zoom_to_max_len(p, max_seq_len, joints_num, joints_dim, force=False):
     # Resize movement
@@ -59,8 +676,7 @@ def zoom_to_max_len(p, max_seq_len, joints_num, joints_dim, force=False):
         p_new = p
     return p_new
 
-
-def get_jcd_features(p, joints_num, max_seq_len):
+def get_jcd_features1(p, joints_num, max_seq_len):
     # Get joint distances
     jcd = []
     iu = np.triu_indices(joints_num, 1, joints_num)
@@ -72,94 +688,6 @@ def get_jcd_features(p, joints_num, max_seq_len):
 
     return jcd
 
-
-def get_bone_spherical_angles(v):
-    elevation = np.arctan2(v[:, 2], np.sqrt(v[:, 0]**2 + v[:, 1]**2))
-    azimuth = np.arctan2(v[:, 1], v[:, 0])
-    return np.column_stack([elevation, azimuth])
-
-
-def get_body_spherical_angles(body):
-    angles = np.column_stack([get_bone_spherical_angles(
-        body[:, i+1] - body[:, i]) for i in range(len(connecting_joint)-1)])
-    return angles
-
-
-def unit_vector(vector):
-    """ Returns the unit vector of the vector.  """
-    return vector / np.linalg.norm(vector)
-
-
-def matrix_unit_vector(matrix):
-    div = np.linalg.norm(matrix, axis=1)[:, None]
-    return np.divide(matrix, div, out=np.zeros_like(matrix), where=div != 0)
-
-
-def get_transformation_matrix_global(skel):
-    o = (skel[:, 16, :] + skel[:, 12, :]) / 2
-    x = matrix_unit_vector(skel[:, 12] - o)
-    z = matrix_unit_vector(skel[:, 20] - o)
-    y = np.cross(x, z)
-
-    x[(x == 0).any(axis=1)] = [1, 0, 0]
-    y[(y == 0).any(axis=1)] = [0, 1, 0]
-    z[(z == 0).any(axis=1)] = [0, 0, 1]
-
-    r = [np.linalg.inv(np.column_stack(
-        [[*x[i], 0], [*y[i], 0], [*z[i], 0], [*o[i], 1]])) for i in range(len(skel))]
-    return np.stack(r)
-
-
-def transform_skel_global(skel, r):
-    skel = np.concatenate([skel, np.ones((skel.shape[0], 25, 1))], axis=-1)
-    skel = np.matmul(skel, r.transpose([0, 2, 1]))
-    skel = skel[..., :3]
-    return skel
-
-# Exanche coordinates between simetric joints and flip the X axis
-# Flip X axis to the not simetric joints
-# The body remains looking at the same side but with fliped movements respect to X axis
-
-
-def flip_skeleton(skel, flip_axis=0):
-    # skel[..., 0] = -skel[..., 0]
-    aux = skel[..., flip_correspondences_left, :]
-    skel[..., flip_correspondences_left,
-         :] = skel[..., flip_correspondences_right, :]
-    skel[..., flip_correspondences_right, :] = aux
-
-    skel[..., flip_correspondences_left, flip_axis] = - \
-        skel[..., flip_correspondences_left, flip_axis]
-    skel[..., flip_correspondences_right, flip_axis] = - \
-        skel[..., flip_correspondences_right, flip_axis]
-    skel[..., spine, flip_axis] = -skel[..., spine, flip_axis]
-    return skel
-
-
-def scale_skel_by_torso(skel):
-    torso_dists = np.linalg.norm(skel[:, 20] - skel[:, 1], axis=1) +\
-        np.linalg.norm(skel[:, 1] - skel[:, 0], axis=1)
-    for i in range(skel.shape[0]):
-        rel = 0.4 / torso_dists[i] if torso_dists[i] != 0 else 1
-        skel[i] = skel[i] * rel
-    return skel
-
-
-def average_wrong_frame_skels(skels):
-    good_frames = np.all(~np.all(skels == 0, axis=2), axis=1)
-    for num_frame, gf in enumerate(good_frames):
-        if gf:
-            continue
-        if num_frame == 0:
-            skels[num_frame] = skels[num_frame+1]
-        elif num_frame == len(skels)-1:
-            skels[num_frame] = skels[num_frame-1]
-        else:
-            skels[num_frame] = (skels[num_frame+1] + skels[num_frame-1])/2
-    return skels
-
-
-# skip_frames -> list with the number of frames-1 to skip, to be choosen randomly
 def get_pose_data_v2(body, max_seq_len, joints_num, joints_dim, center_skels,
                      h_flip, scale_by_torso, temporal_scale, scaler,
                      validation,
@@ -258,7 +786,7 @@ def get_pose_data_v2(body, max_seq_len, joints_num, joints_dim, center_skels,
             skels, (num_frames, joints_num * joints_dim)))
 
     if use_jcd_diff or use_jcd_features:
-        jcd_features = get_jcd_features(skels, joints_num, num_frames)
+        jcd_features = get_jcd_features1(skels, joints_num, num_frames)
 
         if use_jcd_diff:  # 300 = comb(25,2)
             # Distance difference between frames per each pair of joints
@@ -293,579 +821,319 @@ def get_pose_data_v2(body, max_seq_len, joints_num, joints_dim, center_skels,
     return pose_features
 
 
-def get_scaler_filename(joints_num, joints_dim,
-                        center_skels, scale_by_torso,
 
-                        use_jcd_features, use_speeds,
-                        use_coords_raw, use_coords, use_jcd_diff,
-                        use_bone_angles,
-                        use_bone_angles_cent,
-                        num_feats,
-                        **kwargs):
-    return '/home/asabater/datasets/NTU-120/data_scalers/' +\
-        'std_msl{}_jn{}_jd{}_cskl{}_strs{}'.format(
-            -1, joints_num, joints_dim,
-            'T' if center_skels else 'F',
-            'T' if scale_by_torso else 'F') +\
-        '_jcd{}_spds{}_coordsraw{}_coords{}_jcddiff{}_angs{}_angscent{}_numfeats{}.pckl'.format(
+# =============================================================================
+# PyTorch Dataset Class (Revised for Single Sample Output)
+# =============================================================================
 
-            'T' if use_jcd_features else 'F',
-            'T' if use_speeds else 'F',
-            'T' if use_coords_raw else 'F',
-            'T' if use_coords else 'F',
-            'T' if use_jcd_diff else 'F',
-            'T' if use_bone_angles else 'F',
-            'T' if use_bone_angles_cent else 'F',
-            num_feats
+class TripletPoseDataset(Dataset):
+    def __init__(self, pose_annotations_file, validation_mode, in_memory, **model_params_kwargs):
+        self.pose_annotations_file = pose_annotations_file
+        self.is_validation = validation_mode
+        self.in_memory_data = in_memory
+        self.model_params = model_params_kwargs
+
+        print(f"\nInitializing PoseDataset (Single Sample Output):")
+        print(f"  Annotations: {self.pose_annotations_file}")
+        print(f"  Validation Mode: {self.is_validation}")
+        print(f"  In Memory: {self.in_memory_data}")
+
+        self.samples = self._read_annotations()
+        if not self.samples:
+            raise ValueError(f"No samples found or loaded from annotation file: {pose_annotations_file}")
+
+        self.scaler = None
+        if self.model_params.get('scale_data', False):
+            try:
+                scaler_path = self.model_params.get('scaler_path_override', None) # Allow override for testing
+                if not scaler_path:
+                    # Attempt to use get_scaler_filename if available and TF-free
+                    if 'get_scaler_filename' in globals() and callable(get_scaler_filename):
+                        scaler_path = get_scaler_filename(**self.model_params)
+                    else: # Fallback or error if get_scaler_filename isn't usable
+                        print("  Warning: get_scaler_filename not available. Cannot determine scaler path.")
+                        raise FileNotFoundError("Scaler path determination failed.")
+
+                print(f"  Attempting to load scaler from: {scaler_path}")
+                with open(scaler_path, 'rb') as f:
+                    self.scaler = pickle.load(f)
+                self.model_params['scaler_object'] = self.scaler # Make it available to get_pose_data_processed
+                print(f"  Scaler loaded successfully from {scaler_path}")
+            except FileNotFoundError:
+                print(f"  Warning: Scaler file not found at '{scaler_path}'. Proceeding without feature scaling.")
+                self.model_params['scale_data'] = False
+            except Exception as e:
+                print(f"  Warning: Could not load or use scaler: {e}. Proceeding without feature scaling.")
+                self.model_params['scale_data'] = False
+        
+        self.loaded_raw_cache = {}
+        if self.in_memory_data:
+            print(f"  Loading all raw skeleton data into memory...")
+            num_loaded = 0
+            for sample_info in self.samples:
+                file_path = sample_info['file_path'] # Changed from 'anchor_path'
+                if file_path not in self.loaded_raw_cache:
+                    raw_data = load_skeleton_data(file_path)
+                    if raw_data is not None:
+                        self.loaded_raw_cache[file_path] = raw_data
+                        num_loaded +=1
+            print(f"  Loaded raw data for {num_loaded} unique files into memory.")
+
+
+    def _read_annotations(self):
+        """Reads annotation file, expects 'file_path label' per line."""
+        samples_list = []
+        print(f"  Reading annotations from: {self.pose_annotations_file}")
+        try:
+            with open(self.pose_annotations_file, 'r') as f:
+                for i, line in enumerate(f):
+                    parts = line.strip().split()
+                    if len(parts) >= 2:
+                        file_path = parts[0]
+                        try:
+                            label = int(parts[1])
+                            samples_list.append({
+                                'id': i,
+                                'file_path': file_path, # Renamed from 'anchor_path'
+                                'class_id': label - 1 # Adjusted to 0-indexed       
+                            })
+                        except ValueError:
+                            print(f"    Warning: Invalid label format on line {i+1}: {line.strip()}")
+                    else:
+                        print(f"    Warning: Skipping line {i+1} due to incorrect format: {line.strip()}")
+        except FileNotFoundError:
+            print(f"  CRITICAL Error: Annotation file not found at {self.pose_annotations_file}")
+            return []
+        print(f"  Found {len(samples_list)} samples in annotations.")
+        return samples_list
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, idx):
+        """
+        Fetches and processes one single data sample and its class label.
+        Triplet mining will happen in the training loop based on batches of these.
+        """
+        sample_info = self.samples[idx]
+        file_path = sample_info['file_path']
+        class_id = sample_info['class_id']
+
+        raw_data_sample = None
+        if self.in_memory_data:
+            raw_data_sample = self.loaded_raw_cache.get(file_path)
+        else:
+            raw_data_sample = load_skeleton_data(file_path)
+        if raw_data_sample is None:
+            print(f"Warning: Failed to load raw data for sample at index {idx}, path {file_path}. Returning dummy data.")
+            _seq_len = abs(self.model_params.get('max_seq_len', 32))
+            if _seq_len == 0: _seq_len = 32
+            _num_feats = self.model_params.get('num_feats', 423)
+            dummy_features = torch.zeros(_seq_len, _num_feats, dtype=torch.float32)
+            dummy_label = torch.tensor(0, dtype=torch.long) # Default label
+            return dummy_features, dummy_label
+
+        body_selected = get_body_skel(raw_data_sample, self.is_validation, mode=self.model_params.get('get_body_skel_mode', 'var'))
+        
+        if body_selected is None or body_selected.shape[0] == 0:
+            print(f"Warning: Failed to select a valid body skeleton for sample {file_path}. Returning dummy data.")
+            _seq_len = abs(self.model_params.get('max_seq_len', 32))
+            if _seq_len == 0: _seq_len = 32
+            _num_feats = self.model_params.get('num_feats', 423)
+            dummy_features = torch.zeros(_seq_len, _num_feats, dtype=torch.float32)
+            dummy_label = torch.tensor(class_id, dtype=torch.long) # Still return correct label if possible
+            return dummy_features, dummy_label
+
+
+        # Process the single selected body
+        # The scaler object is now passed via model_params if loaded in __init__
+        processed_features_np = get_pose_data_processed(body_selected, self.is_validation, self.model_params)
+
+        if processed_features_np is None:
+            print(f"Warning: Failed to process skeleton for sample {file_path}. Returning dummy data.")
+            _seq_len = abs(self.model_params.get('max_seq_len', 32))
+            if _seq_len == 0: _seq_len = 32
+            _num_feats = self.model_params.get('num_feats', 423)
+            dummy_features = torch.zeros(_seq_len, _num_feats, dtype=torch.float32)
+            dummy_label = torch.tensor(class_id, dtype=torch.long)
+            return dummy_features, dummy_label
+
+
+        # Convert to PyTorch Tensors
+        features_tensor = torch.from_numpy(processed_features_np.astype(np.float32))
+        label_tensor = torch.tensor(class_id, dtype=torch.long)
+
+        return features_tensor, label_tensor
+
+class TherapyDataset(Dataset):
+    def __init__(self, data_df, video_skels, in_memory=False, validation=False,
+                 max_seq_len=100, joints_num=25, joints_dim=3, num_jcd_feats=300,
+                 scale_data=None,
+                 center_skels=True, h_flip=False, scale_by_torso=False, temporal_scale=False,
+                 use_jcd_features=False, use_speeds=False,
+                 use_coords_raw=False, use_coords=False, use_jcd_diff=False,
+                 use_bone_angles=False, use_bone_angles_cent=False,
+                 classification=True, num_classes=None,
+                 **kwargs):
+        self.data_df = data_df
+        self.video_skels = video_skels
+        self.in_memory = in_memory
+        self.validation = validation
+
+        # Store all params needed for get_pose_data_v2
+        self.max_seq_len = max_seq_len
+        self.joints_num = joints_num
+        self.joints_dim = joints_dim
+        self.num_jcd_feats = num_jcd_feats
+        self.scale_data = scale_data
+        self.center_skels = center_skels
+        self.h_flip = h_flip
+        self.scale_by_torso = scale_by_torso
+        self.temporal_scale = temporal_scale
+        self.use_jcd_features = use_jcd_features
+        self.use_speeds = use_speeds
+        self.use_coords_raw = use_coords_raw
+        self.use_coords = use_coords
+        self.use_jcd_diff = use_jcd_diff
+        self.use_bone_angles = use_bone_angles
+        self.use_bone_angles_cent = use_bone_angles_cent
+        self.classification = classification
+        self.num_classes = num_classes if num_classes else len(self.data_df['action'].unique())
+
+        # Map actions to indexes for classification labels
+        self.actions = sorted(self.data_df['action'].unique())
+        self.action_to_idx = {a: i for i, a in enumerate(self.actions)}
+
+        if self.in_memory:
+            print("Loading all samples into memory...")
+            self.preloaded_data = [self._load_sample(i) for i in range(len(self.data_df))]
+        else:
+            self.preloaded_data = None
+
+    def __len__(self):
+        return len(self.data_df)
+
+    def _load_sample(self, idx):
+        row = self.data_df.iloc[idx]
+
+        filename = row['preds_filename']
+        action = row['action']
+        start = row['preds_init']
+        end = row['preds_end']
+
+        if filename not in self.video_skels:
+            raise RuntimeError(f"File {filename} not found in video_skels")
+
+        timestamps, frame_indices, skeletons = self.video_skels[filename]
+
+        skel_clip = skeletons[start:end + 1]
+
+        # Call your existing pose feature extractor
+        sample_np = get_pose_data_v2(
+            skel_clip,
+            self.max_seq_len,
+            self.joints_num,
+            self.joints_dim,
+            self.center_skels,
+            self.h_flip,
+            self.scale_by_torso,
+            self.temporal_scale,
+            None,  # scaler (pass None or implement if you have one)
+            self.validation,
+            self.use_jcd_features,
+            self.use_speeds,
+            self.use_coords_raw,
+            self.use_coords,
+            self.use_jcd_diff,
+            self.use_bone_angles,
+            self.use_bone_angles_cent,
+            skip_frames=[],
         )
 
+        # Convert numpy array to torch tensor
+        sample_tensor = torch.tensor(sample_np, dtype=torch.float32)
 
-def load_scaler(joints_num, joints_dim,
-                center_skels, scale_by_torso,
-                use_jcd_features, use_speeds,
-                use_coords_raw, use_coords, use_jcd_diff,
-                use_bone_angles,
-                use_bone_angles_cent,
-                num_feats,
-                **kwargs):
-    filename = get_scaler_filename(joints_num, joints_dim,
-                                   center_skels, scale_by_torso,
-
-                                   use_jcd_features, use_speeds,
-                                   use_coords_raw, use_coords, use_jcd_diff,
-                                   use_bone_angles,
-                                   use_bone_angles_cent,
-                                   num_feats)
-    scaler = pickle.load(open(filename, 'rb'))
-    return scaler
-
-
-def get_num_feats(joints_num, joints_dim,
-                  use_jcd_features, use_speeds, use_coords_raw, use_coords, use_jcd_diff,
-                  use_bone_angles, use_bone_angles_cent, **kwargs):
-
-    num_feats = 0
-    if use_bone_angles:
-        num_feats += (len(connecting_joint)-1)*2
-    if use_bone_angles_cent:
-        num_feats += (len(connecting_joint)-1)*2
-    if use_jcd_features:
-        num_feats += int(comb(joints_num, 2))
-    if use_speeds:
-        num_feats += joints_num * joints_dim
-    if use_coords_raw:
-        num_feats += joints_num * joints_dim
-    if use_coords:
-        num_feats += joints_num * joints_dim
-    if use_jcd_diff:
-        num_feats += int(comb(joints_num, 2))
-
-    return num_feats
-
-
-def get_body_skel(pose_raw, validation, mode='var'):
-    n_bodys = list(set(pose_raw['nbodys']))
-    if len(n_bodys) == 0:
-        p = pose_raw['skel_body0']
-    else:
-        body_lens = np.array([len(pose[np.all(~np.all(pose == 0, axis=2), axis=1)]) for pose in
-                              [pose_raw['skel_body{}'.format(i)] for i in range(max(n_bodys))]])
-        body_lens = np.where(body_lens == max(body_lens))[0]
-        if validation:
-            if mode == 'normal':
-                p = pose_raw['skel_body{}'.format(body_lens[0])]
-            elif mode == 'var':
-                stds = [pose_raw['skel_body{}'.format(i)].std() for i in range(
-                    len(np.where(body_lens == max(body_lens))[0]))]
-                p = pose_raw['skel_body{}'.format(
-                    body_lens[stds.index(max(stds))])]
-                # print(stds)
-            else:
-                raise ValueError('')
+        if self.classification:
+            label_idx = self.action_to_idx[action]
+            return sample_tensor, torch.tensor(label_idx, dtype=torch.long)
         else:
-            p_ind = np.random.choice(body_lens)
-            p = pose_raw['skel_body{}'.format(p_ind)]
-    return p
+            return sample_tensor
 
-
-def plot_skeleton_frame(body_pose, frame_idx=0, bones=None, title=None):
-    """
-    Plot 3D skeleton for a single frame with bone connections.
-
-    Args:
-        body_pose (np.ndarray): Array of shape (frames, joints, 3)
-        frame_idx (int): Index of the frame to plot
-        bones (list of tuples): List of (start_joint, end_joint) connections
-        title (str): Optional plot title
-    """
-    if bones is None:
-        # Default bone connections, use your own
-        bones = [
-            (2, 3), (20, 2), (1, 20), (0, 1),
-            (0, 16), (12, 0), (20, 8), (9, 8),
-            (10, 9), (4, 20), (5, 4), (6, 5),
-            (18, 17), (14, 13), (17, 16), (13, 12),
-            (18, 19), (14, 15)
-        ]
-    
-    print(f"Plotting frame {frame_idx} with shape {body_pose.shape}")
-    joints = body_pose[frame_idx]
-
-    fig = plt.figure(figsize=(8, 8))
-    ax = fig.add_subplot(111, projection='3d')
-
-    # Plot joints
-    ax.scatter(joints[:, 0], joints[:, 1], joints[:, 2], c='blue', s=30)
-
-    # Plot bones
-    for start, end in bones:
-        x = [joints[start][0], joints[end][0]]
-        y = [joints[start][1], joints[end][1]]
-        z = [joints[start][2], joints[end][2]]
-        ax.plot(x, y, z, c='red', linewidth=2)
-
-    ax.set_title(title or f"3D Skeleton Frame {frame_idx}")
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.set_zlabel('Z')
-    ax.view_init(elev=20, azim=-60)
-
-    plt.tight_layout()
-    plt.show()
-
-# Triplet data generator
-# Each batch is composed by K=4 samples of P=B/K different classes
-# if max_seq_len == 0 -> samples inside a batch are zero-padded to fit their inner max length.
-#                           Longer sequences are zoomed out to fit max_seq_len
-# if max_seq_len > 0 -> samples inside a batch are zoomed-out to fit max_seq_len
-# if max_seq_len < 0 -> samples bigger than max_seq_len are randomly cropped to fit -max_seq_len
-def triplet_data_generator(pose_annotations_file,
-                           batch_size,
-                           max_seq_len, joints_num, joints_dim, num_jcd_feats,
-                           scale_data, in_memory_generator,
-                           decoder, reverse_decoder,
-                           center_skels, h_flip, scale_by_torso,
-                           temporal_scale, validation,
-                           triplet,
-                           classification, num_classes,
-
-                           use_jcd_features, use_speeds,
-                           use_coords_raw, use_coords, use_jcd_diff,
-                           use_bone_angles,
-                           use_bone_angles_cent,
-                           num_feats,
-
-                           skip_frames=[],
-                           average_wrong_skels=True,
-                           is_tcn=False,
-                           K=4,
-                           **kwargs):
-
-    # Reads the annotations and stores them into a dict. Annotations are shuffled
-    def read_annotations():
-        pose_files = {}
-        with open(pose_annotations_file, 'r') as f:
-            for line in f:
-                filename, label = line.split()
-                label = int(label)
-                if label in pose_files:
-                    pose_files[label].append(filename)
-                else:
-                    pose_files[label] = [filename]
-        for k in pose_files.keys():
-            np.random.shuffle(pose_files[k])
-        return pose_files
-
-    # Return a random sample with the given label or a random one if there is no
-    # more samples with that label
-    def get_random_sample(label):
-        if label in pose_files and len(pose_files[label]) > 0:
-            return pose_files[label].pop(), label
+    def __getitem__(self, idx):
+        if self.in_memory:
+            return self.preloaded_data[idx]
         else:
-            if label in pose_files:
-                del pose_files[label]
-            new_label = np.random.choice(list(pose_files.keys()))
-            return get_random_sample(new_label)
+            return self._load_sample(idx)
 
-    print ('\n\n')
-    print('Loading data generator with the following parameters:')
-    print('Batch size:', batch_size)
-    print('Max sequence length:', max_seq_len)
-    print('Joints num:', joints_num)
-    print('Joints dim:', joints_dim)
-    print('Num JCD features:', num_jcd_feats)
-    print('Scale data:', scale_data)
-    print('In memory generator:', in_memory_generator)
-    print('Decoder:', decoder)
-    print('Reverse decoder:', reverse_decoder)
-    print('Center skeletons:', center_skels)
-    print('Horizontal flip:', h_flip)
-    print('Scale by torso:', scale_by_torso)
-    print('Temporal scale:', temporal_scale)
-    print('Validation:', validation)
-    print('Triplet:', triplet)
-    print('Classification:', classification)
-    print('Num classes:', num_classes)
+if __name__ == "__main__":
+    print("Testing TripletPoseDataset...")
+    # Create a dummy annotation file for testing
+    dummy_ann_file = "./ntu_annotations/dummy_annotations.txt"
+    with open(dummy_ann_file, "w") as f:
+        # Create a few dummy .npy files that load_skeleton_data expects
+        # For example, save a dict {'skel_body0': np.random.rand(50, 25, 3)}
+        # to "dummy_skel_0.npy" and "dummy_skel_1.npy"
+        np.save("dummy_skel_0.npy", {'skel_body0': np.random.rand(np.random.randint(20,60), 25, 3).astype(np.float32)})
+        np.save("dummy_skel_1.npy", {'skel_body0': np.random.rand(np.random.randint(20,60), 25, 3).astype(np.float32)})
+        f.write("dummy_skel_0.npy 0\n")
+        f.write("dummy_skel_1.npy 1\n")
+        f.write("dummy_skel_0.npy 0\n") # Another sample of class 0
 
-    if in_memory_generator:
-        print(' ** Data Generator | data will be cached | Validation: {} **'.format(validation))
-        cached_data = {}
-    if scale_data:
-        print(' ** Loading data scaler | Validation: {} **'.format(validation))
-        scaler = load_scaler(joints_num, joints_dim,
-                            center_skels, scale_by_torso,
-
-                            use_jcd_features, use_speeds,
-                            use_coords_raw, use_coords, use_jcd_diff,
-                            use_bone_angles,
-                            use_bone_angles_cent,
-                            num_feats)
-    else:
-        scaler = None
-
-    print(' *** is_tcn', is_tcn)
-
-    if not triplet:
-        K = 1
-
-    assert batch_size % K == 0
-    P = batch_size // K
-    pose_files = read_annotations()
-    print(f'K: {K}, P: {P}, Batch size: {batch_size} | Total poses: {sum([len(v) for v in pose_files.values()])}'
-            , K, P, batch_size)
+    test_model_params = {
+        # --- Fill with relevant parameters from your train.py model_params ---
+        "max_seq_len": -32, "joints_num": 25, "joints_dim": 3,
+        "center_skels": True, "h_flip": True, "scale_by_torso": True,
+        "temporal_scale": [0.8, 1.2], "skip_frames": [2],
+        "use_jcd_features": True, "use_coords": True, "use_bone_angles": True,
+        # ... other feature flags ...
+        "num_feats": get_num_feats( # Use your actual get_num_feats
+            joints_num=25, 
+            joints_dim=3, 
+            use_jcd_features=True, 
+            use_speeds=False,
+            use_coords_raw=False,
+            use_coords=True,
+            use_jcd_diff=False,
+            use_bone_angles=True,
+            use_bone_angles_cent=False
+        ),
+        "scale_data": False, # Set to True if you have a test scaler
+        # "scaler_path_override": "path/to/your/test_scaler.pckl" # If testing scaler
+    }
     
-    if classification:
-        total_labels = sorted(list(pose_files.keys()))
-        labels_dict = {l: i for i, l in enumerate(total_labels)}
-        print('Total labels:', len(total_labels), 'Labels dict:', labels_dict)
-
-    while True:
-        if sum([len(v) for v in pose_files.values()]) < batch_size:
-            # print('Update annotations')
-            pose_files = read_annotations()
-
-        batch_labels = []
-        batch_samples = []
-        if classification:
-            y_clf = []
-        for _ in range(P):
-            label_iter = np.random.choice(list(pose_files.keys()))
-            for i in range(K):
-                filename, label = get_random_sample(label_iter)
-                
-                pose_raw = np.load(filename, allow_pickle=True).item()
-                pose = get_body_skel(pose_raw, validation=True)
-                # print(f"Processing file: {filename}, label: {label}, pose shape: {pose.shape}")
-                # plot_skeleton_frame(pose, frame_idx=0, bones=None, title=f"Pose from {filename}")
-
-                #print(f"\n==> FILENAME: {filename}")
-                #print(f"pose_raw keys: {pose_raw.keys()}")
-                #print(f"  nbodys: {pose_raw['nbodys']}")
-                #print(f"  njoints: {pose_raw['njoints']}")
-
-                #print("file_name:", pose_raw['file_name'])
-                #print("nbodys (first 10 frames):", pose_raw['nbodys'][:10])
-                #print("njoints:", pose_raw['njoints'])
-                #print("skel_body0 shape:", pose_raw['skel_body0'].shape)
-                #print("skel_body0 first frame:\n", pose_raw['skel_body0'][0])
-                #print("rgb_body0 first frame:", pose_raw['rgb_body0'][0])
-                #print("depth_body0 first frame:", pose_raw['depth_body0'][0])
-
-                #if 'skel_body1' in pose_raw:
-                #    print("skel_body1 shape:", pose_raw['skel_body1'].shape)
-                #    print("skel_body1 first frame:\n", pose_raw['skel_body1'][0])
-                #    print("rgb_body1 first frame:", pose_raw['rgb_body1'][0])
-                #    print("depth_body1 first frame:", pose_raw['depth_body1'][0])
-                #
-                #print("number of frames:", len(pose_raw['nbodys']))
-                                
-                if classification:
-                    label_cat = to_categorical(
-                        labels_dict[int(label)], num_classes=num_classes)
-
-                if in_memory_generator and filename in cached_data.keys():
-                    # print('Recovering data', filename)
-                    sample = cached_data[filename]
-                else:
-                    # print('******', filename, '********')
-                    pose_raw = np.load(filename, allow_pickle=True).item()
-
-                    p = get_body_skel(pose_raw, validation)
-
-                    if average_wrong_skels:
-                        average_wrong_frame_skels(p)
-                    sample = get_pose_data_v2(p, max_seq_len, joints_num, joints_dim,
-                                              center_skels, h_flip, scale_by_torso,
-                                              temporal_scale, scaler, validation,
-                                              use_jcd_features, use_speeds,
-                                              use_coords_raw, use_coords, use_jcd_diff,
-                                              use_bone_angles, use_bone_angles_cent,
-                                              skip_frames=skip_frames,
-                                              )
-
-                    # print(validation, in_memory_generator)
-                    if in_memory_generator:
-                        # print('Storing:', filename)
-                        cached_data[filename] = sample
-                batch_samples.append(sample)
-                batch_labels.append(label)
-                if classification:
-                    y_clf.append(label_cat)
-
-        if triplet:
-            batch_labels = np.stack(batch_labels)       # for triplets
-        if classification:
-            y_clf = np.stack(y_clf).astype(
-                'int')              # for classification
-
-        X, Y, sample_weights = [], [], {}
-
-        X = pad_sequences(batch_samples, padding='pre', dtype='float32')
-
-        if triplet:
-            Y.append(batch_labels)
-        if classification:
-            # Y.append(y_clf)
-            Y = y_clf
-        if decoder:
-            decoder_data = [bs[::-1]
-                            for bs in batch_samples] if reverse_decoder else batch_samples
-            padding = 'pre' if is_tcn else 'post'
-            # decoder_data = pad_sequences(decoder_data, padding='post', dtype='float32')
-            decoder_data = pad_sequences(
-                decoder_data, padding=padding, dtype='float32')
-            Y.append(decoder_data)
-            sample_weights['output_{}'.format(len(Y))] = (
-                decoder_data[:, :, 0] != 0).astype('float32')
-
-        # print(Y)
-        # print(X.shape, len(Y))
-        yield X, Y, sample_weights
-
-# def triplet_data_generator_deterministic(pose_annotations_file,
-#                         batch_size,
-#                         max_seq_len, joints_num, joints_dim, num_jcd_feats,
-#                         scale_data, in_memory_generator,
-#                         decoder, reverse_decoder,
-#                         center_skels, h_flip, scale_by_torso,
-#                         temporal_scale, validation,
-#                         triplet,
-#                         classification, num_classes,
-# 
-#                         use_jcd_features, use_speeds,
-#                         use_coords_raw, use_coords, use_jcd_diff,
-#                         use_bone_angles,
-#                         use_bone_angles_cent,
-#                         num_feats,
-# 
-#                         skip_frames=[],
-#                         average_wrong_skels=True,
-#                         is_tcn=False,
-#                         K=4,
-#                         **kwargs
-#                         ):
-# 
-#     # Reads the annotations and stores them into a dict.
-#     def read_annotations():
-#         print('Reading annotations from:', pose_annotations_file)
-#         with open(pose_annotations_file, 'r') as f:
-#             return [(filename, int(label)) for filename, label in (line.strip().split() for line in f)]
-# 
-#     if in_memory_generator:
-#         print(' ** Data Generator | data will be cached | Validation: {} **'.format(validation))
-#         cached_data = {}
-#     if scale_data:
-#         print(' ** Loading data scaler | Validation: {} **'.format(validation))
-#         scaler = load_scaler(joints_num, joints_dim,
-#                              center_skels, scale_by_torso,
-# 
-#                              use_jcd_features, use_speeds,
-#                              use_coords_raw, use_coords, use_jcd_diff,
-#                              use_bone_angles,
-#                              use_bone_angles_cent,
-#                              num_feats)
-#     else:
-#         scaler = None
-# 
-#     if not triplet:
-#         K = 1
-# 
-#     while True:
-#         assert batch_size % K == 0
-#         P = batch_size // K
-#         pose_list = read_annotations()
-#         total_samples = len(pose_list)
-# 
-#         print(f'K: {K}, P: {P}, Batch size: {batch_size} | Total poses: {len(pose_list)}'
-#                 , K, P, batch_size)
-# 
-#         if classification:
-#             total_labels = sorted(set(label for _, label in pose_list))
-#             labels_dict = {l: i for i, l in enumerate(total_labels)}
-#             print('Total labels:', len(total_labels), 'Labels dict:', labels_dict)
-#         for i in range(0, total_samples, batch_size):
-#             batch = pose_list[i:i+batch_size]
-#             
-#             batch_labels = []
-#             batch_samples = []
-#             if classification:
-#                 y_clf = []
-#                 y_raw = []  # store the true/original label
-#             for filename, label in batch:
-#                 if classification:
-#                     label_cat = to_categorical(labels_dict[int(label)], num_classes=num_classes)
-#                     # print('Label:', label, 'Category:', label_cat)
-#                     y_clf.append(label_cat)
-#                     y_raw.append(label)
-#                 if in_memory_generator and filename in cached_data.keys():
-#                     print('Recovering data', filename)
-#                     sample = cached_data[filename]
-#                 else:
-#                     # print('******', filename, '********')
-#                     pose_raw = np.load(filename, allow_pickle=True).item()
-# 
-#                     p = get_body_skel(pose_raw, validation)
-# 
-#                     if average_wrong_skels:
-#                         average_wrong_frame_skels(p)
-#                     sample = get_pose_data_v2(p, max_seq_len, joints_num, joints_dim,
-#                                                 center_skels, h_flip, scale_by_torso,
-#                                                 temporal_scale, scaler, validation,
-#                                                 use_jcd_features, use_speeds,
-#                                                 use_coords_raw, use_coords, use_jcd_diff,
-#                                                 use_bone_angles, use_bone_angles_cent,
-#                                                 skip_frames=skip_frames,
-#                                                 )
-# 
-#                     # print(validation, in_memory_generator)
-#                     if in_memory_generator:
-#                         # print('Storing:', filename)
-#                         cached_data[filename] = sample
-#                 batch_samples.append(sample)
-#                 batch_labels.append(label)
-# 
-#             if triplet:
-#                 batch_labels = np.stack(batch_labels)       # for triplets
-#             if classification:
-#                 y_clf = np.stack(y_clf).astype(
-#                     'int')              # for classification
-# 
-#             X, Y, sample_weights = [], [], {}
-# 
-#             X = pad_sequences(batch_samples, padding='pre', dtype='float32')
-# 
-#             if triplet:
-#                 Y.append(batch_labels)
-#             if classification:
-#                 # Y.append(y_clf)
-#                 Y = y_clf
-#             if decoder:
-#                 decoder_data = [bs[::-1]
-#                                 for bs in batch_samples] if reverse_decoder else batch_samples
-#                 padding = 'pre' if is_tcn else 'post'
-#                 # decoder_data = pad_sequences(decoder_data, padding='post', dtype='float32')
-#                 decoder_data = pad_sequences(
-#                     decoder_data, padding=padding, dtype='float32')
-#                 Y.append(decoder_data)
-#                 sample_weights['output_{}'.format(len(Y))] = (
-#                     decoder_data[:, :, 0] != 0).astype('float32')
-# 
-#             # print(Y)
-#             # print(X.shape, len(Y))
-#             yield X, Y, sample_weights
-
-# %%
-
-def therapy_data_generator(actions_data, video_skels, pose_annotations_file,
-                           batch_size,
-                           max_seq_len, joints_num, joints_dim, num_jcd_feats,
-                           scale_data, in_memory_generator,
-                           decoder, reverse_decoder,
-                           center_skels, h_flip, scale_by_torso,
-                           temporal_scale, validation,
-                           triplet,
-                           classification, num_classes,
-
-                           use_jcd_features, use_speeds,
-                           use_coords_raw, use_coords, use_jcd_diff,
-                           use_bone_angles,
-                           use_bone_angles_cent,
-                           num_feats,
-
-                           skip_frames=[],
-                           average_wrong_skels=True,
-                           is_tcn=False,
-                           K=4,
-                           **kwargs):
+    print(f"Test model parameters: {test_model_params}")
     
-    if classification:
-        total_labels = sorted(actions_data['action'].unique())
-        labels_dict = {label: idx for idx, label in enumerate(total_labels)}
-        print('Total labels:', len(total_labels), 'Labels dict:', labels_dict)
-        
-    while True:
-        X = []
-        y = []
+    try:
+        dataset = TripletPoseDataset(
+            pose_annotations_file=dummy_ann_file,
+            validation_mode=False,
+            in_memory=False,
+            **test_model_params
+        )
+        print(f"Dataset length: {len(dataset)}")
+        if len(dataset) > 0:
+            features, label = dataset[0]
+            print(f"Sample 0 features shape: {features.shape}, dtype: {features.dtype}")
+            print(f"Sample 0 label: {label}, dtype: {label.dtype}")
+            assert features.shape[1] == test_model_params["num_feats"], "Feature dimension mismatch!"
+            assert features.shape[0] == abs(test_model_params["max_seq_len"]), "Sequence length mismatch!"
 
+            features_val, label_val = dataset[1] # Test another sample
+            print(f"Sample 1 features shape: {features_val.shape}")
+            print(f"Sample 1 label: {label_val}")
 
-        batch_labels = []
-        batch_samples = []
-        
-        if classification:
-            y_clf = []
-
-        shuffled_actions = actions_data.sample(frac=1).reset_index(drop=True)
-
-        for _, row in shuffled_actions.iterrows():
-            
-            filename = row['preds_filename']
-            action = row['action']
-            start = row['preds_init']
-            end = row['preds_end']
-            
-            if classification:
-                label_index = labels_dict[action]
-                label_cat = to_categorical(label_index, num_classes=num_classes)
-            
-            if filename not in video_skels:
-                print(f"⚠️ Missing file: {filename}")
-                continue
-            
-            entry = video_skels[filename]
-
-            timestamps, frame_indices, skeletons = entry
-
-            skel_clip = skeletons[start:end+1]
-            
-            scaler = None
-            sample = get_pose_data_v2(skel_clip, max_seq_len, joints_num, joints_dim,
-                                        center_skels, h_flip, scale_by_torso,
-                                        temporal_scale, scaler, validation,
-                                        use_jcd_features, use_speeds,
-                                        use_coords_raw, use_coords, use_jcd_diff,
-                                        use_bone_angles, use_bone_angles_cent,
-                                        skip_frames=skip_frames,
-                                    )
-            
-            batch_samples.append(sample)
-            batch_labels.append(action)
-            
-            if classification:
-                y_clf.append(label_cat)
-            
-            if len(batch_samples) >= batch_size:
-                break
-
-        if classification:
-            y_clf = np.stack(y_clf).astype(
-                'int')              # for classification
-
-        X, Y, sample_weights = [], [], {}
-
-        X = pad_sequences(batch_samples, padding='pre', dtype='float32')
-
-        if classification:
-            Y = y_clf
-
-        yield X, Y, sample_weights
-    
+        # Test with DataLoader
+        loader = DataLoader(dataset, batch_size=2, shuffle=True)
+        for batch_features, batch_labels in loader:
+            print(f"Batch features shape: {batch_features.shape}")
+            print(f"Batch labels: {batch_labels}")
+            break # Just test one batch
+    except Exception as e_test:
+        print(f"Error during Dataset test: {e_test}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        # Clean up dummy files
+        if os.path.exists(dummy_ann_file): os.remove(dummy_ann_file)
+        if os.path.exists("dummy_skel_0.npy"): os.remove("dummy_skel_0.npy")
+        if os.path.exists("dummy_skel_1.npy"): os.remove("dummy_skel_1.npy")
