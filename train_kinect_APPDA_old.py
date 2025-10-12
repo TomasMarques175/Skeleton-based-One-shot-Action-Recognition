@@ -383,8 +383,8 @@ def create_pytorch_model(model_params):
         for var in tf_model.variables:
             # Convert tensor to numpy
             tf_weights[var.name] = var.numpy()
-        #    print(var.name, var.shape)
-
+            # print(var.name, var.shape)
+        
         excluded_pt_keys = [
             'clf_out.weight', 
             'clf_out.bias',
