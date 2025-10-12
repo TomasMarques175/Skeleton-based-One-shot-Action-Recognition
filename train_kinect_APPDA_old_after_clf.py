@@ -849,7 +849,7 @@ def objective(trial):
         "num_workers": 0,  # Number of workers for DataLoader, adjust based on your system
         "K": 5,  # Number of folds for cross-validation
         "path_results": "./pretrained_models_Pytorch/",
-        "model_name": "Models_Therapist_Classifier",
+        "model_name": "Models_Therapist_Classifier_Block_5",
         # "model_name": "Models_Therapist_Classifier_Block_5_4_3_2_1_0_From_Zero",
 
         # Convert Keras parameters to PyTorch equivalents (Set True if The model you want to fine tune is in TensorFlow/Keras format)
@@ -861,7 +861,8 @@ def objective(trial):
         # Path to the pre-trained model in Pytorch format
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier_Block_5_4_3_2_1/0720_0313_model_12\weights\ep002-trainloss20.46306-loss0.81176-f10.54457.pt",
         "pretrained_model_path": "./therapies_model_7/model",
-            
+        "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier",
+        
         # Path to the pre-trained model
         # "pre-trained_model": "./ntu_benchmark_model/model",  # Path to the pre-trained model for NTU-120 one-shot benchmark
         # "pre-trained_model": "./therapies_model_7/model",   # Path to the pre-trained model for the therapies dataset
@@ -903,10 +904,10 @@ def objective(trial):
             # "encoder_net.encoder.0.residual_blocks.4.conv1.bias",
             # "encoder_net.encoder.0.residual_blocks.4.conv2.weight",
             # "encoder_net.encoder.0.residual_blocks.4.conv2.bias",
-            # "encoder_net.encoder.0.residual_blocks.5.conv1.weight",
-            # "encoder_net.encoder.0.residual_blocks.5.conv1.bias",
-            # "encoder_net.encoder.0.residual_blocks.5.conv2.weight",
-            # "encoder_net.encoder.0.residual_blocks.5.conv2.bias",
+            "encoder_net.encoder.0.residual_blocks.5.conv1.weight",
+            "encoder_net.encoder.0.residual_blocks.5.conv1.bias",
+            "encoder_net.encoder.0.residual_blocks.5.conv2.weight",
+            "encoder_net.encoder.0.residual_blocks.5.conv2.bias",
             "clf_out.weight",
             "clf_out.bias",
         ],
@@ -1804,6 +1805,7 @@ if __name__ == "__main__":
     with open(os.path.join(metrics_save_dir, 'best_hyperparams.json'), 'w') as f:
         json.dump(best_params, f, indent=4)
     
+    """
     # TODO: Change this after each run to avoid overwriting
     # Fixed params — the rest of what your model expects
     static_params = {
@@ -1913,11 +1915,11 @@ if __name__ == "__main__":
         "average_wrong_skels": True,
         "average_wrong_skels_method": 'mean',
     }
-
     # Combine the two
     model_params = {**static_params, **best_params}
 
     main(model_params)
+    """
 
     print("\n--- Training script finished ---")
 
