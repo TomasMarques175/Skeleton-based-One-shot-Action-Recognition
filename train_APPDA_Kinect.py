@@ -1571,7 +1571,7 @@ def Data_Loader_Classification(model_params, train_data, val_data, test_data, ba
         train_loader = DataLoader(train_dataset, batch_size=model_params['batch_size'], shuffle=True,
                                 num_workers=model_params.get(
                                     'num_workers', 0),
-                                pin_memory=True if device.type == 'cuda' else False, drop_last=False)
+                                pin_memory=True if device.type == 'cuda' else False, drop_last=True)
         print(
             f"Train DataLoader: Batches per epoch approx {len(train_loader)}")
     except Exception as e:
@@ -2876,6 +2876,7 @@ if __name__ == "__main__":
         ####
         "model_name": "Models_Kinect_APPDA_Classifier", # Trocar o nome da pasta... Não é bloco 0
         ####
+
         # TODO: Change every time you switch to the next model
         # Path to the pre-trained model in Pytorch format
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier_Block_5/0730_1921_model_1/weights/Best_Model-ep300-trainloss0.31293-f10.54116.pt",
@@ -2888,7 +2889,7 @@ if __name__ == "__main__":
         # "pretrained_model_path": "./ntu_benchmark_model/model",
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_Kinect_APPDA_Classifier",
         ####
-        
+
         # TODO: Change every time you switch to the next model
         # Use a pre-trained model (Set True if you want to use a pre-trained model)
         "use_pretrained_model": True,  # Set to True if you want to use a pre-trained model
@@ -2910,7 +2911,7 @@ if __name__ == "__main__":
         # "train_annotations": "./datasets_annotations/therapies_APPDA_MP_upper_body_annotations.txt",
         # "train_annotations": "./ntu_annotations/one_shot_aux_set.txt",
         # "train_annotations": "./datasets_annotations/CADDIN_Final_Validation_MP_upper_body.txt",  # Set True to split the training data into K folds
-        # "train_annotations": "./datasets_annotations/mp_train_upper_body.txt",
+        # "train_annotations": "./datasets_annotations/mp_train_upper_body.txt",f
         "train_annotations": "./datasets_annotations/therapies_APPDA_MP_annotations.txt",
 
         # "val_annotations": "./datasets_annotations/mp_val.txt", # Set in case you don't use K-Fold Cross Validation
