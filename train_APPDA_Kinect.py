@@ -2471,9 +2471,9 @@ def main(model_params):
         
         # Save the mean of the best F1 scores across folds
         # in order to report the overall performance
-        print(f"fold_val_f1_scores: {fold_val_f1_scores}")
+        print(f"\n fold_val_f1_scores: {fold_val_f1_scores}\n")
         mean_best_val_f1 = np.mean(fold_val_f1_scores)
-        print(f"mean_val_f1_scores after: {mean_best_val_f1}")
+        print(f"\n mean_val_f1_scores after: {mean_best_val_f1}\n")
 
         # ----------------------------
         # Save averaged K-fold model
