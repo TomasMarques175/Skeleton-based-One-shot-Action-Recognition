@@ -885,14 +885,14 @@ def Setup_optimizer_and_loss(pytorch_model, model_params, device, train_dataset=
         train_labels_from_dataset = [label for _, label in train_dataset]
         # Convert tensors to integers if needed
         train_labels_from_dataset = [label.item() if torch.is_tensor(label) else label for label in train_labels_from_dataset]
-
+        
         # Infer number of classes from dataset
         num_classes_model = model_params['num_classes']  # full size, e.g. 14
         
         # Count samples per class
         counts = np.bincount(train_labels_from_dataset, minlength=num_classes_model)
         total = counts.sum()
-
+        
         # Compute inverse-frequency weights (avoid divide by zero)
         weights = []
         for i in range(num_classes_model):
@@ -900,33 +900,27 @@ def Setup_optimizer_and_loss(pytorch_model, model_params, device, train_dataset=
                 weights.append(total / (num_classes_model * counts[i]))
             else:
                 weights.append(0.0)
-
+        
         # Convert to tensor directly on device
         weights_tensor = torch.tensor(weights, dtype=torch.float32, device=device)
-
-        # Use in loss function
         criterion_clf = nn.CrossEntropyLoss(weight=weights_tensor)
         active_losses['classification'] = criterion_clf
-
         # Match keras loss_weights['output_1'] = 0.4 if classification is the primary/first output
         loss_weights_pytorch_pt['classification'] = model_params.get('clf_loss_weight', 0.4)
+        
     if model_params.get('triplet', False):  # If you also had triplet loss in Keras
         criterion_triplet_pt = nn.TripletMarginLoss(
             margin=model_params.get('triplet_margin', 1.0))
         active_losses['triplet'] = criterion_clf
         loss_weights_pytorch_pt['triplet'] = model_params.get(
             'triplet_loss_weight', 0.6)  # Example
-        print(' * losses (PyTorch types):', active_losses)
-        print(' * loss_weights (PyTorch):', loss_weights_pytorch_pt)
         # sample_weights_mode is not a direct PyTorch concept, handled manually if needed
 
     # print('\n * Setting optimizer (PyTorch)')
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, pytorch_model.parameters()),
                     lr=model_params['init_lr'])
     # Note: clipnorm is applied manually in PyTorch training loop (torch.nn.utils.clip_grad_norm_)
-    # print(f"   Optimizer: {type(optimizer)}, LR: {model_params['init_lr']}")
-
-
+    
     return active_losses, loss_weights_pytorch_pt, optimizer
 
 def get_best_model_path(model_path_or_folder):
@@ -2477,8 +2471,10 @@ def main(model_params):
         
         # Save the mean of the best F1 scores across folds
         # in order to report the overall performance
+        print(f"fold_val_f1_scores: {fold_val_f1_scores}")
         mean_best_val_f1 = np.mean(fold_val_f1_scores)
-        
+        print(f"mean_val_f1_scores after: {mean_best_val_f1}")
+
         # ----------------------------
         # Save averaged K-fold model
         # ----------------------------
@@ -2708,7 +2704,7 @@ def main(model_params):
                             os.remove(os.path.join(weights_save_path, fname))
                         except Exception as e:
                             print(f"Could not delete {fname}: {e}")
-
+            
         epoch_duration = time.time() - epoch_start_time
         # print(f"Epoch {epoch+1} duration: {epoch_duration:.2f} seconds")
         if epoch_duration > 0:
@@ -2725,8 +2721,9 @@ def main(model_params):
         
         # 1. Find the best values (assuming best means minimum loss, maximum score)
         best_train_loss = np.min(train_losses)
+        
         mean_best_val_f1 = model_params.get('best_val_f1', 0)
-
+        
         # 2. Create filename with best values embedded (rounded for readability)
         filename = (
             f"pytorch_therapy_classifier_train_loss-{best_train_loss:.4f}_"

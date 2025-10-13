@@ -305,8 +305,6 @@ def Setup_optimizer_and_loss(pytorch_model, model_params, device, train_dataset=
         active_losses['triplet'] = criterion_clf
         loss_weights_pytorch_pt['triplet'] = model_params.get(
             'triplet_loss_weight', 0.6)  # Example
-        print(' * losses (PyTorch types):', active_losses)
-        print(' * loss_weights (PyTorch):', loss_weights_pytorch_pt)
         # sample_weights_mode is not a direct PyTorch concept, handled manually if needed
 
     # print('\n * Setting optimizer (PyTorch)')
@@ -314,8 +312,7 @@ def Setup_optimizer_and_loss(pytorch_model, model_params, device, train_dataset=
                     lr=model_params['init_lr'])
     # Note: clipnorm is applied manually in PyTorch training loop (torch.nn.utils.clip_grad_norm_)
     # print(f"   Optimizer: {type(optimizer)}, LR: {model_params['init_lr']}")
-
-
+    
     return active_losses, loss_weights_pytorch_pt, optimizer
 
 def create_pytorch_model(model_params):
@@ -1395,10 +1392,12 @@ def main(model_params):
                     val_f1_scores=np.array(val_f1_scores),
                     val_auc_scores=np.array(val_auc_scores),
                     )
-
+            
+            print(f"\n best_val_f1 for fold {fold+1}: {best_val_f1:.4f} \n")
+            
     else:
         # --- Only Training for the best Hyperparameters using all the data ---
-        print("\n--- Training with all data (no K-Fold) ---")
+        print("\n--- Training with all data (no K-Fold) ---\n")
         
         # --- Create DataLoaders for this fold ---
         # train_loader, val_loader, train_dataset, val_dataset = Create_Therapy_Dataloader(model_params, train_data, video_skels, val_data)
@@ -1626,6 +1625,8 @@ def main(model_params):
         best_train_loss = np.min(train_losses)
         best_val_f1 = model_params.get('best_val_f1', 0)
 
+        print(f"\n best_val_f1: {best_val_f1:.4f} \n")
+        
         # 2. Create filename with best values embedded (rounded for readability)
         filename = (
             f"pytorch_therapy_classifier_train_loss-{best_train_loss:.4f}_"
