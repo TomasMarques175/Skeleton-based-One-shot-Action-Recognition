@@ -885,14 +885,14 @@ def Setup_optimizer_and_loss(pytorch_model, model_params, device, train_dataset=
         train_labels_from_dataset = [label for _, label in train_dataset]
         # Convert tensors to integers if needed
         train_labels_from_dataset = [label.item() if torch.is_tensor(label) else label for label in train_labels_from_dataset]
-
+        
         # Infer number of classes from dataset
         num_classes_model = model_params['num_classes']  # full size, e.g. 14
         
         # Count samples per class
         counts = np.bincount(train_labels_from_dataset, minlength=num_classes_model)
         total = counts.sum()
-
+        
         # Compute inverse-frequency weights (avoid divide by zero)
         weights = []
         for i in range(num_classes_model):
@@ -900,33 +900,27 @@ def Setup_optimizer_and_loss(pytorch_model, model_params, device, train_dataset=
                 weights.append(total / (num_classes_model * counts[i]))
             else:
                 weights.append(0.0)
-
+        
         # Convert to tensor directly on device
         weights_tensor = torch.tensor(weights, dtype=torch.float32, device=device)
-
-        # Use in loss function
         criterion_clf = nn.CrossEntropyLoss(weight=weights_tensor)
         active_losses['classification'] = criterion_clf
-
         # Match keras loss_weights['output_1'] = 0.4 if classification is the primary/first output
         loss_weights_pytorch_pt['classification'] = model_params.get('clf_loss_weight', 0.4)
+        
     if model_params.get('triplet', False):  # If you also had triplet loss in Keras
         criterion_triplet_pt = nn.TripletMarginLoss(
             margin=model_params.get('triplet_margin', 1.0))
         active_losses['triplet'] = criterion_clf
         loss_weights_pytorch_pt['triplet'] = model_params.get(
             'triplet_loss_weight', 0.6)  # Example
-        print(' * losses (PyTorch types):', active_losses)
-        print(' * loss_weights (PyTorch):', loss_weights_pytorch_pt)
         # sample_weights_mode is not a direct PyTorch concept, handled manually if needed
 
     # print('\n * Setting optimizer (PyTorch)')
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, pytorch_model.parameters()),
                     lr=model_params['init_lr'])
     # Note: clipnorm is applied manually in PyTorch training loop (torch.nn.utils.clip_grad_norm_)
-    # print(f"   Optimizer: {type(optimizer)}, LR: {model_params['init_lr']}")
-
-
+    
     return active_losses, loss_weights_pytorch_pt, optimizer
 
 def get_best_model_path(model_path_or_folder):
@@ -1571,7 +1565,7 @@ def Data_Loader_Classification(model_params, train_data, val_data, test_data, ba
         train_loader = DataLoader(train_dataset, batch_size=model_params['batch_size'], shuffle=True,
                                 num_workers=model_params.get(
                                     'num_workers', 0),
-                                pin_memory=True if device.type == 'cuda' else False, drop_last=False)
+                                pin_memory=True if device.type == 'cuda' else False, drop_last=True)
         print(
             f"Train DataLoader: Batches per epoch approx {len(train_loader)}")
     except Exception as e:
@@ -2474,11 +2468,13 @@ def main(model_params):
             
             # Evaluate on all data
             # evaluate_model_on_all_data_mp(pytorch_model, model_number, model_params, device, fold, metrics_save_dir)
+            # in order to report the overall performance
+            print(f"\n fold_val_f1_scores: {fold_val_f1_scores}\n")
         
         # Save the mean of the best F1 scores across folds
-        # in order to report the overall performance
         mean_best_val_f1 = np.mean(fold_val_f1_scores)
-        
+        print(f"\n mean_val_f1_scores: {mean_best_val_f1}\n")
+
         # ----------------------------
         # Save averaged K-fold model
         # ----------------------------
@@ -2708,7 +2704,7 @@ def main(model_params):
                             os.remove(os.path.join(weights_save_path, fname))
                         except Exception as e:
                             print(f"Could not delete {fname}: {e}")
-
+            
         epoch_duration = time.time() - epoch_start_time
         # print(f"Epoch {epoch+1} duration: {epoch_duration:.2f} seconds")
         if epoch_duration > 0:
@@ -2725,8 +2721,9 @@ def main(model_params):
         
         # 1. Find the best values (assuming best means minimum loss, maximum score)
         best_train_loss = np.min(train_losses)
+        
         mean_best_val_f1 = model_params.get('best_val_f1', 0)
-
+        
         # 2. Create filename with best values embedded (rounded for readability)
         filename = (
             f"pytorch_therapy_classifier_train_loss-{best_train_loss:.4f}_"
@@ -2801,14 +2798,14 @@ def objective(trial, static_params):
         "early_stopping_min_delta": trial.suggest_float("early_stopping_min_delta", 1e-5, 1e-2, log=True),
 
         # Changes if training only the 1st layer or also other the layers
-        "init_lr": trial.suggest_float("init_lr", 1e-5, 1e-3, log=True),
-        # "init_lr": trial.suggest_float("init_lr", 1e-6, 1e-5, log=True),
-        "lr_factor": trial.suggest_float("lr_factor", 0.1, 0.9),
-        # "lr_factor": trial.suggest_float("lr_factor", 0.1, 0.3),
-        "lr_patience": trial.suggest_int("lr_patience", 2, 10),
-        # "lr_patience": trial.suggest_int("lr_patience", 10, 20),
-        "es_patience": trial.suggest_int("es_patience", 3, 12),
-        # "es_patience": trial.suggest_int("es_patience", 10, 20),
+        # "init_lr": trial.suggest_float("init_lr", 1e-5, 1e-3, log=True),
+        "init_lr": trial.suggest_float("init_lr", 1e-6, 1e-5, log=True),
+        # "lr_factor": trial.suggest_float("lr_factor", 0.1, 0.9),
+        "lr_factor": trial.suggest_float("lr_factor", 0.1, 0.3),
+        # "lr_patience": trial.suggest_int("lr_patience", 2, 10),
+        "lr_patience": trial.suggest_int("lr_patience", 10, 20),
+        # "es_patience": trial.suggest_int("es_patience", 3, 12),
+        "es_patience": trial.suggest_int("es_patience", 10, 20),
     }
     
     # Combine the two
@@ -2854,7 +2851,8 @@ if __name__ == "__main__":
 
         "epochs": 300, # Number of training epochs
         "K": 5,  # Number of folds for cross-validation
-        "n_trials": 40,  # Number of trials for Optuna
+        # "n_trials": 40,  # Number of trials for Optuna
+        "n_trials": 20,  # Number of trials for Optuna
 
         # Set to 0 for no training logs, 1 for basic logs, >1 for more detailed logs
         "train_verbose": 1,
@@ -2874,8 +2872,9 @@ if __name__ == "__main__":
         # "model_name": "Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp_NEW_after_MP_Therapist_APPDA)",
         # "model_name": "Models_MP_Therapist_APPDA_Block_0(upper_body)",
         ####
-        "model_name": "Models_Kinect_APPDA_Classifier", # Trocar o nome da pasta... Não é bloco 0
+        "model_name": "Models_Kinect_APPDA_Classifier_Block_0", # Trocar o nome da pasta... Não é bloco 0
         ####
+
         # TODO: Change every time you switch to the next model
         # Path to the pre-trained model in Pytorch format
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier_Block_5/0730_1921_model_1/weights/Best_Model-ep300-trainloss0.31293-f10.54116.pt",
@@ -2884,21 +2883,21 @@ if __name__ == "__main__":
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_Therapist_APPDA_Block_0(upper_body)",  # Path to the pre-trained model for Therapies dataset in Pytorch format
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_CADDIN_Upper_Body_Block_0(upper_body)",  # Path to the pre-trained model for Therapies dataset in Pytorch format
         ####
-        "pretrained_model_path": "./therapies_model_7/model",
         # "pretrained_model_path": "./ntu_benchmark_model/model",
-        # "pretrained_model_path": "./pretrained_models_Pytorch/Models_Kinect_APPDA_Classifier",
+        # "pretrained_model_path": "./therapies_model_7/model",
+        "pretrained_model_path": "./pretrained_models_Pytorch/Models_Kinect_APPDA_Classifier",
         ####
-        
+
         # TODO: Change every time you switch to the next model
         # Use a pre-trained model (Set True if you want to use a pre-trained model)
         "use_pretrained_model": True,  # Set to True if you want to use a pre-trained model
         
         # TODO: Change every time you switch to the next model
         # Convert Keras parameters to PyTorch equivalents (Set True if The model you want to fine tune is in TensorFlow/Keras format)
-        "model_converter": True, # Set to True if you want to convert a Keras model to PyTorch or in case you want to change the 1st layer size
+        "model_converter": False, # Set to True if you want to convert a Keras model to PyTorch or in case you want to change the 1st layer size
         "old_model_input_feature_size": 394, # Set to the number of input features that entered in the old model (e.g., 423 for Kinect, 394 for MP, 124 for upper body MP)
         
-        "model_is_pytorch": False, # Set to True if the Model is in PyTorch format or False if it is in TensorFlow/Keras format
+        "model_is_pytorch": True, # Set to True if the Model is in PyTorch format or False if it is in TensorFlow/Keras format
         
         # Path to the pre-trained model in TensorFlow/Keras format
         # "pretrained_model_path": "./ntu_benchmark_model/model",  # Path to the pre-trained model for NTU-120 one-shot benchmark
@@ -2910,7 +2909,7 @@ if __name__ == "__main__":
         # "train_annotations": "./datasets_annotations/therapies_APPDA_MP_upper_body_annotations.txt",
         # "train_annotations": "./ntu_annotations/one_shot_aux_set.txt",
         # "train_annotations": "./datasets_annotations/CADDIN_Final_Validation_MP_upper_body.txt",  # Set True to split the training data into K folds
-        # "train_annotations": "./datasets_annotations/mp_train_upper_body.txt",
+        # "train_annotations": "./datasets_annotations/mp_train_upper_body.txt",f
         "train_annotations": "./datasets_annotations/therapies_APPDA_MP_annotations.txt",
 
         # "val_annotations": "./datasets_annotations/mp_val.txt", # Set in case you don't use K-Fold Cross Validation
@@ -2955,10 +2954,10 @@ if __name__ == "__main__":
             "encoder_net.encoder.0.residual_blocks.4.conv1.bias",
             "encoder_net.encoder.0.residual_blocks.4.conv2.weight",
             "encoder_net.encoder.0.residual_blocks.4.conv2.bias",
-            "encoder_net.encoder.0.residual_blocks.5.conv1.weight",
-            "encoder_net.encoder.0.residual_blocks.5.conv1.bias",
-            "encoder_net.encoder.0.residual_blocks.5.conv2.weight",
-            "encoder_net.encoder.0.residual_blocks.5.conv2.bias",
+            # "encoder_net.encoder.0.residual_blocks.5.conv1.weight",
+            # "encoder_net.encoder.0.residual_blocks.5.conv1.bias",
+            # "encoder_net.encoder.0.residual_blocks.5.conv2.weight",
+            # "encoder_net.encoder.0.residual_blocks.5.conv2.bias",
             # "clf_out.weight",
             # "clf_out.bias",
         ],
