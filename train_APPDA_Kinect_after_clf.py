@@ -2872,7 +2872,7 @@ if __name__ == "__main__":
         # "model_name": "Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp_NEW_after_MP_Therapist_APPDA)",
         # "model_name": "Models_MP_Therapist_APPDA_Block_0(upper_body)",
         ####
-        "model_name": "Models_Kinect_APPDA_Classifier_Block_3_4_5", # Trocar o nome da pasta... Não é bloco 0
+        "model_name": "Models_Kinect_APPDA_Classifier_Block_2_3_4_5", # Trocar o nome da pasta... Não é bloco 0
         ####
 
         # TODO: Change every time you switch to the next model
@@ -2885,7 +2885,7 @@ if __name__ == "__main__":
         ####
         # "pretrained_model_path": "./ntu_benchmark_model/model",
         # "pretrained_model_path": "./therapies_model_7/model",
-        "pretrained_model_path": "./pretrained_models_Pytorch/Models_Kinect_APPDA_Classifier_Block_4_5",
+        "pretrained_model_path": "./pretrained_models_Pytorch/Models_Kinect_APPDA_Classifier_Block_3_4_5",
         ####
 
         # TODO: Change every time you switch to the next model
@@ -2942,10 +2942,10 @@ if __name__ == "__main__":
             "encoder_net.encoder.0.residual_blocks.1.conv1.bias",
             "encoder_net.encoder.0.residual_blocks.1.conv2.weight",
             "encoder_net.encoder.0.residual_blocks.1.conv2.bias",
-            "encoder_net.encoder.0.residual_blocks.2.conv1.weight",
-            "encoder_net.encoder.0.residual_blocks.2.conv1.bias",
-            "encoder_net.encoder.0.residual_blocks.2.conv2.weight",
-            "encoder_net.encoder.0.residual_blocks.2.conv2.bias",
+            # "encoder_net.encoder.0.residual_blocks.2.conv1.weight",
+            # "encoder_net.encoder.0.residual_blocks.2.conv1.bias",
+            # "encoder_net.encoder.0.residual_blocks.2.conv2.weight",
+            # "encoder_net.encoder.0.residual_blocks.2.conv2.bias",
             # "encoder_net.encoder.0.residual_blocks.3.conv1.weight",
             # "encoder_net.encoder.0.residual_blocks.3.conv1.bias",
             # "encoder_net.encoder.0.residual_blocks.3.conv2.weight",
