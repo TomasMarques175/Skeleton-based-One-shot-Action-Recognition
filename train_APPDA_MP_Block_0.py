@@ -1764,7 +1764,7 @@ def Create_Therapy_Dataloader(model_params, train_data, video_skels, val_data):
                                 batch_size=model_params['batch_size'],
                                 sampler=sampler, 
                                 num_workers=model_params['num_workers'],
-                                drop_last=False, 
+                                drop_last=True, 
                                 collate_fn=collate_fn_classification_pre_pad)
 
     if val_dataset is not None:

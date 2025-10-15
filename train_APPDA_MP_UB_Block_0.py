@@ -2301,7 +2301,7 @@ def main(model_params):
     
 
     # --- Data Loading Therapist ---
-    # """
+    """
     # Load your raw data
     raw_data_path = './datasets/therapies_dataset/'
     actions_data = pickle.load(open(os.path.join(raw_data_path, 'actions_data_v2.pckl'), 'rb'))
@@ -2362,7 +2362,7 @@ def main(model_params):
     # # If you want labels for these too:
     # children_labels = children_data['action'].map(action_to_idx).values
     # therapist_labels = therapist_data['action'].map(action_to_idx).values
-    # """
+    """
     
     # --- Cross-Validation Setup ---
     if model_params.get("K", None) is not None:
@@ -2378,14 +2378,14 @@ def main(model_params):
         )
         
         labels = np.array([s['class_id'] for s in full_dataset.samples])
-        for i in range(len(full_dataset)):
-            sample, label = full_dataset[i]
-            print(f"Sample {i} - Shape: {sample.shape}, Label: {label}")
-        
-        print(f"Full dataset size: {len(full_dataset)} samples")
-        print(f"Labels shape: {labels.shape}")
-        print(f"Unique classes in dataset: {np.unique(labels)}")
-        print(f"Full dataset labels: {labels}")
+        # for i in range(len(full_dataset)):
+        #     sample, label = full_dataset[i]
+        #     print(f"Sample {i} - Shape: {sample.shape}, Label: {label}")
+        # 
+        # print(f"Full dataset size: {len(full_dataset)} samples")
+        # print(f"Labels shape: {labels.shape}")
+        # print(f"Unique classes in dataset: {np.unique(labels)}")
+        # print(f"Full dataset labels: {labels}")
         
         # --- Training Loop ---
         fold_val_f1_scores = []
