@@ -15,7 +15,6 @@ import scipy.ndimage.interpolation as inter # Used in helper zoom_to_target_len
 # These should be the same as in pytorch_dataset_py_01
 # Ensure they are reviewed for TF/Keras dependencies.
 # =============================================================================
-
 """
 FLIP_CORRESPONDENCES_LEFT = [8, 7, 6, 2, 1, 0, 20, 21, 23]
 FLIP_CORRESPONDENCES_RIGHT = [9, 10, 11, 3, 4, 5, 17, 20, 22]
@@ -31,7 +30,7 @@ LEFT_HIP = 2 # Old index 12
 RIGHT_HIP = 3 # Old index 16
 SPINE_CHEST = 12 # Old index 20
 
-CONNECTING_JOINT = [s
+CONNECTING_JOINT = [
     1, 0,       # Check CRMH skeleton
     1, 2,       #
     2, 14,      #
@@ -58,26 +57,27 @@ CONNECTING_JOINT = [s
 ]
 """
 
-"""
 # --- Constants (from Keras code) ---
-# FLIP_CORRESPONDENCES_LEFT = [4, 5, 6, 7, 12, 13, 14, 15, 21, 22]
-# FLIP_CORRESPONDENCES_RIGHT = [8, 9, 10, 11, 16, 17, 18, 19, 23, 24]
-# SPINE = [0, 1, 2, 3, 20]
-# CONNECTING_JOINT = [1, 0, 20, 2, 20, 4, 5, 6, 20, 8, 9,
-#                     10, 0, 12, 13, 14, 0, 16, 17, 18, 1, 7, 7, 11, 11] # Used in get_body_spherical_angles
-# 
-# TORSO_CONNECTING_JOINTS = [20, 1,
-#                            1, 0]
-# 
-# # TORSO_CONNECTING_JOINTS = [14, 16, 
-# #                            16, 15, 
-# #                            15, 12]
-# 
-# LEFT_HIP = 12 # Old index 12
-# RIGHT_HIP = 16 # Old index 16
-# SPINE_CHEST = 20 # Old index 20
+"""
+FLIP_CORRESPONDENCES_LEFT = [4, 5, 6, 7, 12, 13, 14, 15, 21, 22]
+FLIP_CORRESPONDENCES_RIGHT = [8, 9, 10, 11, 16, 17, 18, 19, 23, 24]
+SPINE = [0, 1, 2, 3, 20]
+CONNECTING_JOINT = [1, 0, 20, 2, 20, 4, 5, 6, 20, 8, 9,
+                    10, 0, 12, 13, 14, 0, 16, 17, 18, 1, 7, 7, 11, 11] # Used in get_body_spherical_angles
+
+TORSO_CONNECTING_JOINTS = [20, 1,
+                           1, 0]
+
+# TORSO_CONNECTING_JOINTS = [14, 16, 
+#                            16, 15, 
+#                            15, 12]
+
+LEFT_HIP = 12 # Old index 12
+RIGHT_HIP = 16 # Old index 16
+SPINE_CHEST = 20 # Old index 20
 """
 
+# --- Constants (for MP Upper Body) ---
 # --- Define dropped joints ---
 drop_joints = {0, 1, 2, 3, 4, 5, 13, 19, 20, 21, 22, 23}
 keep_indices = [j for j in range(24) if j not in drop_joints]
@@ -86,8 +86,7 @@ old_to_new = {old: new for new, old in enumerate(keep_indices)}
 # print("Kept joints:", keep_indices)
 # print("Old → New mapping:")
 # for old, new in old_to_new.items():
-    # print(f"  {old:2d} → {new:2d}")
-
+#     print(f"  {old:2d} → {new:2d}")
 
 # --- Remap flip correspondences ---
 FLIP_CORRESPONDENCES_LEFT = [old_to_new[j] for j in [8, 7, 6] if j in old_to_new]
@@ -99,6 +98,7 @@ FLIP_CORRESPONDENCES_RIGHT = [old_to_new[j] for j in [9, 10, 11] if j in old_to_
 
 # Example: keep only existing spine joints
 SPINE = [old_to_new[j] for j in [12, 14, 15, 16, 17, 18] if j in old_to_new]
+TORSO_CONNECTING_JOINTS = [old_to_new[j] for j in [14, 12] if j in old_to_new]
 # print("\nSpine joints (new indices):", SPINE)
 
 # --- Connecting joints ---
@@ -117,17 +117,19 @@ for i in range(0, len(CONNECTING_JOINT_OLD), 2):
         CONNECTING_JOINT.extend([old_to_new[j1], old_to_new[j2]])
         remap_pairs.append((j1, j2, old_to_new[j1], old_to_new[j2]))
 
-TORSO_CONNECTING_JOINTS = [old_to_new[j] for j in [14, 12] if j in old_to_new]
-SPINE_CHEST = [old_to_new[j] for j in [12] if j in old_to_new]
-LEFT_HIP = None # Old index 12
-RIGHT_HIP = None # Old index 16
+LEFT_HIP = old_to_new[8] if 8 in old_to_new else None
+RIGHT_HIP = old_to_new[9] if 9 in old_to_new else None
+CENTER_HIP = old_to_new[14] if 14 in old_to_new else None
+SPINE_CHEST = old_to_new[12] if 12 in old_to_new else None
 
 # print("\nConnecting joints (old → new):")
 # for old1, old2, new1, new2 in remap_pairs:
-#     print(f"  ({old1:2d}, {old2:2d}) → ({new1:2d}, {new2:2d})")
+#    print(f"  ({old1:2d}, {old2:2d}) → ({new1:2d}, {new2:2d})")
 
 # print("\nFinal CONNECTING_JOINT:", CONNECTING_JOINT)
 
+# print(f"\nLEFT_HIP: {LEFT_HIP}, RIGHT_HIP: {RIGHT_HIP}, SPINE_CHEST: {SPINE_CHEST}")
+# """
 
 # --- Helper Function Definitions (Copied from pytorch_dataset_py_01) ---
 
@@ -371,13 +373,15 @@ def matrix_unit_vector(matrix):
     return matrix / norms
 
 def get_transformation_matrix_global(skel):
-    if skel.shape[1] <= 20: # joints_num
+    if skel.shape[1] <= 11: # joints_num
         # print(f"Warning: get_transformation_matrix_global requires at least 21 joints. Returning identity.")
         return np.array([np.eye(4)] * skel.shape[0])
-
+    # print(f"Computing transformation matrices for skeleton with shape: {skel.shape}")
+    # print(f"Sample skeleton data shape (first frame): {skel[0].shape}") # Debug print
     # Origin: Midpoint between hips (indices 12 and 16 for NTU RGB+D)
     # Original code used 12 and 16. Let's stick to that.
-    o = (skel[:, LEFT_HIP, :] + skel[:, RIGHT_HIP, :]) / 2.0
+    o = skel[:, CENTER_HIP, :] # (skel[:, LEFT_HIP, :] + skel[:, RIGHT_HIP, :]) / 2.0
+    # print(f"Origin shape: {o.shape}") # Debug print
 
     # X-axis: From left hip (16) to right hip (12)
     x_vec = skel[:, RIGHT_HIP, :] - skel[:, LEFT_HIP, :] # Vector from left hip to right hip
@@ -412,6 +416,8 @@ def get_transformation_matrix_global(skel):
     z_axis = np.cross(x_axis, y_axis)
     z_axis = matrix_unit_vector(z_axis) # Should already be unit if x and y are unit and orthogonal
 
+    # print(f"x_axis sample: {x_axis[0]}, y_axis sample: {y_axis[0]}, z_axis sample: {z_axis[0]}") # Debug print
+
     r_matrices = []
     for i in range(len(skel)):
         rotation_inv = np.eye(4)
@@ -438,6 +444,10 @@ def get_transformation_matrix_global(skel):
         # [y_axis_x, y_axis_y, y_axis_z, -dot(y_axis, origin)]
         # [z_axis_x, z_axis_y, z_axis_z, -Num JCD features:(z_axis, origin)]
         # [0         , 0         , 0         , 1             ]
+        
+        # print(f"Frame {i}:")
+        # print(f"  Origin.shape: {o[i].shape}")
+        # print(f"  X axis.shape: {x_axis[i].shape}, Y axis.shape: {y_axis[i].shape}, Z axis.shape: {z_axis[i].shape}")
         
         transform_matrix = np.eye(4)
         transform_matrix[0,:3] = x_axis[i]
@@ -763,6 +773,8 @@ def get_pose_data_processed(body_raw, is_validation, model_params):
         _num_feats_fallback = model_params.get('num_feats', 100)
         return np.zeros((1, _num_feats_fallback), dtype=np.float32) # Return at least one frame
 
+    # print(f"Final processed features shape: {pose_features_final.shape}")
+    # exit(0)
     return pose_features_final
 
 def zoom_to_max_len(p, max_seq_len, joints_num, joints_dim, force=False):

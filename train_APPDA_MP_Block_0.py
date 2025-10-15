@@ -322,6 +322,12 @@ def animate_first_sample_skeleton_3d_CADDIN_MP(annotations_file, model_params):
         num_bones_angles = model_params.get("num_features", 24) + (model_params.get("num_features", 24) - 1)
         num_jcd_features = model_params.get("num_features", 24) * (model_params.get("num_features", 24) - 1)// 2 - 1
         
+        # print("Offset:", offset)
+        # print("Num keypoints:", num_keypoints)
+        # print("joints_num:", joints_num)
+        # print("coords_dim:", coords_dim)
+        # exit(0)
+
         # Take only the first 48 features (bones angles)
         bones_angles_frame = features[:, :num_bones_angles]  # shape: (num_frames, 48)
 
@@ -334,7 +340,8 @@ def animate_first_sample_skeleton_3d_CADDIN_MP(annotations_file, model_params):
 
         # print("bones_angles_means.shape:", bones_angles_means.shape)
         # print("jcd_features_means.shape:", jcd_features_means.shape)
-
+        # exit(0)
+        
         # Store with label info
         all_bones_angles_means.append({
             "sample_idx": i,
@@ -347,9 +354,8 @@ def animate_first_sample_skeleton_3d_CADDIN_MP(annotations_file, model_params):
             "label": label,
             "means": jcd_features_means
         })
-
+        
         if i == 0:
-            continue  # Only process the first sample for animation
             # Define skeleton edges
             edges = [
                 (1, 0), (1, 2), (2, 14), (3, 14), (3, 4), (4, 5),
@@ -3022,6 +3028,7 @@ if __name__ == "__main__":
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_CADDIN_Upper_Body_Block_0(upper_body)",  # Path to the pre-trained model for Therapies dataset in Pytorch format
         #####
         "pretrained_model_path": "./pretrained_models_Pytorch/Models_Kinect_APPDA_Classifier_Block_0_1_2_3_4_5",
+        #####
         
         # TODO: Change every time you switch to the next model
         # Use a pre-trained model (Set True if you want to use a pre-trained model)
@@ -3152,7 +3159,6 @@ if __name__ == "__main__":
 
 
     # --- Model Verification on unseen data ---
-    """
     # --- Path and Feature Calculation (Cleaned Up) ---
     # print("--- Initializing Parameters and Paths ---")
     static_params['path_model'] = train_utils.create_model_folder(
@@ -3222,6 +3228,7 @@ if __name__ == "__main__":
     current_dir = os.path.dirname(os.path.abspath(__file__))
     parent_dir = os.path.abspath(os.path.join(current_dir, '..'))
     model_name = static_params['model_name']
+    
     # Create a directory for saving metrics
     metrics_save_dir = os.path.join(parent_dir, 'Conversion comparison', model_name)
     
@@ -3237,10 +3244,12 @@ if __name__ == "__main__":
     # export_dataset_to_txt(model_params['train_compare_1'], model_params, "full_dataset_1_converted.txt")
     # export_dataset_to_txt(model_params['train_compare_2'], model_params, "full_dataset_2_converted.txt")
 
+    # Visualization of the datasets before entering the model
     # visualize_pose_dataset_2d(model_params['train_compare_1'], model_params['train_compare_2'], model_params, max_samples=2000, method="pca")
     # animate_first_sample_skeleton_3d(model_params['train_compare_2'], model_params)
     animate_first_sample_skeleton_3d_CADDIN_MP(model_params['train_annotations'], model_params)
     exit()
+
     
     # --- Data Loading Therapist ---
     # Load the validation dataset once
@@ -3374,7 +3383,7 @@ if __name__ == "__main__":
     print(f"Overall mean similarity: {overall_mean:.2f}")
     
     exit(0)
-    """
+    # """
 
     # Create Optuna study
     study = optuna.create_study(direction="maximize")  # Or "minimize" for loss

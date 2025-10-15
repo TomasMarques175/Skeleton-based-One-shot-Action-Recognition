@@ -367,9 +367,12 @@ def get_transformation_matrix_global(skel):
         # print(f"Warning: get_transformation_matrix_global requires at least 21 joints. Returning identity.")
         return np.array([np.eye(4)] * skel.shape[0])
 
+    # print(f"Sample skeleton data shape (first frame): {skel[0].shape}") # Debug print
+
     # Origin: Midpoint between hips (indices 12 and 16 for NTU RGB+D)
     # Original code used 12 and 16. Let's stick to that.
     o = (skel[:, LEFT_HIP, :] + skel[:, RIGHT_HIP, :]) / 2.0
+    # print(f"Origin shape: {o.shape}") # Debug print
 
     # X-axis: From left hip (16) to right hip (12)
     x_vec = skel[:, RIGHT_HIP, :] - skel[:, LEFT_HIP, :] # Vector from left hip to right hip
@@ -404,6 +407,9 @@ def get_transformation_matrix_global(skel):
     z_axis = np.cross(x_axis, y_axis)
     z_axis = matrix_unit_vector(z_axis) # Should already be unit if x and y are unit and orthogonal
 
+    # print(f"x_axis sample: {x_axis[0]}, y_axis sample: {y_axis[0]}, z_axis sample: {z_axis[0]}") # Debug print
+    # exit()
+
     r_matrices = []
     for i in range(len(skel)):
         rotation_inv = np.eye(4)
@@ -430,6 +436,11 @@ def get_transformation_matrix_global(skel):
         # [y_axis_x, y_axis_y, y_axis_z, -dot(y_axis, origin)]
         # [z_axis_x, z_axis_y, z_axis_z, -Num JCD features:(z_axis, origin)]
         # [0         , 0         , 0         , 1             ]
+        
+        # print(f"Frame {i}:")
+        # print(f"  Origin.shape: {o[i].shape}")
+        # print(f"  X axis.shape: {x_axis[i].shape}, Y axis.shape: {y_axis[i].shape}, Z axis.shape: {z_axis[i].shape}")
+
         
         transform_matrix = np.eye(4)
         transform_matrix[0,:3] = x_axis[i]
