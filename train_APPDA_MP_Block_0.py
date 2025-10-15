@@ -1354,9 +1354,9 @@ def create_pytorch_model(model_params, fold=None):
             clf_neurons=model_params['clf_neurons'], num_classes=num_classes_for_model
         )
 
-        for (name_old, param_old), (name_new, param_new) in zip(old_model.named_parameters(), pytorch_model.named_parameters()):
-            if param_old.shape != param_new.shape:
-                print(f"Layer {name_old} changed: old {param_old.shape}, new {param_new.shape}")
+        # for (name_old, param_old), (name_new, param_new) in zip(old_model.named_parameters(), pytorch_model.named_parameters()):
+        #     if param_old.shape != param_new.shape:
+        #         print(f"Layer {name_old} changed: old {param_old.shape}, new {param_new.shape}")
 
         # Load compatible weights
         old_dict = old_model.state_dict()
