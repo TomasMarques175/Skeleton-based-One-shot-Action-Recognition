@@ -1432,8 +1432,8 @@ def create_pytorch_model(model_params, fold=None):
         for k, v in old_dict.items():
             if k in new_dict and v.shape == new_dict[k].shape:
                 filtered_dict[k] = v
-            else:
-                print(f"Skipping {k}: checkpoint {v.shape} vs new model {new_dict[k].shape}")
+            # else:
+                # print(f"Skipping {k}: checkpoint {v.shape} vs new model {new_dict[k].shape}")
 
         # Update new model's state_dict
         new_dict.update(filtered_dict)
@@ -2680,11 +2680,13 @@ def main(model_params):
             
             # Evaluate on all data
             # evaluate_model_on_all_data_mp(pytorch_model, model_number, model_params, device, fold, metrics_save_dir)
-        
+            print(f"\n fold_val_f1_scores: {fold_val_f1_scores}\n")
+
         # Save the mean of the best F1 scores across folds
         # in order to report the overall performance
         mean_best_val_f1 = np.mean(fold_val_f1_scores)
-        
+        print(f"\n mean_val_f1_scores: {mean_best_val_f1}\n")
+
         # ----------------------------
         # Save averaged K-fold model
         # ----------------------------

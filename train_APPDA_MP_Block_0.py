@@ -1366,8 +1366,8 @@ def create_pytorch_model(model_params, fold=None):
         for k, v in old_dict.items():
             if k in new_dict and v.shape == new_dict[k].shape:
                 filtered_dict[k] = v
-            else:
-                print(f"Skipping {k}: checkpoint {v.shape} vs new model {new_dict[k].shape}")
+            # else:
+                # print(f"Skipping {k}: checkpoint {v.shape} vs new model {new_dict[k].shape}")
 
         # Update new model's state_dict
         new_dict.update(filtered_dict)
