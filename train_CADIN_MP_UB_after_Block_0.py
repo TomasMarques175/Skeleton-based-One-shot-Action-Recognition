@@ -3082,14 +3082,14 @@ if __name__ == "__main__":
         # "model_name": "Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp_NEW)",
         # "model_name": "Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp_NEW_after_MP_Therapist_APPDA)",
         # "model_name": "Models_MP_Therapist_APPDA_Block_0(upper_body)",
-        "model_name": "Models_MP_UB_CADIN_Block_0_1",
+        "model_name": "Models_MP_UB_CADIN_Block_0_1_2",
 
         # TODO: Change every time you switch to the next model
         # Path to the pre-trained model in Pytorch format
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier_Block_5/0730_1921_model_1/weights/Best_Model-ep300-trainloss0.31293-f10.54116.pt",
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_Therapist_APPDA_Classifier_Block_0_1_2_3_4_5",
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp)",  # Path to the pre-trained model for Therapies dataset in Pytorch format
-        "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_UB_CADIN_Block_0",  # Path to the pre-trained model for Therapies dataset in Pytorch format
+        "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_UB_CADIN_Block_0_1",  # Path to the pre-trained model for Therapies dataset in Pytorch format
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_CADDIN_Upper_Body_Block_0(upper_body)",  # Path to the pre-trained model for Therapies dataset in Pytorch format
 
         # TODO: Change every time you switch to the next model
@@ -3146,10 +3146,10 @@ if __name__ == "__main__":
             # "encoder_net.encoder.0.residual_blocks.1.conv1.bias",
             # "encoder_net.encoder.0.residual_blocks.1.conv2.weight",
             # "encoder_net.encoder.0.residual_blocks.1.conv2.bias",
-            "encoder_net.encoder.0.residual_blocks.2.conv1.weight",
-            "encoder_net.encoder.0.residual_blocks.2.conv1.bias",
-            "encoder_net.encoder.0.residual_blocks.2.conv2.weight",
-            "encoder_net.encoder.0.residual_blocks.2.conv2.bias",
+            # "encoder_net.encoder.0.residual_blocks.2.conv1.weight",
+            # "encoder_net.encoder.0.residual_blocks.2.conv1.bias",
+            # "encoder_net.encoder.0.residual_blocks.2.conv2.weight",
+            # "encoder_net.encoder.0.residual_blocks.2.conv2.bias",
             "encoder_net.encoder.0.residual_blocks.3.conv1.weight",
             "encoder_net.encoder.0.residual_blocks.3.conv1.bias",
             "encoder_net.encoder.0.residual_blocks.3.conv2.weight",
