@@ -3390,23 +3390,46 @@ if __name__ == "__main__":
     cm = confusion_matrix(true_labels, final_preds)
     print("Ensemble confusion matrix (majority vote):\n", cm)
 
+    total_samples = cm.sum()
+    print(f"Number of samples in the last confusion matrix: {total_samples}")
+
     # === Plot with labels ===
     class_labels = [
         "high", "angry", "wait", "low", "hello", "give", "where",
         "hungry", "happy", "big", "I", "small", "pointing", "come"
     ]
 
-    plt.figure(figsize=(10, 8))
-    im = plt.imshow(cm, interpolation='nearest', cmap='Blues')
-    plt.colorbar(im, label="Count")
-    plt.xticks(np.arange(len(class_labels)), class_labels, rotation=45, ha='right')
-    plt.yticks(np.arange(len(class_labels)), class_labels)
-    plt.xlabel("Predicted")
-    plt.ylabel("True")
-    plt.title("Ensemble Majority-Vote Confusion Matrix")
+    # --- Compute F1 score for the ensemble ---
+    ensemble_f1 = round(f1_score(true_labels, final_preds, average='macro'), 2)
+    print(f"Ensemble F1 score (majority vote): {ensemble_f1:.2f}")
+
+    # --- Save F1 score to metrics folder ---
+    metrics_save_dir = os.getcwd()  # or your specific folder
+    f1_table_path = os.path.join(metrics_save_dir, "ensemble_f1_score.csv")
+
+    # Save as a CSV table
+    f1_df = pd.DataFrame({
+        "Ensemble_F1": [ensemble_f1]
+    })
+    f1_df.to_csv(f1_table_path, index=False)
+    print(f"Saved ensemble F1 score to {f1_table_path}")
+
+    # --- Optional: also save as a PNG table ---
+    fig, ax = plt.subplots(figsize=(3, 1.5))
+    ax.axis('off')
+    table = ax.table(
+        cellText=f1_df.values,
+        colLabels=f1_df.columns,
+        cellLoc='center',
+        loc='center'
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(14)
+    table.scale(1, 2)
     plt.tight_layout()
-    plt.savefig("ensemble_confusion_matrix.png", dpi=300)
-    plt.savefig("ensemble_confusion_matrix.pdf")
+    png_path = os.path.join(metrics_save_dir, "ensemble_f1_score.png")
+    plt.savefig(png_path, dpi=300)
     plt.close()
+    print(f"Saved ensemble F1 score as PNG to {png_path}")
 
     exit(0)
