@@ -3304,155 +3304,109 @@ if __name__ == "__main__":
     model_params = {**static_params, **best_params}
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    all_fold_preds = []  # store predictions from each fold
-    all_fold_labels = []  # store labels from each fold
-    all_fold_sims = []  # store similarities from each fold
-    all_fold_embs = []  # store embeddings from each fold
-    fold_summary = []
-
-    print(f"num_feats: {model_params['num_feats']}, num_jcd_feats: {model_params.get('num_jcd_feats', 'N/A')}")
-    
-    k_folds = model_params.get("K", 5)
-    skf = StratifiedKFold(n_splits=k_folds, shuffle=True, random_state=42)
-    
-    # Load full dataset once (MP)
+            
+    # === Full dataset ===
     full_dataset = TripletPoseDataset(
-        pose_annotations_file=model_params['train_annotations'],
+        pose_annotations_file=model_params['train_annotations'],  # or whichever dataset you want
         validation_mode=False,
         in_memory=model_params['in_memory_generator_train'],
         **model_params
     )
-    
-    labels = np.array([s['class_id'] for s in full_dataset.samples])
-    
-    # --- Training Loop ---
-    fold_val_f1_scores = []
-    fold_val_auc_scores = []
+    full_loader = DataLoader(
+        full_dataset,
+        batch_size=model_params['batch_size'],
+        shuffle=False,
+        num_workers=model_params.get('num_workers', 0),
+        pin_memory=True if torch.cuda.is_available() else False,
+        drop_last=False
+    )
 
-    # for fold, (train_idx, val_idx) in enumerate(skf.split(actions_data, labels)):
-    for fold, (train_idx, val_idx) in enumerate(skf.split(range(len(full_dataset)), labels)):
-        
-        # --- Create subsets (MP) ---
-        train_subset = torch.utils.data.Subset(full_dataset, train_idx)
-        val_subset = torch.utils.data.Subset(full_dataset, val_idx)
-        
-        # --- Create DataLoaders for this fold (MP)---
-        train_loader = DataLoader(
-            train_subset,
-            batch_size=model_params['batch_size'],
-            shuffle=True,
-            num_workers=model_params.get('num_workers', 0),
-            pin_memory=True if device.type == 'cuda' else False,
-            drop_last=True
-        )
-        val_loader = DataLoader(
-            val_subset,
-            batch_size=model_params['batch_size'],
-            shuffle=False,
-            num_workers=model_params.get('num_workers', 0),
-            pin_memory=True if device.type == 'cuda' else False,
-            drop_last=False
-        )
-        
-        print(f"\n===== Fold {fold} =====")
-        
-        # --- Init model for this fold ---
-        pytorch_model = TCN_clf(
-            num_feats=model_params['num_feats'],
-            conv_params=model_params['conv_params'],
-            lstm_dropout=model_params['lstm_dropout'],
-            masking=model_params['masking'],
-            triplet=model_params.get('triplet', False),
-            classification=model_params.get('classification', True),
-            clf_neurons=model_params['clf_neurons'],
-            num_classes=14
-        )
-        checkpoint_path = model_params["pretrained_model_path"]
-        fold_model_path = get_k_fold_model_path(checkpoint_path, fold)
-        pytorch_model.load_state_dict(torch.load(fold_model_path))
-        pytorch_model.eval().to(device)
-    
-        # --- Collect predictions instead of embeddings ---
-        all_preds = []
-        all_labels = []
+    # === Load models and compute their F1 scores on full dataset ===
+    k_folds = model_params.get("K", 5)
 
-        with torch.no_grad():
-            for batch_x, batch_y in val_loader:                
-                
+    models = []
+    f1_scores = []
+    all_preds_per_model = []
+
+    true_labels = np.array([s['class_id'] for s in full_dataset.samples])
+
+    with torch.no_grad():
+        for fold in range(k_folds):
+            # Load model
+            model = TCN_clf(
+                num_feats=model_params['num_feats'],
+                conv_params=model_params['conv_params'],
+                lstm_dropout=model_params['lstm_dropout'],
+                masking=model_params['masking'],
+                triplet=model_params.get('triplet', False),
+                classification=model_params.get('classification', True),
+                clf_neurons=model_params['clf_neurons'],
+                num_classes=14
+            ).to(device)
+
+            fold_model_path = get_k_fold_model_path(model_params["pretrained_model_path"], fold)
+            model.load_state_dict(torch.load(fold_model_path))
+            model.eval()
+            models.append(model)
+
+            # Get predictions on full dataset
+            preds = []
+            for batch_x, _ in full_loader:
                 batch_x = batch_x.to(device)
-                batch_y = batch_y.to(device)    
+                logits = model(batch_x)
+                pred_labels = torch.argmax(logits, dim=1)
+                preds.append(pred_labels.cpu())
+            preds = torch.cat(preds, dim=0).numpy()
+            all_preds_per_model.append(preds)
 
-                logits = pytorch_model(batch_x)        # (B, num_classes)
-                preds = torch.argmax(logits, dim=1)    # (B,)
+            # Compute F1 score for this model
+            f1 = f1_score(true_labels, preds, average='macro')
+            f1_scores.append(f1)
+            print(f"Fold {fold} F1 score on full dataset: {f1:.4f}")
 
-                all_preds.append(preds.cpu())
-                all_labels.append(batch_y.cpu())
+    # === Stack predictions (num_models, num_samples) ===
+    all_preds_stack = np.stack(all_preds_per_model, axis=0)
 
-        # Concatenate across batches
-        all_preds = torch.cat(all_preds, dim=0)   # (N,)
-        all_labels = torch.cat(all_labels, dim=0) # (N,)
-        
-        # Compute F1 score (macro for multi-class)
-        fold_f1 = f1_score(all_labels.numpy(), all_preds.numpy(), average='macro')
-        print(f"F1 Score for Fold {fold}: {fold_f1:.4f}")
-        
-        # Compute confusion matrix
-        cm = confusion_matrix(all_labels.numpy(), all_preds.numpy())
-        print(f"Confusion Matrix for Fold {fold}:\n{cm}")
+    # === Determine best model (for tie-breaking) ===
+    best_model_idx = int(np.argmax(f1_scores))
 
-        print(f"Saving confusion matrix for fold {fold} to {metrics_save_dir}")
-        # Save confusion matrix
-        np.save(f"{metrics_save_dir}/confusion_matrix_fold_{fold}_separate_code.npy", cm)
-        np.savetxt(f"{metrics_save_dir}/confusion_matrix_fold_{fold}_separate_code.csv", cm, delimiter=",", fmt="%d")
+    # === Majority voting ===
+    final_preds = []
+    num_models, num_samples = all_preds_stack.shape
 
-        # Plot confusion matrix
-        plt.figure(figsize=(10, 8))
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', cbar=False)
-        plt.title(f'Confusion Matrix - Fold {fold}')
-        plt.xlabel('Predicted')
-        plt.ylabel('True')
-        plt.tight_layout()
+    for i in range(num_samples):
+        votes = all_preds_stack[:, i]
+        vote_counts = Counter(votes)
+        most_common = vote_counts.most_common()
+        if len(most_common) == 1 or most_common[0][1] > most_common[1][1]:
+            final_preds.append(most_common[0][0])
+        else:
+            # tie → use prediction from best F1 model
+            final_preds.append(all_preds_stack[best_model_idx, i])
 
-        # Save as PDF
-        plt.savefig(f"{metrics_save_dir}/confusion_matrix_fold_{fold}_separate_code.pdf")
-        plt.savefig(f"{metrics_save_dir}/confusion_matrix_fold_{fold}_separate_code.png", dpi=300)
+    final_preds = np.array(final_preds)
 
-        plt.close()  # Close the figure to avoid overlapping plots
-        
-        # Save fold results
-        all_fold_preds.append(all_preds)
-        all_fold_labels.append(all_labels)
+    # === Confusion matrix ===
+    cm = confusion_matrix(true_labels, final_preds)
+    print("Ensemble confusion matrix (majority vote):\n", cm)
 
-    # --- Combine all folds into one array ---
-    combined_preds = torch.cat(all_fold_preds, dim=0).numpy()
-    combined_labels = torch.cat(all_fold_labels, dim=0).numpy()
+    # === Plot with labels ===
+    class_labels = [
+        "high", "angry", "wait", "low", "hello", "give", "where",
+        "hungry", "happy", "big", "I", "small", "pointing", "come"
+    ]
 
-    # Save combined predictions and labels
-    combined_data = np.column_stack((combined_labels, combined_preds))
-    np.savetxt(f"{metrics_save_dir}/preds_labels_all_folds.csv", combined_data, delimiter=",", fmt="%d", header="true_label,pred_label", comments="")
-    np.save(f"{metrics_save_dir}/preds_labels_all_folds.npy", combined_data)
-
-    # Compute overall F1 and confusion matrix
-    overall_f1 = round(f1_score(combined_labels, combined_preds, average='macro'), 2)
-    print(f"\nOverall F1 Score across all folds: {overall_f1:.2f}")
-
-    overall_cm = confusion_matrix(combined_labels, combined_preds)
-    print(f"Overall Confusion Matrix across all folds:\n{overall_cm}")
-
-    # Save overall confusion matrix
-    np.save(f"{metrics_save_dir}/confusion_matrix_all_folds.npy", overall_cm)
-    np.savetxt(f"{metrics_save_dir}/confusion_matrix_all_folds.csv", overall_cm, delimiter=",", fmt="%d")
-
-    # Plot and save as PDF
     plt.figure(figsize=(10, 8))
-    sns.heatmap(overall_cm, annot=True, fmt='d', cmap='Blues', cbar=False)
-    plt.title('Overall Confusion Matrix (All Folds)')
-    plt.xlabel('Predicted')
-    plt.ylabel('True')
+    im = plt.imshow(cm, interpolation='nearest', cmap='Blues')
+    plt.colorbar(im, label="Count")
+    plt.xticks(np.arange(len(class_labels)), class_labels, rotation=45, ha='right')
+    plt.yticks(np.arange(len(class_labels)), class_labels)
+    plt.xlabel("Predicted")
+    plt.ylabel("True")
+    plt.title("Ensemble Majority-Vote Confusion Matrix")
     plt.tight_layout()
-    plt.savefig(f"{metrics_save_dir}/confusion_matrix_all_folds.pdf")
-    plt.savefig(f"{metrics_save_dir}/confusion_matrix_all_folds.png", dpi=300)
+    plt.savefig("ensemble_confusion_matrix.png", dpi=300)
+    plt.savefig("ensemble_confusion_matrix.pdf")
     plt.close()
 
     exit(0)
