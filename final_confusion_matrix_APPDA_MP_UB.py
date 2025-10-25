@@ -3083,14 +3083,14 @@ if __name__ == "__main__":
         # "model_name": "Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp_NEW)",
         # "model_name": "Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp_NEW_after_MP_Therapist_APPDA)",
         # "model_name": "Models_MP_Therapist_APPDA_Block_0(upper_body)",
-        "model_name": "Models_MP_UB_CADIN_Classifier_Block_0_1_2_3_4_5",
+        "model_name": "Models_MP_UB_APPDA_Block_0",
 
         # TODO: Change every time you switch to the next model
         # Path to the pre-trained model in Pytorch format
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier_Block_5/0730_1921_model_1/weights/Best_Model-ep300-trainloss0.31293-f10.54116.pt",
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_Therapist_APPDA_Classifier_Block_0_1_2_3_4_5",
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp)",  # Path to the pre-trained model for Therapies dataset in Pytorch format
-        "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_UB_CADIN_Classifier_Block_0_1_2_3_4_5",  # Path to the pre-trained model for Therapies dataset in Pytorch format
+        "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_UB_APPDA_Block_0",  # Path to the pre-trained model for Therapies dataset in Pytorch format
 
         # TODO: Change every time you switch to the next model
         # Use a pre-trained model (Set True if you want to use a pre-trained model)
@@ -3110,10 +3110,10 @@ if __name__ == "__main__":
         # TODO: Change every time you switch to the next model
         # "train_annotations": "./datasets_annotations/therapies_APPDA_MP_annotations.txt",
         # "train_annotations": "./datasets_annotations/mp_train.txt",
-        # "train_annotations": "./datasets_annotations/therapies_APPDA_MP_upper_body_annotations.txt",
+        "train_annotations": "./datasets_annotations/therapies_APPDA_MP_upper_body_annotations.txt",
         # "train_annotations": "./ntu_annotations/one_shot_aux_set.txt",
         # "train_annotations": "./datasets_annotations/CADDIN_Final_Validation_MP_upper_body.txt",  # Set True to split the training data into K folds
-        "train_annotations": "./datasets_annotations/mp_train_upper_body.txt",
+        # "train_annotations": "./datasets_annotations/mp_train_upper_body.txt",
         # "train_annotations": "./datasets_annotations/therapies_APPDA_MP_annotations.txt",
         
         # "val_annotations": "./datasets_annotations/mp_val.txt", # Set in case you don't use K-Fold Cross Validation
@@ -3211,7 +3211,7 @@ if __name__ == "__main__":
         "average_wrong_skels": True,
         "average_wrong_skels_method": 'mean',
     }
-
+    
     # Correct max_seq_len if negative for use in summary/testing
     if static_params['max_seq_len'] <= 0:
         print(
@@ -3298,8 +3298,6 @@ if __name__ == "__main__":
     
     # --- Save F1 score to metrics folder ---
     f1_table_path = os.path.join(metrics_save_dir, "ensemble_f1_score.csv")
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     # Save best parameters to a JSON file
     json_path = os.path.join(metrics_save_dir, "best_hyperparams.json")
@@ -3309,7 +3307,7 @@ if __name__ == "__main__":
     model_params = {**static_params, **best_params}
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            
+    
     # === Full dataset ===
     full_dataset = TripletPoseDataset(
         pose_annotations_file=model_params['train_annotations'],  # or whichever dataset you want

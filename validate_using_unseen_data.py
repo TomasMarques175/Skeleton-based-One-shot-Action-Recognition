@@ -3304,10 +3304,7 @@ if __name__ == "__main__":
     model_params = {**static_params, **best_params}
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    # export_dataset_to_txt(model_params['train_compare_1'], model_params, "full_dataset_1_converted.txt")
-    # export_dataset_to_txt(model_params['train_compare_2'], model_params, "full_dataset_2_converted.txt")
-    
+        
     # --- Data Loading Therapist ---
     # Load the validation dataset once
     val_dataset = TripletPoseDataset(
@@ -3316,8 +3313,6 @@ if __name__ == "__main__":
         in_memory=model_params['in_memory_generator_train'],
         **model_params
     )
-
-    # import pdb; pdb.set_trace()
 
     # Create DataLoaders for this Data ---
     val_loader = DataLoader(
@@ -3354,9 +3349,6 @@ if __name__ == "__main__":
         fold_model_path = get_k_fold_model_path(checkpoint_path, fold)
         pytorch_model.load_state_dict(torch.load(fold_model_path))
         pytorch_model.eval().to(device)
-
-        # evaluate_model_on_all_data_mp(pytorch_model, 12, model_params, device, fold, metrics_save_dir)
-        # continue  # Skip the rest for now
     
         # --- Collect predictions instead of embeddings ---
         all_preds = []
@@ -3376,7 +3368,7 @@ if __name__ == "__main__":
                 preds = torch.argmax(logits, dim=1)    # (B,)
 
                 all_preds.append(preds.cpu())
-                all_labels.append(batch_y.cpu())
+                all_labels.append(batch_y.cpu() + 1)
 
         # Concatenate across batches
         all_preds = torch.cat(all_preds, dim=0)   # (N,)
@@ -3430,6 +3422,18 @@ if __name__ == "__main__":
         ind_correct = (all_preds == all_labels).sum().item()
         print(f"Individual correct: {ind_correct}/{len(all_preds)}")
         
+        # --- Separate therapist and child predictions ---
+        therapist_preds = all_preds[0::2]  # every even index (0, 2, 4, ...)
+        child_preds = all_preds[1::2]      # every odd index (1, 3, 5, ...)
+        therapist_labels = all_labels[0::2]
+        child_labels = all_labels[1::2]
+
+        f1_therapist = f1_score(therapist_labels, therapist_preds, average='micro')
+        f1_child = f1_score(child_labels, child_preds, average='micro')
+
+        print(f"F1 Therapist: {f1_therapist:.2f}")
+        print(f"F1 Child: {f1_child:.2f}")
+        
         # Count how many pairs have the same predicted label
         same_pairs = 0
         for i in range(0, len(all_preds), 2):
@@ -3443,7 +3447,9 @@ if __name__ == "__main__":
             "Predicted Labels": all_preds.tolist(),
             "Pairs Correct": f"{pair_correct}/{num_pairs}",
             "Same Pairs": f"{same_pairs}/{num_pairs}",
-            "Similarities": [round(s, 2) for s in sims]
+            "Similarities": [round(s, 2) for s in sims],
+            "F1 Child": round(f1_child, 2),
+            "F1 Therapist": round(f1_therapist, 2),
         })
 
     # --- Aggregate results at the end ---
@@ -3455,6 +3461,10 @@ if __name__ == "__main__":
     # 📊 Create a summary table
     df_summary = pd.DataFrame(fold_summary)
     df_summary["Mean Similarity"] = [round(np.mean(s), 2) for s in df_summary["Similarities"]]
+    df_summary = df_summary[
+    ["Fold", "True Labels", "Predicted Labels", "F1 Child", "F1 Therapist", "Pairs Correct", "Same Pairs", "Mean Similarity",  
+        "Similarities"]
+    ]
 
     # 🔹 Format columns nicely for table display
     def format_pairs(lst):
