@@ -3083,14 +3083,15 @@ if __name__ == "__main__":
         # "model_name": "Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp_NEW)",
         # "model_name": "Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp_NEW_after_MP_Therapist_APPDA)",
         # "model_name": "Models_MP_Therapist_APPDA_Block_0(upper_body)",
-        "model_name": "Models_MP_UB_CADIN_Classifier_Block_0_1_2_3_4_5",
+        "model_name": "Models_MP_UB_APPDA_Block_0",
+        # "model_name": "Models_MP_UB_CADIN_Classifier_Block_0_1_2_3_4_5",
 
         # TODO: Change every time you switch to the next model
         # Path to the pre-trained model in Pytorch format
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_Therapist_Classifier_Block_5/0730_1921_model_1/weights/Best_Model-ep300-trainloss0.31293-f10.54116.pt",
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_Therapist_APPDA_Classifier_Block_0_1_2_3_4_5",
         # "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_Classifier_Block_0_1_2_3_4_5(k_fold_separated_c_th_comp)",  # Path to the pre-trained model for Therapies dataset in Pytorch format
-        "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_UB_CADIN_Classifier_Block_0_1_2_3_4_5",  # Path to the pre-trained model for Therapies dataset in Pytorch format
+        "pretrained_model_path": "./pretrained_models_Pytorch/Models_MP_UB_APPDA_Block_0",  # Path to the pre-trained model for Therapies dataset in Pytorch format
 
         # TODO: Change every time you switch to the next model
         # Use a pre-trained model (Set True if you want to use a pre-trained model)
@@ -3328,7 +3329,9 @@ if __name__ == "__main__":
     all_fold_labels = []  # store labels from each fold
     all_fold_sims = []  # store similarities from each fold
     all_fold_embs = []  # store embeddings from each fold
-    fold_summary = []
+    fold_summary_f1 = []
+    fold_summary_rest = []
+    all_fold_logits = []  # store logits from each fold
 
     print(f"num_feats: {model_params['num_feats']}, num_jcd_feats: {model_params.get('num_jcd_feats', 'N/A')}")
     for fold in range(5):  # 5 folds
@@ -3353,7 +3356,8 @@ if __name__ == "__main__":
         # --- Collect predictions instead of embeddings ---
         all_preds = []
         all_labels = []
-
+        all_logits = [] 
+        
         with torch.no_grad():
             for batch_x, batch_y in val_loader:
                 # import pdb; pdb.set_trace()
@@ -3367,16 +3371,20 @@ if __name__ == "__main__":
                 logits = pytorch_model(batch_x)        # (B, num_classes)
                 preds = torch.argmax(logits, dim=1)    # (B,)
 
+                all_logits.append(logits.cpu()) 
                 all_preds.append(preds.cpu())
                 all_labels.append(batch_y.cpu() + 1)
 
-        # Concatenate across batches
-        all_preds = torch.cat(all_preds, dim=0)   # (N,)
-        all_labels = torch.cat(all_labels, dim=0) # (N,)
+
+        # Concatenate
+        all_preds = torch.cat(all_preds, dim=0)
+        all_labels = torch.cat(all_labels, dim=0)
+        all_logits = torch.cat(all_logits, dim=0)   # NEW
 
         # Save fold results
         all_fold_preds.append(all_preds)
         all_fold_labels.append(all_labels)
+        all_fold_logits.append(all_logits)           # NEW
 
         # --- Collect embeddings ---
         all_embs = []
@@ -3404,7 +3412,7 @@ if __name__ == "__main__":
 
         # 🔍 Show results for this fold
         print(f"Fold {fold} similarities ({len(sims)} pairs): {sims}")
-        
+
         print("Predictions:", all_preds.tolist())
         print("True labels:", all_labels.tolist())
 
@@ -3421,54 +3429,62 @@ if __name__ == "__main__":
         # 🔍 Individual correctness
         ind_correct = (all_preds == all_labels).sum().item()
         print(f"Individual correct: {ind_correct}/{len(all_preds)}")
-        
+
         # --- Separate therapist and child predictions ---
-        therapist_preds = all_preds[0::2]  # every even index (0, 2, 4, ...)
-        child_preds = all_preds[1::2]      # every odd index (1, 3, 5, ...)
+        therapist_preds = all_preds[0::2]
+        child_preds = all_preds[1::2]
         therapist_labels = all_labels[0::2]
         child_labels = all_labels[1::2]
 
+        # Compute overall F1
+        overall_f1 = f1_score(all_labels, all_preds, average='micro')
         f1_therapist = f1_score(therapist_labels, therapist_preds, average='micro')
         f1_child = f1_score(child_labels, child_preds, average='micro')
 
+        print(f"Overall F1 (all samples): {overall_f1:.2f}")
         print(f"F1 Therapist: {f1_therapist:.2f}")
         print(f"F1 Child: {f1_child:.2f}")
-        
+
         # Count how many pairs have the same predicted label
         same_pairs = 0
         for i in range(0, len(all_preds), 2):
             if i + 1 < len(all_preds):
                 if all_preds[i] == all_preds[i + 1]:
                     same_pairs += 1
-        
-        fold_summary.append({
+
+        # --- Save F1 table ---
+        fold_summary_f1.append({
+            "Fold": fold,
+            "F1 Overall": round(overall_f1, 2),
+            "F1 Therapist": round(f1_therapist, 2),
+            "F1 Child": round(f1_child, 2),
+        })
+
+        # --- Save rest of the info in a separate table ---
+        fold_summary_rest.append({
             "Fold": fold,
             "True Labels": all_labels.tolist(),
             "Predicted Labels": all_preds.tolist(),
             "Pairs Correct": f"{pair_correct}/{num_pairs}",
             "Same Pairs": f"{same_pairs}/{num_pairs}",
             "Similarities": [round(s, 2) for s in sims],
-            "F1 Child": round(f1_child, 2),
-            "F1 Therapist": round(f1_therapist, 2),
         })
 
     # --- Aggregate results at the end ---
     all_fold_sims = torch.tensor(all_fold_sims)  # shape (num_folds, num_pairs)
     mean_sims = all_fold_sims.mean(dim=0)
-    mean_sims_rounded = (mean_sims * 100).round() / 100   # 2 decimals
+    mean_sims_rounded = (mean_sims * 100).round() / 100
     overall_mean = round(mean_sims.mean().item(), 2)
 
-    # 📊 Create a summary table
-    df_summary = pd.DataFrame(fold_summary)
-    df_summary["Mean Similarity"] = [round(np.mean(s), 2) for s in df_summary["Similarities"]]
-    df_summary = df_summary[
-    ["Fold", "True Labels", "Predicted Labels", "F1 Child", "F1 Therapist", "Pairs Correct", "Same Pairs", "Mean Similarity",  
-        "Similarities"]
-    ]
+    # 📊 Create summary tables
+    df_summary_f1 = pd.DataFrame(fold_summary_f1)
+    df_summary_rest = pd.DataFrame(fold_summary_rest)
 
-    # 🔹 Format columns nicely for table display
+    # Add Mean Similarity to rest table
+    df_summary_rest["Mean Similarity"] = [round(np.mean(s), 2) for s in df_summary_rest["Similarities"]]
+
+    # 🔹 Format multi-line columns in rest table
     def format_pairs(lst):
-        """Format as [a, b] per line (for pairs)."""
         if not isinstance(lst, (list, np.ndarray)):
             return lst
         lines = []
@@ -3479,36 +3495,102 @@ if __name__ == "__main__":
                 lines.append(f"[{lst[i]}]")
         return "\n".join(lines)
 
-    # Apply formatting to display multi-line entries
-    df_summary["Predicted Labels"] = df_summary["Predicted Labels"].apply(format_pairs)
-    df_summary["True Labels"] = df_summary["True Labels"].apply(format_pairs)
-    df_summary["Similarities"] = df_summary["Similarities"].apply(
+    df_summary_rest["Predicted Labels"] = df_summary_rest["Predicted Labels"].apply(format_pairs)
+    df_summary_rest["True Labels"] = df_summary_rest["True Labels"].apply(format_pairs)
+    df_summary_rest["Similarities"] = df_summary_rest["Similarities"].apply(
         lambda lst: "\n".join([f"{x:.2f}" for x in lst]) if isinstance(lst, (list, np.ndarray)) else lst
     )
 
-    # === SAVE RESULTS ===
+    # === OUTPUT DIRECTORY ===
     output_dir = os.path.join("final_validation_results")
     os.makedirs(output_dir, exist_ok=True)
 
-    # Save table as CSV
-    csv_path = os.path.join(output_dir, f"fold_summary_CADIN_MP_UB.csv")
-    df_summary.to_csv(csv_path, index=False)
+    # --- FINAL DECISION USING MAJORITY VOTING (PAIRWISE) ---
+    all_fold_preds_tensor = torch.stack(all_fold_preds, dim=0)    # (num_folds, num_samples)
+    all_fold_logits_tensor = torch.stack(all_fold_logits, dim=0)  # (num_folds, num_samples, num_classes)
+    all_fold_labels_tensor = torch.stack(all_fold_labels, dim=0)  # (num_folds, num_samples)
 
-    # === Dynamically compute row heights ===
-    line_counts = df_summary.applymap(lambda x: str(x).count("\n") + 1)
+    final_preds_pairs = []
+    final_labels_pairs = []
+
+    num_samples = all_fold_preds_tensor.shape[1]
+    for i in range(0, num_samples, 2):  # iterate in pairs
+        pair_final, pair_true = [], []
+
+        for j in [i, i+1]:
+            if j < num_samples:
+                # 1️⃣ Majority vote
+                counts = torch.bincount(all_fold_preds_tensor[:, j])
+                max_count = counts.max()
+                candidates = torch.where(counts == max_count)[0]
+
+                if len(candidates) == 1:
+                    pair_final.append(candidates.item())
+                else:
+                    # 2️⃣ Tie → use summed logits across folds
+                    summed_logits = all_fold_logits_tensor[:, j, :].sum(dim=0)
+                    logits_sorted, indices_sorted = torch.sort(summed_logits, descending=True)
+
+                    top1 = indices_sorted[0].item()
+                    top2 = indices_sorted[1].item() if len(indices_sorted) > 1 else None
+                    top3 = indices_sorted[2].item() if len(indices_sorted) > 2 else None
+
+                    # True label for this sample (same across folds)
+                    true_label = all_fold_labels_tensor[0, j].item()
+
+                    print(f"\n[⚠️ Tie-break failed for sample {j}]")
+                    print(f"Candidates: {candidates.tolist()}")
+                    print(f"Summed logits: {summed_logits.tolist()}")
+                    print(f"Top 1: {top1}, Top 2: {top2}, Top 3: {top3}, True: {true_label}")
+                    print(f"Argmax logits (Top1): {top1}")
+
+                    # If argmax in candidates, use it; otherwise fallback to fold 2 prediction
+                    if top1 in candidates:
+                        pair_final.append(top1)
+                    else:
+                        print(f"Using fallback (fold 3 prediction): {all_fold_preds_tensor[3, j].item()}")
+                        pair_final.append(all_fold_preds_tensor[3, j].item())
+
+                # True label
+                pair_true.append(all_fold_labels_tensor[0, j].item())  # same across folds
+
+        final_preds_pairs.append(pair_final)
+        final_labels_pairs.append(pair_true)
+
+    # --- Create final table with pairs ---
+    df_final_pairs = pd.DataFrame({
+        "True Labels": final_labels_pairs,
+        "Predicted Labels": final_preds_pairs
+    })
+
+    # Format pairs nicely
+    def format_pair_row(row):
+        return f"[{row[0]}, {row[1]}]" if len(row) == 2 else f"[{row[0]}]"
+
+    df_final_pairs["True Labels"] = df_final_pairs["True Labels"].apply(format_pair_row)
+    df_final_pairs["Predicted Labels"] = df_final_pairs["Predicted Labels"].apply(format_pair_row)
+
+    # --- Save CSVs ---
+    csv_path_f1 = os.path.join(output_dir, f"{model_name}_fold_summary_f1.csv")
+    df_summary_f1.to_csv(csv_path_f1, index=False)
+
+    csv_path_rest = os.path.join(output_dir, f"{model_name}_fold_summary_rest.csv")
+    df_summary_rest.to_csv(csv_path_rest, index=False)
+
+    csv_final_path = os.path.join(output_dir, f"{model_name}_final_predictions_pairs.csv")
+    df_final_pairs.to_csv(csv_final_path, index=False)
+
+    # --- Plot rest table as PNG ---
+    line_counts = df_summary_rest.applymap(lambda x: str(x).count("\n") + 1)
     avg_lines_per_row = line_counts.mean(axis=1)
-    row_heights = 0.3 + (avg_lines_per_row - 1) * 0.08  # adjust base height and scaling factor
-
-    # Figure height = sum of row heights + margins
+    row_heights = 0.3 + (avg_lines_per_row - 1) * 0.08
     fig_height = max(4, row_heights.sum() + 1)
 
     fig, ax = plt.subplots(figsize=(14, fig_height))
     ax.axis('off')
-
-    # Create table
     table = ax.table(
-        cellText=df_summary.values,
-        colLabels=df_summary.columns,
+        cellText=df_summary_rest.values,
+        colLabels=df_summary_rest.columns,
         loc='center',
         cellLoc='center',
         colLoc='center'
@@ -3516,24 +3598,63 @@ if __name__ == "__main__":
     table.auto_set_font_size(False)
     table.set_fontsize(10)
     table.scale(1.2, 1.3)
-
-    # 🔹 Adjust each row height based on number of lines
-    for i, height in enumerate(row_heights, start=1):  # row=0 is header
-        for j in range(len(df_summary.columns)):
-            cell = table[(i, j)]
-            cell.set_height(height)
-
-    # Save as PNG
-    png_path = os.path.join(output_dir, f"fold_summary_CADIN_MP_UB.png")
-    plt.savefig(png_path, bbox_inches="tight")
+    for i, height in enumerate(row_heights, start=1):
+        for j in range(len(df_summary_rest.columns)):
+            table[(i, j)].set_height(height)
+    png_path_rest = os.path.join(output_dir, f"{model_name}_fold_summary_rest.png")
+    plt.savefig(png_path_rest, bbox_inches="tight")
     plt.close(fig)
 
-    # === Print results ===
-    print("\n===== Per-Fold Summary =====")
-    print(df_summary.to_string(index=False))
+    # --- Plot F1 table as PNG ---
+    fig_f1, ax_f1 = plt.subplots(figsize=(8, 2 + 0.5 * len(df_summary_f1)))
+    ax_f1.axis('off')
+    table_f1 = ax_f1.table(
+        cellText=df_summary_f1.values,
+        colLabels=df_summary_f1.columns,
+        loc='center',
+        cellLoc='center',
+        colLoc='center'
+    )
+    table_f1.auto_set_font_size(False)
+    table_f1.set_fontsize(11)
+    table_f1.scale(1.2, 1.3)
+    png_path_f1 = os.path.join(output_dir, f"{model_name}_fold_summary_f1.png")
+    plt.savefig(png_path_f1, bbox_inches="tight")
+    plt.close(fig_f1)
+
+    # --- Plot final predictions (pairwise) as PNG ---
+    fig_final, ax_final = plt.subplots(figsize=(10, 2 + 0.3 * len(df_final_pairs)))
+    ax_final.axis('off')
+    table_final = ax_final.table(
+        cellText=df_final_pairs.values,
+        colLabels=df_final_pairs.columns,
+        loc='center',
+        cellLoc='center',
+        colLoc='center'
+    )
+    table_final.auto_set_font_size(False)
+    table_final.set_fontsize(10)
+    table_final.scale(1.2, 1.2)
+    png_final_path = os.path.join(output_dir, f"{model_name}_final_predictions_pairs.png")
+    plt.savefig(png_final_path, bbox_inches="tight")
+    plt.close(fig_final)
+
+    # === PRINT RESULTS ===
+    print("\n===== Per-Fold F1 Summary =====")
+    print(df_summary_f1.to_string(index=False))
+
+    print("\n===== Per-Fold Detailed Summary =====")
+    print(df_summary_rest.to_string(index=False))
+
+    print("\n===== Final Predictions (Pairwise) Table =====")
+    print(df_final_pairs.to_string(index=False))
 
     print(f"\nResults saved to: {output_dir}")
-    print(f"CSV file: {csv_path}")
-    print(f"PNG file: {png_path}")
+    print(f"F1 CSV: {csv_path_f1}")
+    print(f"Rest CSV: {csv_path_rest}")
+    print(f"Final predictions CSV: {csv_final_path}")
+    print(f"F1 PNG: {png_path_f1}")
+    print(f"Rest PNG: {png_path_rest}")
+    print(f"Final predictions PNG: {png_final_path}")
 
-    exit(0)
+    exit()
